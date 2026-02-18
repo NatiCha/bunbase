@@ -44,10 +44,8 @@ export function StorageBrowser() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* h-20 matches sidebar header height */}
-      <div className="flex h-20 shrink-0 flex-col justify-center border-b border-gray-200 px-6 dark:border-gray-800">
-        <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Storage</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400">{files.length} file{files.length !== 1 ? "s" : ""} stored</p>
+      <div className="shrink-0 border-b border-gray-200 px-6 py-2 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
+        {files.length} file{files.length !== 1 ? "s" : ""} stored
       </div>
 
       {error && (

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { api, type AdminUser, type AdminSession, type AdminOAuthAccount } from "../lib/api.ts";
 
-type Tab = "users" | "sessions" | "oauth";
+export type AuthTab = "users" | "sessions" | "oauth";
 
 function Badge({ children, variant = "default" }: { children: React.ReactNode; variant?: "default" | "admin" | "user" }) {
   const cls = {
@@ -188,44 +188,12 @@ function OAuthTab() {
   );
 }
 
-export function AuthDashboard() {
-  const [tab, setTab] = useState<Tab>("users");
-
-  const tabs: { id: Tab; label: string }[] = [
-    { id: "users", label: "Users" },
-    { id: "sessions", label: "Sessions" },
-    { id: "oauth", label: "OAuth" },
-  ];
-
+export function AuthDashboard({ tab }: { tab: AuthTab }) {
   return (
-    <div className="flex h-full flex-col">
-      {/* h-20 matches the sidebar header height */}
-      <div className="flex h-20 shrink-0 flex-col justify-center border-b border-gray-200 px-6 dark:border-gray-800">
-        <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Users & Auth</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400">Manage users, sessions, and OAuth connections</p>
-      </div>
-
-      <div className="flex gap-1 border-b border-gray-200 px-6 dark:border-gray-800">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`-mb-px border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
-              tab === t.id
-                ? "border-gray-900 text-gray-900 dark:border-gray-100 dark:text-gray-100"
-                : "border-transparent text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex-1 overflow-auto">
-        {tab === "users" && <UsersTab />}
-        {tab === "sessions" && <SessionsTab />}
-        {tab === "oauth" && <OAuthTab />}
-      </div>
+    <div className="h-full overflow-auto">
+      {tab === "users" && <UsersTab />}
+      {tab === "sessions" && <SessionsTab />}
+      {tab === "oauth" && <OAuthTab />}
     </div>
   );
 }

@@ -63,12 +63,7 @@ export function RequestLogPage() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* h-20 matches sidebar header height */}
-      <div className="flex h-20 shrink-0 items-center justify-between border-b border-gray-200 px-6 dark:border-gray-800">
-        <div>
-          <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Request Log</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Live request stream — auto-refreshes every 3s</p>
-        </div>
+      <div className="flex shrink-0 justify-end border-b border-gray-200 px-6 py-3 dark:border-gray-800">
         <button
           onClick={handleClear}
           disabled={clearing}

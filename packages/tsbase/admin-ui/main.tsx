@@ -1,14 +1,14 @@
-import React, { createContext, useContext, useEffect, useRef, useState, type CSSProperties } from "react";
+import React, { createContext, useContext, useEffect, useState, type CSSProperties } from "react";
 import { createRoot } from "react-dom/client";
 import { AppSidebar, type NavSection } from "./components/AppSidebar.tsx";
-import { SidebarInset, SidebarProvider } from "./components/ui/sidebar.tsx";
-import { AuthDashboard } from "./pages/AuthDashboard.tsx";
+import { SidebarInset, SidebarProvider, SidebarTrigger } from "./components/ui/sidebar.tsx";
+import { AuthDashboard, type AuthTab } from "./pages/AuthDashboard.tsx";
 import { RequestLogPage } from "./pages/RequestLog.tsx";
 import { StorageBrowser } from "./pages/StorageBrowser.tsx";
-import { ApiExplorer } from "./pages/ApiExplorer.tsx";
+import { ApiExplorer, type ApiProcedure, type ApiSchema } from "./pages/ApiExplorer.tsx";
 import { DataBrowser } from "./pages/DataBrowser.tsx";
 import { Settings } from "./pages/Settings.tsx";
-import { type TableInfo } from "./lib/api.ts";
+import { api, type AdminUser, type TableInfo } from "./lib/api.ts";
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 
@@ -65,85 +65,6 @@ function useTheme() {
   return useContext(ThemeContext);
 }
 
-// ─── Mode Toggle ──────────────────────────────────────────────────────────────
-
-function SunIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
-    </svg>
-  );
-}
-
-function MoonIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-    </svg>
-  );
-}
-
-function MonitorIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="3" width="20" height="14" rx="2" />
-      <path d="M8 21h8M12 17v4" />
-    </svg>
-  );
-}
-
-function ModeToggle() {
-  const { theme, setTheme } = useTheme();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  const icon = theme === "dark" ? <MoonIcon /> : theme === "light" ? <SunIcon /> : <MonitorIcon />;
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 transition-colors"
-        title="Toggle theme"
-      >
-        {icon}
-      </button>
-      {open && (
-        <div className="absolute right-0 top-full mt-1.5 z-50 min-w-[110px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900">
-          {(["light", "dark", "system"] as Theme[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => { setTheme(t); setOpen(false); }}
-              className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors ${
-                theme === t
-                  ? "text-gray-900 font-medium dark:text-gray-100"
-                  : "text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800"
-              }`}
-            >
-              <span className="shrink-0 text-gray-500 dark:text-gray-400">
-                {t === "light" ? <SunIcon /> : t === "dark" ? <MoonIcon /> : <MonitorIcon />}
-              </span>
-              {t.charAt(0).toUpperCase() + t.slice(1)}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Routing ──────────────────────────────────────────────────────────────────
 
 function getHashSection(): NavSection {
@@ -152,6 +73,28 @@ function getHashSection(): NavSection {
     return hash;
   }
   return "collections";
+}
+
+const SECTION_LABELS: Record<NavSection, string> = {
+  collections: "Collections",
+  auth: "Users & Auth",
+  logs: "Request Log",
+  storage: "Storage",
+  api: "API Explorer",
+  settings: "Settings",
+};
+
+const SECTION_DESCRIPTIONS: Record<NavSection, string> = {
+  collections: "Browse and manage collection records.",
+  auth: "Manage users, sessions, and OAuth providers.",
+  logs: "Live request stream and API diagnostics.",
+  storage: "Browse uploaded files and metadata.",
+  api: "Test tRPC endpoints directly.",
+  settings: "Read-only TSBase instance configuration.",
+};
+
+function hasExpandedSidebar(section: NavSection): boolean {
+  return section === "collections" || section === "api" || section === "auth";
 }
 
 interface MeUser {
@@ -256,15 +199,46 @@ function LoginPrompt() {
 // ─── Admin App ────────────────────────────────────────────────────────────────
 
 function AdminApp({ user }: { user: MeUser }) {
+  const { theme, setTheme } = useTheme();
   const [section, setSection] = useState<NavSection>(getHashSection());
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [apiSchema, setApiSchema] = useState<ApiSchema>({});
+  const [apiSchemaLoading, setApiSchemaLoading] = useState(false);
+  const [apiUsers, setApiUsers] = useState<AdminUser[]>([]);
+  const [apiSelectedProcedure, setApiSelectedProcedure] = useState<ApiProcedure>("list");
+  const [apiImpersonateId, setApiImpersonateId] = useState<string | null>(null);
+  const [authTab, setAuthTab] = useState<AuthTab>("users");
 
   useEffect(() => {
     const handler = () => setSection(getHashSection());
     window.addEventListener("hashchange", handler);
     return () => window.removeEventListener("hashchange", handler);
   }, []);
+
+  useEffect(() => {
+    if (section !== "api") return;
+
+    if (Object.keys(apiSchema).length === 0 && !apiSchemaLoading) {
+      setApiSchemaLoading(true);
+      api.getSchema()
+        .then((schema) => setApiSchema(schema))
+        .catch(() => {})
+        .finally(() => setApiSchemaLoading(false));
+    }
+
+    if (apiUsers.length === 0) {
+      api.getUsers().then(setApiUsers).catch(() => {});
+    }
+  }, [section, apiSchema, apiSchemaLoading, apiUsers.length]);
+
+  useEffect(() => {
+    if (section !== "api") return;
+    const userTables = Object.keys(apiSchema).filter((t) => !t.startsWith("_"));
+    if (userTables.length > 0 && (!selectedTable || !userTables.includes(selectedTable))) {
+      setSelectedTable(userTables[0]);
+    }
+  }, [section, apiSchema, selectedTable]);
 
   const navigate = (s: NavSection) => {
     window.location.hash = `/${s}`;
@@ -282,36 +256,72 @@ function AdminApp({ user }: { user: MeUser }) {
 
   return (
     <SidebarProvider
-      defaultOpen={section === "collections"}
+      defaultOpen={true}
       style={{ "--sidebar-width": "280px" } as CSSProperties}
     >
       <AppSidebar
         active={section}
         onNavigate={navigate}
+        theme={theme}
+        setTheme={setTheme}
         user={user}
         onSignOut={handleSignOut}
         tables={tables}
         setTables={setTables}
         selectedTable={selectedTable}
         onTableSelect={setSelectedTable}
+        apiSchema={apiSchema}
+        apiLoading={apiSchemaLoading}
+        apiUsers={apiUsers}
+        apiSelectedProcedure={apiSelectedProcedure}
+        onApiProcedureSelect={setApiSelectedProcedure}
+        apiImpersonateId={apiImpersonateId}
+        onApiImpersonateSelect={setApiImpersonateId}
+        authTab={authTab}
+        onAuthTabSelect={setAuthTab}
       />
       <SidebarInset className="overflow-hidden">
-        <div className="absolute right-4 top-4 z-50">
-          <ModeToggle />
+        <header className="bg-background sticky top-0 z-20 border-b border-sidebar-border p-4">
+          <div className="flex items-start gap-2">
+            {hasExpandedSidebar(section) ? (
+              <SidebarTrigger className="-ml-1 mt-0.5" />
+            ) : (
+              <div className="w-7" />
+            )}
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="hidden text-sidebar-foreground/60 md:inline">Admin</span>
+                <span className="hidden text-sidebar-foreground/40 md:inline">/</span>
+                <span className="font-medium text-sidebar-foreground">{SECTION_LABELS[section]}</span>
+              </div>
+              <p className="mt-1 text-xs text-sidebar-foreground/60">{SECTION_DESCRIPTIONS[section]}</p>
+            </div>
+          </div>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {section === "collections" && (
+            <DataBrowser
+              tables={tables}
+              setTables={setTables}
+              selectedTable={selectedTable}
+              onTableSelect={setSelectedTable}
+            />
+          )}
+          {section === "auth" && <AuthDashboard tab={authTab} />}
+          {section === "logs" && <RequestLogPage />}
+          {section === "storage" && <StorageBrowser />}
+          {section === "api" && (
+            <ApiExplorer
+              schema={apiSchema}
+              loading={apiSchemaLoading}
+              selectedTable={selectedTable}
+              selectedProcedure={apiSelectedProcedure}
+              impersonateId={apiImpersonateId}
+            />
+          )}
+          {section === "settings" && <Settings />}
         </div>
-        {section === "collections" && (
-          <DataBrowser
-            tables={tables}
-            setTables={setTables}
-            selectedTable={selectedTable}
-            onTableSelect={setSelectedTable}
-          />
-        )}
-        {section === "auth" && <AuthDashboard />}
-        {section === "logs" && <RequestLogPage />}
-        {section === "storage" && <StorageBrowser />}
-        {section === "api" && <ApiExplorer />}
-        {section === "settings" && <Settings />}
       </SidebarInset>
     </SidebarProvider>
   );

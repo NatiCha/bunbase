@@ -478,60 +478,6 @@ export function DataBrowser({ tables, setTables, selectedTable, onTableSelect }:
     <div className="flex h-full overflow-hidden">
       {/* Main content */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex h-20 shrink-0 items-center justify-between border-b border-gray-200 pl-6 pr-4 dark:border-gray-800">
-          <div>
-            <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-              {selectedTable ?? "Collections"}
-            </h1>
-            {selectedTable && (
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {total} record{total !== 1 ? "s" : ""}
-              </p>
-            )}
-          </div>
-          {selectedTable && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  setApiPreviewOpen((o) => !o);
-                  setPanelMode(null);
-                }}
-                className="flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <polyline points="16 18 22 12 16 6" />
-                  <polyline points="8 6 2 12 8 18" />
-                </svg>
-                API Preview
-              </button>
-              <button
-                onClick={openNewPanel}
-                className="flex items-center gap-1.5 rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-300"
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-                New record
-              </button>
-            </div>
-          )}
-        </div>
 
         {error && (
           <div className="mx-6 mt-3 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-400">
@@ -593,6 +539,26 @@ export function DataBrowser({ tables, setTables, selectedTable, onTableSelect }:
                 className="rounded-md border border-gray-200 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
               >
                 Refresh
+              </button>
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {total} record{total !== 1 ? "s" : ""}
+              </span>
+              <button
+                onClick={openNewPanel}
+                className="flex items-center gap-1.5 rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-300"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                New record
               </button>
             </div>
 

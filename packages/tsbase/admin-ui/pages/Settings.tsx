@@ -83,13 +83,6 @@ export function Settings() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-20 shrink-0 flex-col justify-center border-b border-gray-200 px-6 dark:border-gray-800">
-        <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Settings</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          Read-only view of your TSBase configuration
-        </p>
-      </div>
-
       <div className="flex-1 overflow-auto p-6">
         {loading && (
           <div className="text-sm text-gray-400">Loading config…</div>
