@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { addCorsHeaders, handleCorsPreflightOrNull } from "../cors.ts";
+import { addCorsHeaders, handleCorsPreflightOrNull, withCors } from "../cors.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 
 test("development CORS echoes origin for credentialed requests", () => {
@@ -50,4 +50,36 @@ test("response CORS headers include echoed origin when allowed", () => {
     "http://localhost:5173",
   );
   expect(response.headers.get("Access-Control-Allow-Credentials")).toBe("true");
+});
+
+// withCors
+
+test("withCors handles OPTIONS preflight and returns preflight response", async () => {
+  const config = makeResolvedConfig({ development: true });
+  const handler = withCors(() => new Response("body"), config);
+  const req = new Request("http://localhost/api/test", {
+    method: "OPTIONS",
+    headers: { Origin: "http://localhost:5173" },
+  });
+
+  const response = await handler(req);
+  expect(response.status).toBe(204);
+  expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+    "http://localhost:5173",
+  );
+});
+
+test("withCors injects CORS headers on normal responses", async () => {
+  const config = makeResolvedConfig({ development: true });
+  const handler = withCors(() => new Response("ok"), config);
+  const req = new Request("http://localhost/api/data", {
+    headers: { Origin: "http://localhost:5173" },
+  });
+
+  const response = await handler(req);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+    "http://localhost:5173",
+  );
+  expect(await response.text()).toBe("ok");
 });
