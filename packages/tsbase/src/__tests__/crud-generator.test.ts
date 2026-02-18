@@ -337,6 +337,96 @@ test("delete with whereClause rule denies when record doesn't match", async () =
   sqlite.close();
 });
 
+// ─── list — whereClause rule (line 85) ──────────────────────────────────────
+
+test("list applies rule-injected SQL whereClause to filter rows", async () => {
+  const { sqlite, db } = setupDb();
+  sqlite
+    .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+    .run({ $id: "p1", $title: "Mine", $authorId: "u1" });
+  sqlite
+    .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+    .run({ $id: "p2", $title: "Theirs", $authorId: "u2" });
+
+  const { eq } = await import("drizzle-orm");
+  const { getColumns } = await import("drizzle-orm");
+  const cols = getColumns(posts);
+
+  // Rule returns an SQL expression — only rows where author_id = 'u1' are returned
+  const crudRouter = generateCrudRouter(posts, db, {
+    list: () => eq(cols.authorId, "u1"),
+  });
+  const caller = crudRouter.createCaller(makeCtx(db));
+  const result = await caller.list();
+
+  expect(result.data).toHaveLength(1);
+  expect((result.data[0] as any).id).toBe("p1");
+  sqlite.close();
+});
+
+// ─── update — whereClause passes (line 209) ─────────────────────────────────
+
+test("update succeeds when whereClause rule matches the target record", async () => {
+  const { sqlite, db } = setupDb();
+  sqlite
+    .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+    .run({ $id: "p1", $title: "Original", $authorId: "u1" });
+
+  const { eq, getColumns } = await import("drizzle-orm");
+  const cols = getColumns(posts);
+
+  // Rule: only allow update when author_id = 'u1' — record matches, so update is permitted
+  const crudRouter = generateCrudRouter(posts, db, {
+    update: () => eq(cols.authorId, "u1"),
+  });
+  const caller = crudRouter.createCaller(makeCtx(db, "u1"));
+  const result = await caller.update({ id: "p1", data: { title: "Updated" } });
+
+  expect((result as any)?.title).toBe("Updated");
+  sqlite.close();
+});
+
+// ─── update — snake_case column name path (line 224) ────────────────────────
+
+test("update maps snake_case field names to their Drizzle column keys", async () => {
+  const { sqlite, db } = setupDb();
+  sqlite
+    .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+    .run({ $id: "p1", $title: "Title", $authorId: "u1" });
+
+  const caller = generateCrudRouter(posts, db).createCaller(makeCtx(db));
+  // Pass "author_id" (DB column name) rather than "authorId" (Drizzle key) — exercises line 224
+  const result = await caller.update({ id: "p1", data: { author_id: "u2" } });
+
+  // Drizzle returns the object with the JS key (authorId), not the column name (author_id)
+  expect((result as any)?.authorId).toBe("u2");
+  sqlite.close();
+});
+
+// ─── delete — whereClause passes (line 266) ─────────────────────────────────
+
+test("delete succeeds when whereClause rule matches the target record", async () => {
+  const { sqlite, db } = setupDb();
+  sqlite
+    .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+    .run({ $id: "p1", $title: "Title", $authorId: "u1" });
+
+  const { eq, getColumns } = await import("drizzle-orm");
+  const cols = getColumns(posts);
+
+  // Rule: only allow delete when author_id = 'u1' — record matches, so delete is permitted
+  const crudRouter = generateCrudRouter(posts, db, {
+    delete: () => eq(cols.authorId, "u1"),
+  });
+  const caller = crudRouter.createCaller(makeCtx(db, "u1"));
+  const result = await caller.delete({ id: "p1" });
+
+  expect(result.deleted).toBe(true);
+  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM posts").get([]);
+  expect(count?.n).toBe(0);
+  sqlite.close();
+});
+
 // ─── generateAllCrudRouters ─────────────────────────────────────────────────
 
 test("generateAllCrudRouters skips internal tables and non-table values", () => {

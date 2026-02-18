@@ -304,6 +304,39 @@ test("register returns 400 when JSON body is an array", async () => {
   sqlite.close();
 });
 
+// register — extra field whose Drizzle key is not blocked but whose DB column name IS (lines 185-193)
+// e.g., key="myRole" → column name="role". The field name "myRole" passes the direct BLOCKED check
+// (line 168) but the resolved column name "role" triggers the secondary check (lines 185-193).
+
+const usersTableWithRoleAlias = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash"),
+  myRole: text("role").notNull().default("user"), // key differs from blocked DB column name
+});
+
+test("register returns 400 when signup field maps via column name to a blocked field", async () => {
+  const sqlite = setupDb(); // existing schema still has a "role" column — alias still maps to it
+  const routes = createAuthRoutes({
+    sqlite,
+    config: makeResolvedConfig({ development: true }),
+    usersTable: usersTableWithRoleAlias,
+  });
+
+  const response = await routes["/auth/register"].POST(
+    makeReq("/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // "myRole" is not in BLOCKED_SIGNUP_FIELDS directly, but maps to DB column "role" which is
+      body: JSON.stringify({ email: "user@example.com", password: "password123", myRole: "admin" }),
+    }),
+  );
+  expect(response.status).toBe(400);
+  const body = await response.json() as { error: { message: string } };
+  expect(body.error.message).toContain("cannot be set during signup");
+  sqlite.close();
+});
+
 // register — missing required schema fields
 
 const usersWithRequiredCompany = sqliteTable("users", {
