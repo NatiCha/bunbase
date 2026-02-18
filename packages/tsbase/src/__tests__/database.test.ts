@@ -1,6 +1,6 @@
 import { test, expect, afterAll } from "bun:test";
 import { join } from "node:path";
-import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createDatabase, runUserMigrations } from "../core/database.ts";
 
@@ -87,6 +87,83 @@ test("runUserMigrations warns and continues in dev when migrations folder is mis
     expect(warnings.some((w) => w.includes("migrations folder not found"))).toBe(true);
   } finally {
     console.warn = origWarn;
+    sqlite.close();
+  }
+});
+
+// ─── runUserMigrations — catch block (lines 49-53) ───────────────────────────
+// Create a folder with invalid _journal.json so migrate() throws a parse error.
+
+test("runUserMigrations warns and continues in dev when migrate() throws", () => {
+  const migrationsPath = join(testRoot, "invalid-meta-dev");
+  mkdirSync(join(migrationsPath, "meta"), { recursive: true });
+  writeFileSync(
+    join(migrationsPath, "meta", "_journal.json"),
+    "{ this is not valid json }",
+  );
+
+  const { db, sqlite } = createDatabase({
+    dbPath: join(testRoot, "migrate-catch-dev.sqlite"),
+    migrationsPath,
+    development: true,
+    auth: { tokenExpiry: 3600 },
+    storage: { driver: "local", localPath: "./data/uploads", maxFileSize: 10_000_000 },
+    cors: { origins: [] },
+  });
+
+  const warnings: string[] = [];
+  const origWarn = console.warn;
+  console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+
+  try {
+    expect(() =>
+      runUserMigrations(db, {
+        dbPath: join(testRoot, "migrate-catch-dev.sqlite"),
+        migrationsPath,
+        development: true,
+        auth: { tokenExpiry: 3600 },
+        storage: { driver: "local", localPath: "./data/uploads", maxFileSize: 10_000_000 },
+        cors: { origins: [] },
+      }),
+    ).not.toThrow();
+    expect(
+      warnings.some((w) => w.includes("failed to run migrations")),
+    ).toBe(true);
+  } finally {
+    console.warn = origWarn;
+    sqlite.close();
+  }
+});
+
+test("runUserMigrations re-throws in production when migrate() throws", () => {
+  const migrationsPath = join(testRoot, "invalid-meta-prod");
+  mkdirSync(join(migrationsPath, "meta"), { recursive: true });
+  writeFileSync(
+    join(migrationsPath, "meta", "_journal.json"),
+    "{ not json }",
+  );
+
+  const { db, sqlite } = createDatabase({
+    dbPath: join(testRoot, "migrate-catch-prod.sqlite"),
+    migrationsPath,
+    development: false,
+    auth: { tokenExpiry: 3600 },
+    storage: { driver: "local", localPath: "./data/uploads", maxFileSize: 10_000_000 },
+    cors: { origins: ["https://example.com"] },
+  });
+
+  try {
+    expect(() =>
+      runUserMigrations(db, {
+        dbPath: join(testRoot, "migrate-catch-prod.sqlite"),
+        migrationsPath,
+        development: false,
+        auth: { tokenExpiry: 3600 },
+        storage: { driver: "local", localPath: "./data/uploads", maxFileSize: 10_000_000 },
+        cors: { origins: ["https://example.com"] },
+      }),
+    ).toThrow();
+  } finally {
     sqlite.close();
   }
 });
