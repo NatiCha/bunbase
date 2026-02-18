@@ -133,3 +133,46 @@ test("cleanupExpiredSessions removes only expired rows", () => {
 
   sqlite.close();
 });
+
+test("getSession triggers lazy cleanup after ~100 calls", () => {
+  // Since cleanupCounter is module-level, calling getSession 100+ times guarantees
+  // the cleanup branch (lines 56-57) is exercised regardless of current counter state.
+  const sqlite = new Database(":memory:");
+  sqlite.run(`
+    CREATE TABLE _sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  const sessionId = createSession(sqlite, "lazy-user", 3600);
+
+  // Insert an expired session to verify cleanup actually runs when triggered
+  sqlite
+    .query(
+      "INSERT INTO _sessions (id, user_id, expires_at, created_at) VALUES ($id, $userId, $expiresAt, $createdAt)",
+    )
+    .run({
+      $id: "old-expired",
+      $userId: "lazy-user",
+      $expiresAt: Math.floor(Date.now() / 1000) - 1,
+      $createdAt: new Date().toISOString(),
+    });
+
+  // Call getSession enough times to trigger cleanup (counter resets at 100)
+  for (let i = 0; i < 110; i++) {
+    getSession(sqlite, sessionId);
+  }
+
+  // The expired session should have been cleaned up by the lazy cleanup
+  const expiredAfter = sqlite
+    .query<{ id: string }, { $id: string }>(
+      "SELECT id FROM _sessions WHERE id = $id",
+    )
+    .get({ $id: "old-expired" });
+  expect(expiredAfter).toBeNull();
+
+  sqlite.close();
+});

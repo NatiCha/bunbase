@@ -160,3 +160,22 @@ test("injectTimestampColumns is idempotent (no error on second call)", () => {
   expect(() => injectTimestampColumns(sqlite, ["things"])).not.toThrow();
   sqlite.close();
 });
+
+// validateUsersTable — exercises the getTableName catch block at lines 115-116.
+// A plain object {} passes the typeof/null check but causes getTableName to throw,
+// which the implementation catches and treats as "not a table".
+test("validateUsersTable skips plain objects that cause getTableName to throw", () => {
+  const result = validateUsersTable({
+    probablyNotATable: {} as any,
+    users: validUsersTable,
+  });
+  expect(result).toBe(validUsersTable);
+});
+
+
+test("getUserTableNames skips plain objects that cause getTableName to throw", () => {
+  const names = getUserTableNames({ notATable: {} as any, valid: validUsersTable });
+  // validUsersTable is named "users"
+  expect(names).toContain("users");
+  expect(names).not.toContain("notATable");
+});

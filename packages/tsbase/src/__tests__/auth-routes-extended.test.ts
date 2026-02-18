@@ -350,3 +350,40 @@ test("register returns 400 when a required schema field is missing", async () =>
   expect(body.error.message).toContain("company");
   sqlite.close();
 });
+
+// /auth/register — rate-limit block (auth/routes.ts lines 57-63)
+
+test("register returns 429 after exceeding the rate limit", async () => {
+  const sqlite = setupDb();
+  const routes = createAuthRoutes({
+    sqlite,
+    config: makeResolvedConfig({ development: true }),
+    usersTable,
+  });
+
+  // Use a dedicated IP that no other test in this file touches
+  const blockedIp = "198.51.100.200";
+
+  // Make 10 requests (exhausts the allowance; the 11th will be blocked)
+  for (let i = 0; i < 10; i++) {
+    await routes["/auth/register"].POST(
+      makeReq("/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // Invalid JSON triggers a fast 400 with minimal overhead
+        body: "bad",
+      }, blockedIp),
+    );
+  }
+
+  // The 11th request should be rate-limited (429)
+  const blocked = await routes["/auth/register"].POST(
+    makeReq("/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "bad",
+    }, blockedIp),
+  );
+  expect(blocked.status).toBe(429);
+  sqlite.close();
+});
