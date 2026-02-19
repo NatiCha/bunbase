@@ -1,5 +1,5 @@
 import { gt, lt, and, or, eq, asc, desc, type SQL } from "drizzle-orm";
-import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
+import type { Column } from "drizzle-orm";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -48,8 +48,8 @@ export function resolveLimit(limit?: number): number {
 
 export function buildCursorCondition(
   cursor: string,
-  idColumn: SQLiteColumn,
-  sortColumn?: SQLiteColumn,
+  idColumn: Column,
+  sortColumn?: Column,
   order: "asc" | "desc" = "asc",
 ): SQL | undefined {
   const data = decodeCursor(cursor);
@@ -71,8 +71,8 @@ export function buildCursorCondition(
 }
 
 export function buildOrderBy(
-  idColumn: SQLiteColumn,
-  sortColumn?: SQLiteColumn,
+  idColumn: Column,
+  sortColumn?: Column,
   order: "asc" | "desc" = "asc",
 ) {
   const orderFn = order === "asc" ? asc : desc;

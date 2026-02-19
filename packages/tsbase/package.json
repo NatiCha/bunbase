@@ -19,6 +19,7 @@
     "studio": "bunx drizzle-kit studio"
   },
   "dependencies": {
+    "@clack/prompts": "^1.0.1",
     "@trpc/client": "^11.10.0",
     "@trpc/server": "^11.10.0",
     "drizzle-orm": "^1.0.0-beta.15-859cf75",
@@ -48,6 +49,7 @@
     "@types/bun": "latest",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "bun-plugin-tailwind": "^0.1.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-kit": "^1.0.0-beta.15-859cf75",

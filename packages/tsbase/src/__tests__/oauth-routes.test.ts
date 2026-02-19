@@ -1,6 +1,9 @@
 import { test, expect, afterEach, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
-import { bootstrapInternalTables } from "../core/bootstrap.ts";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { SqliteAdapter } from "../core/adapters/sqlite.ts";
+import { getInternalSchema } from "../core/internal-schema.ts";
 import { createOAuthRoutes } from "../auth/oauth/routes.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 
@@ -10,13 +13,24 @@ afterEach(() => {
   fetchSpy?.mockRestore();
 });
 
-function setupDb(): Database {
+const usersTable = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash"),
+  role: text("role").notNull().default("user"),
+  name: text("name"),
+});
+
+function setupDb() {
   const sqlite = new Database(":memory:");
-  bootstrapInternalTables(sqlite);
+  const adapter = new SqliteAdapter(sqlite);
+  adapter.bootstrapInternalTables();
   sqlite.run(
     "CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT, role TEXT NOT NULL DEFAULT 'user', name TEXT)",
   );
-  return sqlite;
+  const db = drizzle({ client: sqlite });
+  const internalSchema = getInternalSchema("sqlite");
+  return { sqlite, db, internalSchema };
 }
 
 function makeConfig() {
@@ -46,9 +60,9 @@ function callbackReq(state: string, stateCookie = state): Request {
 // ─── createOAuthRoutes ────────────────────────────────────────────────────────
 
 test("createOAuthRoutes returns empty object when no oauth config", () => {
-  const sqlite = setupDb();
+  const { sqlite, db, internalSchema } = setupDb();
   const config = makeResolvedConfig({ development: true });
-  const routes = createOAuthRoutes({ sqlite, config });
+  const routes = createOAuthRoutes({ db, internalSchema, config, usersTable });
   expect(Object.keys(routes)).toHaveLength(0);
   sqlite.close();
 });
@@ -56,8 +70,8 @@ test("createOAuthRoutes returns empty object when no oauth config", () => {
 // ─── GET /auth/oauth/google (redirect) ────────────────────────────────────────
 
 test("GET /auth/oauth/google redirects to Google with 302 and sets state cookie", () => {
-  const sqlite = setupDb();
-  const routes = createOAuthRoutes({ sqlite, config: makeConfig() });
+  const { sqlite, db, internalSchema } = setupDb();
+  const routes = createOAuthRoutes({ db, internalSchema, config: makeConfig(), usersTable });
 
   const response = (routes["/auth/oauth/google"] as any).GET(
     new Request("http://localhost/auth/oauth/google"),
@@ -77,8 +91,8 @@ test("GET /auth/oauth/google redirects to Google with 302 and sets state cookie"
 // ─── GET /auth/oauth/google/callback ─────────────────────────────────────────
 
 test("callback returns 400 when code is missing from query string", async () => {
-  const sqlite = setupDb();
-  const routes = createOAuthRoutes({ sqlite, config: makeConfig() });
+  const { sqlite, db, internalSchema } = setupDb();
+  const routes = createOAuthRoutes({ db, internalSchema, config: makeConfig(), usersTable });
 
   const response = await (routes["/auth/oauth/google/callback"] as any).GET(
     new Request("http://localhost/auth/oauth/google/callback?state=abc"),
@@ -88,8 +102,8 @@ test("callback returns 400 when code is missing from query string", async () => 
 });
 
 test("callback returns 400 when state is missing from query string", async () => {
-  const sqlite = setupDb();
-  const routes = createOAuthRoutes({ sqlite, config: makeConfig() });
+  const { sqlite, db, internalSchema } = setupDb();
+  const routes = createOAuthRoutes({ db, internalSchema, config: makeConfig(), usersTable });
 
   const response = await (routes["/auth/oauth/google/callback"] as any).GET(
     new Request("http://localhost/auth/oauth/google/callback?code=abc"),
@@ -99,8 +113,8 @@ test("callback returns 400 when state is missing from query string", async () =>
 });
 
 test("callback returns 400 when state does not match cookie", async () => {
-  const sqlite = setupDb();
-  const routes = createOAuthRoutes({ sqlite, config: makeConfig() });
+  const { sqlite, db, internalSchema } = setupDb();
+  const routes = createOAuthRoutes({ db, internalSchema, config: makeConfig(), usersTable });
 
   const response = await (routes["/auth/oauth/google/callback"] as any).GET(
     new Request(
@@ -117,8 +131,8 @@ test("callback returns 500 when exchangeCode fetch throws", async () => {
     new Error("Network error"),
   );
 
-  const sqlite = setupDb();
-  const routes = createOAuthRoutes({ sqlite, config: makeConfig() });
+  const { sqlite, db, internalSchema } = setupDb();
+  const routes = createOAuthRoutes({ db, internalSchema, config: makeConfig(), usersTable });
 
   const response = await (routes["/auth/oauth/google/callback"] as any).GET(
     callbackReq(STATE),
@@ -140,8 +154,8 @@ test("callback creates new user and redirects on first OAuth login", async () =>
       }) as any,
     );
 
-  const sqlite = setupDb();
-  const routes = createOAuthRoutes({ sqlite, config: makeConfig() });
+  const { sqlite, db, internalSchema } = setupDb();
+  const routes = createOAuthRoutes({ db, internalSchema, config: makeConfig(), usersTable });
 
   const response = await (routes["/auth/oauth/google/callback"] as any).GET(
     callbackReq(STATE),
@@ -176,12 +190,12 @@ test("callback links oauth account to existing user who shares the email", async
       Response.json({ id: "g-999", email: "existing@example.com" }) as any,
     );
 
-  const sqlite = setupDb();
+  const { sqlite, db, internalSchema } = setupDb();
   sqlite
     .query("INSERT INTO users (id, email, role) VALUES ($id, $email, $role)")
     .run({ $id: "existing-user", $email: "existing@example.com", $role: "user" });
 
-  const routes = createOAuthRoutes({ sqlite, config: makeConfig() });
+  const routes = createOAuthRoutes({ db, internalSchema, config: makeConfig(), usersTable });
 
   const response = await (routes["/auth/oauth/google/callback"] as any).GET(
     callbackReq(STATE),
@@ -213,7 +227,7 @@ test("callback reuses existing OAuth account without creating a new link", async
       Response.json({ id: "g-existing-provider-id", email: "oauth@example.com" }) as any,
     );
 
-  const sqlite = setupDb();
+  const { sqlite, db, internalSchema } = setupDb();
   sqlite
     .query("INSERT INTO users (id, email, role) VALUES ($id, $email, $role)")
     .run({ $id: "oauth-user", $email: "oauth@example.com", $role: "user" });
@@ -229,7 +243,7 @@ test("callback reuses existing OAuth account without creating a new link", async
       $createdAt: new Date().toISOString(),
     });
 
-  const routes = createOAuthRoutes({ sqlite, config: makeConfig() });
+  const routes = createOAuthRoutes({ db, internalSchema, config: makeConfig(), usersTable });
 
   const response = await (routes["/auth/oauth/google/callback"] as any).GET(
     callbackReq(STATE),

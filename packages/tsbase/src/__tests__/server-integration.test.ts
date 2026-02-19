@@ -2,19 +2,6 @@
  * Integration tests for core/server.ts — starts the real server on a random
  * port and exercises every branch inside the listen() fetch handler via actual
  * HTTP requests.
- *
- * Uncovered paths targeted:
- *   line  76      — fetch handler entry (start timer)
- *   lines 185-190 — CORS preflight early-return
- *   lines 193-206 — /_admin/api/* dispatch + request log
- *   lines 209-223 — /_admin SPA catch-all
- *   lines 226-246 — exact-match HTTP route + addCorsHeaders on response
- *   lines 249-270 — pattern-match HTTP route (file routes with path params)
- *   lines 272-275 — exact route method-not-allowed
- *   lines 277-278 — pattern route method-not-allowed
- *   lines 287-290 — CSRF enforcement for tRPC POST
- *   lines 303-313 — tRPC fetchRequestHandler
- *   lines 314-318 — 404 fallback
  */
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
@@ -46,12 +33,14 @@ let server: ReturnType<typeof Bun.serve>;
 let base: string;
 let adminSession: string;
 
-beforeAll(() => {
+beforeAll(async () => {
+  const dbPath = join(root, "db.sqlite");
   tsbase = createServer({
     schema: { users: usersTable, posts: postsTable },
     config: makeResolvedConfig({
       development: true,
-      dbPath: join(root, "db.sqlite"),
+      database: { driver: "sqlite", url: dbPath },
+      dbPath,
       storage: {
         driver: "local" as const,
         localPath: join(root, "uploads"),
@@ -61,31 +50,30 @@ beforeAll(() => {
     }),
   });
 
-  // createServer bootstraps internal tables (_sessions, _files …) but doesn't
-  // auto-create user-defined tables — we create them manually here.
-  tsbase.sqlite.run(
+  // Use adapter.rawExecute for DDL and data seeding (replacing tsbase.sqlite)
+  await tsbase.adapter.rawExecute(
     "CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT, role TEXT NOT NULL DEFAULT 'user')",
   );
-  tsbase.sqlite.run(
+  await tsbase.adapter.rawExecute(
     "CREATE TABLE IF NOT EXISTS posts (id TEXT PRIMARY KEY, title TEXT NOT NULL)",
   );
 
   // Seed an admin user and a valid session
-  tsbase.sqlite
-    .query("INSERT INTO users (id, email, role) VALUES ($id, $email, $role)")
-    .run({ $id: "admin-1", $email: "admin@example.com", $role: "admin" });
+  await tsbase.adapter.rawExecute(
+    "INSERT INTO users (id, email, role) VALUES ($id, $email, $role)",
+    { $id: "admin-1", $email: "admin@example.com", $role: "admin" },
+  );
 
   const expiresAt = Math.floor(Date.now() / 1000) + 3600;
-  tsbase.sqlite
-    .query(
-      "INSERT INTO _sessions (id, user_id, expires_at, created_at) VALUES ($id, $userId, $expiresAt, $createdAt)",
-    )
-    .run({
+  await tsbase.adapter.rawExecute(
+    "INSERT INTO _sessions (id, user_id, expires_at, created_at) VALUES ($id, $userId, $expiresAt, $createdAt)",
+    {
       $id: "admin-sess",
       $userId: "admin-1",
       $expiresAt: expiresAt,
       $createdAt: new Date().toISOString(),
-    });
+    },
+  );
   adminSession = "admin-sess";
 
   // Start server on a random free port
@@ -95,7 +83,7 @@ beforeAll(() => {
 
 afterAll(() => {
   server?.stop();
-  tsbase?.sqlite.close();
+  tsbase?.adapter.close();
   try {
     rmSync(root, { recursive: true, force: true });
   } catch { /* best effort */ }
@@ -109,7 +97,7 @@ test("GET /health returns 200 OK", async () => {
   expect(await res.text()).toBe("OK");
 });
 
-// ─── CORS preflight (lines 185-190) ──────────────────────────────────────────
+// ─── CORS preflight ──────────────────────────────────────────────────────────
 
 test("OPTIONS preflight returns 204 with CORS headers", async () => {
   const res = await fetch(`${base}/trpc/posts.list`, {
@@ -123,7 +111,7 @@ test("OPTIONS preflight returns 204 with CORS headers", async () => {
   expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
 });
 
-// ─── Admin API dispatch + request logging (lines 193-206) ────────────────────
+// ─── Admin API dispatch + request logging ────────────────────────────────────
 
 test("GET /_admin/api/sessions returns sessions list for admin", async () => {
   const res = await fetch(`${base}/_admin/api/sessions`, {
@@ -140,17 +128,15 @@ test("GET /_admin/api/users returns 401 when not authenticated", async () => {
   expect(res.status).toBe(401);
 });
 
-// ─── Admin SPA catch-all (lines 209-223) ─────────────────────────────────────
+// ─── Admin SPA catch-all ─────────────────────────────────────────────────────
 
-test("GET /_admin (SPA catch-all) serves admin UI for unknown sub-paths", async () => {
-  const res = await fetch(`${base}/_admin/some-page`);
-  expect(res.status).toBe(200);
-  // The admin SPA is served — response has a body (not a 404 JSON blob)
-  const body = await res.text();
-  expect(body.length).toBeGreaterThan(0);
+test("GET /_admin (SPA catch-all) redirects unknown sub-paths to /_admin", async () => {
+  const res = await fetch(`${base}/_admin/some-page`, { redirect: "manual" });
+  expect(res.status).toBe(302);
+  expect(res.headers.get("Location")).toBe("/_admin");
 });
 
-// ─── Exact HTTP route + CORS on response (lines 226-246) ─────────────────────
+// ─── Exact HTTP route + CORS on response ─────────────────────────────────────
 
 test("POST /auth/login adds CORS headers to its response", async () => {
   const res = await fetch(`${base}/auth/login`, {
@@ -174,7 +160,7 @@ test("GET /auth/me returns 401 when no session cookie is present", async () => {
   expect(res.status).toBe(401);
 });
 
-// ─── Pattern route — file with path params (lines 249-270) ───────────────────
+// ─── Pattern route — file with path params ───────────────────────────────────
 
 test("GET /files/:id returns 404 for unknown file id via pattern route", async () => {
   const res = await fetch(`${base}/files/no-such-file`, {
@@ -183,14 +169,14 @@ test("GET /files/:id returns 404 for unknown file id via pattern route", async (
   expect(res.status).toBe(404);
 });
 
-// ─── Exact route method not allowed (lines 272-275) ──────────────────────────
+// ─── Exact route method not allowed ──────────────────────────────────────────
 
 test("DELETE /auth/login returns 405 Method Not Allowed", async () => {
   const res = await fetch(`${base}/auth/login`, { method: "DELETE" });
   expect(res.status).toBe(405);
 });
 
-// ─── Pattern route method not allowed (lines 277-278) ────────────────────────
+// ─── Pattern route method not allowed ────────────────────────────────────────
 
 test("PATCH /files/:id returns 405 Method Not Allowed", async () => {
   const res = await fetch(`${base}/files/some-id`, {
@@ -200,7 +186,7 @@ test("PATCH /files/:id returns 405 Method Not Allowed", async () => {
   expect(res.status).toBe(405);
 });
 
-// ─── CSRF enforcement on tRPC POST (lines 287-290) ───────────────────────────
+// ─── CSRF enforcement on tRPC POST ───────────────────────────────────────────
 
 test("POST /trpc/posts.create without CSRF token returns 403", async () => {
   const res = await fetch(`${base}/trpc/posts.create`, {
@@ -208,7 +194,6 @@ test("POST /trpc/posts.create without CSRF token returns 403", async () => {
     headers: {
       "Content-Type": "application/json",
       cookie: `tsbase_session=${adminSession}`,
-      // Intentionally omitting x-csrf-token and csrf_token cookie
     },
     body: JSON.stringify({ "0": { json: { title: "Bad" } } }),
   });
@@ -217,7 +202,7 @@ test("POST /trpc/posts.create without CSRF token returns 403", async () => {
   expect(body.error.code).toBe("FORBIDDEN");
 });
 
-// ─── tRPC handler (lines 303-313) ────────────────────────────────────────────
+// ─── tRPC handler ────────────────────────────────────────────────────────────
 
 test("GET /trpc/posts.list is handled by the tRPC router (not 404)", async () => {
   const res = await fetch(
@@ -231,7 +216,7 @@ test("GET /trpc/posts.list is handled by the tRPC router (not 404)", async () =>
   expect(ct).toContain("application/json");
 });
 
-// ─── 404 fallback (lines 314-318) ────────────────────────────────────────────
+// ─── 404 fallback ────────────────────────────────────────────────────────────
 
 test("GET /unknown-path returns 404 with CORS headers", async () => {
   const res = await fetch(`${base}/this/does/not/exist`, {
@@ -244,13 +229,14 @@ test("GET /unknown-path returns 404 with CORS headers", async () => {
   );
 });
 
-// ─── Admin impersonation via tRPC (lines 260-267) ────────────────────────────
+// ─── Admin impersonation via tRPC ────────────────────────────────────────────
 
 test("GET /trpc with x-impersonate-user header uses target user context", async () => {
   // Insert a regular user to impersonate
-  tsbase.sqlite
-    .query("INSERT OR IGNORE INTO users (id, email, role) VALUES ($id, $email, $role)")
-    .run({ $id: "regular-1", $email: "regular@example.com", $role: "user" });
+  await tsbase.adapter.rawExecute(
+    "INSERT OR IGNORE INTO users (id, email, role) VALUES ($id, $email, $role)",
+    { $id: "regular-1", $email: "regular@example.com", $role: "user" },
+  );
 
   const res = await fetch(
     `${base}/trpc/posts.list?batch=1&input=${encodeURIComponent(JSON.stringify({ "0": { json: {} } }))}`,
@@ -283,7 +269,7 @@ test("GET /trpc with x-impersonate-user pointing to nonexistent user falls throu
   expect(res.status).not.toBe(404);
 });
 
-// ─── CSRF-exempt tRPC POST goes through to handler (not rejected at 287-290) ──
+// ─── CSRF-exempt tRPC POST goes through to handler ──────────────────────────
 
 test("POST /trpc with matching CSRF token reaches tRPC handler", async () => {
   // Generate a CSRF token and pass it in both cookie and header

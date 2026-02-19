@@ -1,12 +1,23 @@
 import { test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
-import { bootstrapInternalTables } from "../core/bootstrap.ts";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { SqliteAdapter } from "../core/adapters/sqlite.ts";
+import { getInternalSchema } from "../core/internal-schema.ts";
 import { createEmailRoutes } from "../auth/email.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 
-function setupEmailDb(): Database {
+const usersTable = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash"),
+  role: text("role").notNull(),
+});
+
+function setupEmailDb() {
   const sqlite = new Database(":memory:");
-  bootstrapInternalTables(sqlite);
+  const adapter = new SqliteAdapter(sqlite);
+  adapter.bootstrapInternalTables();
   sqlite.run(`
     CREATE TABLE users (
       id TEXT PRIMARY KEY,
@@ -25,7 +36,9 @@ function setupEmailDb(): Database {
       $passwordHash: "hash",
       $role: "user",
     });
-  return sqlite;
+  const db = drizzle({ client: sqlite });
+  const internalSchema = getInternalSchema("sqlite");
+  return { sqlite, db, internalSchema };
 }
 
 // Counter to ensure unique IPs across all tests in this file
@@ -37,10 +50,12 @@ function freshIp(): string {
 // ─── /auth/request-password-reset ───────────────────────────────────────────
 
 test("request-password-reset returns 400 for invalid JSON", async () => {
-  const sqlite = setupEmailDb();
+  const { sqlite, db, internalSchema } = setupEmailDb();
   const routes = createEmailRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
+    usersTable,
   });
 
   const response = await routes["/auth/request-password-reset"].POST(
@@ -55,10 +70,12 @@ test("request-password-reset returns 400 for invalid JSON", async () => {
 });
 
 test("request-password-reset returns 400 for invalid email", async () => {
-  const sqlite = setupEmailDb();
+  const { sqlite, db, internalSchema } = setupEmailDb();
   const routes = createEmailRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
+    usersTable,
   });
 
   const response = await routes["/auth/request-password-reset"].POST(
@@ -73,13 +90,15 @@ test("request-password-reset returns 400 for invalid email", async () => {
 });
 
 test("request-password-reset returns 500 in production when webhook is not configured", async () => {
-  const sqlite = setupEmailDb();
+  const { sqlite, db, internalSchema } = setupEmailDb();
   const routes = createEmailRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({
       development: false,
       cors: { origins: ["https://example.com"] },
     }),
+    usersTable,
   });
 
   const response = await routes["/auth/request-password-reset"].POST(
@@ -94,15 +113,17 @@ test("request-password-reset returns 500 in production when webhook is not confi
 });
 
 test("request-password-reset in dev mode logs token when no webhook configured", async () => {
-  const sqlite = setupEmailDb();
+  const { sqlite, db, internalSchema } = setupEmailDb();
   const logged: string[] = [];
   const originalLog = console.log;
   console.log = (...args: unknown[]) => logged.push(args.join(" "));
 
   try {
     const routes = createEmailRoutes({
-      sqlite,
+      db,
+      internalSchema,
       config: makeResolvedConfig({ development: true }),
+      usersTable,
       // no email.webhook in config
     });
 
@@ -124,10 +145,12 @@ test("request-password-reset in dev mode logs token when no webhook configured",
 });
 
 test("request-password-reset returns 200 for non-existent email (user enumeration prevention)", async () => {
-  const sqlite = setupEmailDb();
+  const { sqlite, db, internalSchema } = setupEmailDb();
   const routes = createEmailRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
+    usersTable,
   });
 
   const response = await routes["/auth/request-password-reset"].POST(
@@ -142,10 +165,12 @@ test("request-password-reset returns 200 for non-existent email (user enumeratio
 });
 
 test("request-password-reset returns 429 when rate limited", async () => {
-  const sqlite = setupEmailDb();
+  const { sqlite, db, internalSchema } = setupEmailDb();
   const routes = createEmailRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
+    usersTable,
   });
   const ip = freshIp();
 
@@ -182,10 +207,12 @@ async function sha256Hex(input: string): Promise<string> {
 }
 
 test("reset-password returns 400 for invalid JSON", async () => {
-  const sqlite = setupEmailDb();
+  const { sqlite, db, internalSchema } = setupEmailDb();
   const routes = createEmailRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
+    usersTable,
   });
 
   const response = await routes["/auth/reset-password"].POST(
@@ -200,10 +227,12 @@ test("reset-password returns 400 for invalid JSON", async () => {
 });
 
 test("reset-password returns 400 for invalid or expired token", async () => {
-  const sqlite = setupEmailDb();
+  const { sqlite, db, internalSchema } = setupEmailDb();
   const routes = createEmailRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
+    usersTable,
   });
 
   const response = await routes["/auth/reset-password"].POST(
@@ -220,7 +249,7 @@ test("reset-password returns 400 for invalid or expired token", async () => {
 });
 
 test("reset-password succeeds and creates a new session", async () => {
-  const sqlite = setupEmailDb();
+  const { sqlite, db, internalSchema } = setupEmailDb();
 
   // Insert a valid token directly
   const token = "test-reset-token-abc";
@@ -240,8 +269,10 @@ test("reset-password succeeds and creates a new session", async () => {
     });
 
   const routes = createEmailRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
+    usersTable,
   });
 
   const response = await routes["/auth/reset-password"].POST(
@@ -265,10 +296,12 @@ test("reset-password succeeds and creates a new session", async () => {
 });
 
 test("reset-password returns 400 for password too short", async () => {
-  const sqlite = setupEmailDb();
+  const { sqlite, db, internalSchema } = setupEmailDb();
   const routes = createEmailRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
+    usersTable,
   });
 
   const response = await routes["/auth/reset-password"].POST(
@@ -285,10 +318,12 @@ test("reset-password returns 400 for password too short", async () => {
 // ─── /auth/verify-email ─────────────────────────────────────────────────────
 
 test("verify-email returns 400 for invalid JSON", async () => {
-  const sqlite = setupEmailDb();
+  const { sqlite, db, internalSchema } = setupEmailDb();
   const routes = createEmailRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
+    usersTable,
   });
 
   const response = await routes["/auth/verify-email"].POST(
@@ -303,10 +338,12 @@ test("verify-email returns 400 for invalid JSON", async () => {
 });
 
 test("verify-email returns 400 for missing token field", async () => {
-  const sqlite = setupEmailDb();
+  const { sqlite, db, internalSchema } = setupEmailDb();
   const routes = createEmailRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
+    usersTable,
   });
 
   const response = await routes["/auth/verify-email"].POST(
@@ -321,10 +358,12 @@ test("verify-email returns 400 for missing token field", async () => {
 });
 
 test("verify-email returns 400 for invalid or expired token", async () => {
-  const sqlite = setupEmailDb();
+  const { sqlite, db, internalSchema } = setupEmailDb();
   const routes = createEmailRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
+    usersTable,
   });
 
   const response = await routes["/auth/verify-email"].POST(
@@ -339,7 +378,7 @@ test("verify-email returns 400 for invalid or expired token", async () => {
 });
 
 test("verify-email succeeds with valid token", async () => {
-  const sqlite = setupEmailDb();
+  const { sqlite, db, internalSchema } = setupEmailDb();
   // Add email_verified column to support the update
   try {
     sqlite.run("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0");
@@ -362,8 +401,10 @@ test("verify-email succeeds with valid token", async () => {
     });
 
   const routes = createEmailRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
+    usersTable,
   });
 
   const response = await routes["/auth/verify-email"].POST(

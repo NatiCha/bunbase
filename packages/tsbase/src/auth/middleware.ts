@@ -1,7 +1,9 @@
-import type { Database } from "bun:sqlite";
+import { eq } from "drizzle-orm";
 import { parseCookies } from "./cookies.ts";
 import { getSession } from "./sessions.ts";
 import type { AuthUser } from "../trpc/context.ts";
+import type { AnyDb } from "../core/db-types.ts";
+import type { InternalSchema } from "../core/internal-schema.ts";
 
 const SESSION_COOKIE = "tsbase_session";
 
@@ -13,22 +15,26 @@ export function extractSessionId(req: Request): string | null {
 
 export async function extractAuth(
   req: Request,
-  sqlite: Database,
+  db: AnyDb,
+  internalSchema: InternalSchema,
+  usersTable: any,
 ): Promise<AuthUser | null> {
   const sessionId = extractSessionId(req);
   if (!sessionId) return null;
 
-  const session = getSession(sqlite, sessionId);
+  const session = await getSession(db, internalSchema, sessionId);
   if (!session) return null;
 
-  // Look up the user
-  const user = sqlite
-    .query<Record<string, unknown>, { $id: string }>(
-      "SELECT * FROM users WHERE id = $id",
-    )
-    .get({ $id: session.user_id });
+  // Look up the user via Drizzle
+  const rows = await (db as any)
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.id, session.user_id))
+    ;
 
+  const user = rows[0];
   if (!user) return null;
+
   const id = user.id;
   const email = user.email;
   const role = user.role;

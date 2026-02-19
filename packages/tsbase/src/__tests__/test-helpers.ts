@@ -1,4 +1,11 @@
 import type { ResolvedConfig } from "../core/config.ts";
+import type { InternalSchema } from "../core/internal-schema.ts";
+import { getInternalSchema } from "../core/internal-schema.ts";
+import { SqliteAdapter } from "../core/adapters/sqlite.ts";
+import type { DatabaseAdapter } from "../core/adapter.ts";
+import { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import type { AnyDb } from "../core/db-types.ts";
 
 export function makeResolvedConfig(
   overrides: Partial<ResolvedConfig> = {},
@@ -7,6 +14,7 @@ export function makeResolvedConfig(
   const storageOverrides =
     (overrides.storage ?? {}) as Partial<ResolvedConfig["storage"]>;
   const corsOverrides = (overrides.cors ?? {}) as Partial<ResolvedConfig["cors"]>;
+  const databaseOverrides = overrides.database ?? { driver: "sqlite" as const, url: overrides.dbPath ?? "./data/db.sqlite" };
 
   return {
     auth: {
@@ -25,7 +33,27 @@ export function makeResolvedConfig(
       origins: corsOverrides.origins ?? [],
     },
     development: overrides.development ?? true,
-    dbPath: overrides.dbPath ?? "./data/db.sqlite",
+    database: databaseOverrides,
+    dbPath: overrides.dbPath ?? databaseOverrides.url ?? "./data/db.sqlite",
     migrationsPath: overrides.migrationsPath ?? "./drizzle",
   };
+}
+
+/**
+ * Setup a test database with internal tables bootstrapped.
+ * Returns sqlite, drizzle db, adapter, and internalSchema for use in tests.
+ */
+export function setupTestDb(): {
+  sqlite: Database;
+  db: AnyDb;
+  adapter: DatabaseAdapter;
+  internalSchema: InternalSchema;
+} {
+  const sqlite = new Database(":memory:");
+  const adapter = new SqliteAdapter(sqlite);
+  // bootstrapInternalTables is synchronous for SQLite
+  adapter.bootstrapInternalTables();
+  const db = drizzle({ client: sqlite });
+  const internalSchema = getInternalSchema("sqlite");
+  return { sqlite, db, adapter, internalSchema };
 }

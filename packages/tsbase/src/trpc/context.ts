@@ -1,4 +1,4 @@
-import type { SQLiteBunDatabase } from "drizzle-orm/bun-sqlite";
+import type { AnyDb } from "../core/db-types.ts";
 
 export interface AuthUser {
   id: string;
@@ -8,13 +8,13 @@ export interface AuthUser {
 }
 
 export interface Context {
-  db: SQLiteBunDatabase;
+  db: AnyDb;
   auth: AuthUser | null;
   req: Request;
 }
 
 export interface CreateContextDeps {
-  db: SQLiteBunDatabase;
+  db: AnyDb;
   extractAuth: (req: Request) => Promise<AuthUser | null>;
 }
 

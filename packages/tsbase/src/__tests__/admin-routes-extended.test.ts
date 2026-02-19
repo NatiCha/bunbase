@@ -1,10 +1,12 @@
 import { test, expect, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { join } from "node:path";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { bootstrapInternalTables } from "../core/bootstrap.ts";
+import { SqliteAdapter } from "../core/adapters/sqlite.ts";
+import { getInternalSchema } from "../core/internal-schema.ts";
 import {
   handleAdminApi,
   pushRequestLog,
@@ -27,23 +29,33 @@ const postsTable = sqliteTable("posts", {
   title: text("title").notNull(),
 });
 
+const usersTable = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash"),
+  role: text("role").notNull().default("user"),
+});
+
 function setupDb() {
   const sqlite = new Database(":memory:");
-  bootstrapInternalTables(sqlite);
+  const adapter = new SqliteAdapter(sqlite);
+  adapter.bootstrapInternalTables();
   sqlite.run(
     "CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT, role TEXT NOT NULL DEFAULT 'user')",
   );
   sqlite.run(
     "CREATE TABLE posts (id TEXT PRIMARY KEY, title TEXT NOT NULL)",
   );
-  return sqlite;
+  const db = drizzle({ client: sqlite });
+  const internalSchema = getInternalSchema("sqlite");
+  return { sqlite, db, adapter, internalSchema };
 }
 
-function createAdmin(sqlite: Database): string {
+async function createAdmin(sqlite: Database, db: any, internalSchema: any): Promise<string> {
   sqlite
     .query("INSERT INTO users (id, email, role) VALUES ($id, $email, $role)")
     .run({ $id: "admin-1", $email: "admin@example.com", $role: "admin" });
-  return createSession(sqlite, "admin-1");
+  return createSession(db, internalSchema, "admin-1");
 }
 
 function adminReq(path: string, sessionId: string, options: RequestInit = {}): Request {
@@ -58,13 +70,13 @@ function adminReq(path: string, sessionId: string, options: RequestInit = {}): R
 
 const config = makeResolvedConfig({ development: true });
 const storage = createLocalStorage(storageDir);
-const schema = { posts: postsTable };
+const schema = { posts: postsTable, users: usersTable };
 
 // ─── pushRequestLog ───────────────────────────────────────────────────────────
 
-test("pushRequestLog inserts a log entry", () => {
-  const sqlite = setupDb();
-  pushRequestLog(sqlite, {
+test("pushRequestLog inserts a log entry", async () => {
+  const { sqlite, db, internalSchema } = setupDb();
+  await pushRequestLog(db, internalSchema, {
     id: "log-1",
     method: "GET",
     path: "/api/test",
@@ -85,11 +97,11 @@ test("pushRequestLog inserts a log entry", () => {
   sqlite.close();
 });
 
-test("pushRequestLog trims to 500 most recent entries", () => {
-  const sqlite = setupDb();
+test("pushRequestLog trims to 500 most recent entries", async () => {
+  const { sqlite, db, internalSchema } = setupDb();
   // Insert 505 entries — oldest should be trimmed
   for (let i = 1; i <= 505; i++) {
-    pushRequestLog(sqlite, {
+    await pushRequestLog(db, internalSchema, {
       id: `log-${i}`,
       method: "GET",
       path: `/path/${i}`,
@@ -110,31 +122,37 @@ test("pushRequestLog trims to 500 most recent entries", () => {
 // ─── handleAdminApi — auth checks ─────────────────────────────────────────────
 
 test("handleAdminApi returns 401 when not authenticated", async () => {
-  const sqlite = setupDb();
+  const { sqlite, db, adapter, internalSchema } = setupDb();
   const response = await handleAdminApi(
     new Request("http://localhost/_admin/api/users"),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
   expect(response.status).toBe(401);
   sqlite.close();
 });
 
 test("handleAdminApi returns 403 when user is not an admin", async () => {
-  const sqlite = setupDb();
+  const { sqlite, db, adapter, internalSchema } = setupDb();
   sqlite
     .query("INSERT INTO users (id, email, role) VALUES ($id, $email, $role)")
     .run({ $id: "u1", $email: "user@example.com", $role: "user" });
-  const sessionId = createSession(sqlite, "u1");
+  const sessionId = await createSession(db, internalSchema, "u1");
 
   const response = await handleAdminApi(
     adminReq("/users", sessionId),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
   expect(response.status).toBe(403);
   sqlite.close();
@@ -143,15 +161,18 @@ test("handleAdminApi returns 403 when user is not an admin", async () => {
 // ─── handleAdminApi — endpoints ───────────────────────────────────────────────
 
 test("GET /users returns a list of users (password stripped)", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
 
   const response = await handleAdminApi(
     adminReq("/users", sessionId),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
   expect(response.status).toBe(200);
   const users = await response.json() as Array<{ role: string; password_hash?: string }>;
@@ -161,15 +182,18 @@ test("GET /users returns a list of users (password stripped)", async () => {
 });
 
 test("GET /sessions returns all sessions", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
 
   const response = await handleAdminApi(
     adminReq("/sessions", sessionId),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
   expect(response.status).toBe(200);
   const sessions = await response.json() as Array<{ id: string }>;
@@ -178,17 +202,20 @@ test("GET /sessions returns all sessions", async () => {
 });
 
 test("DELETE /sessions/:id removes a session", async () => {
-  const sqlite = setupDb();
-  const adminSession = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const adminSession = await createAdmin(sqlite, db, internalSchema);
   // Create an extra session to delete
-  const extra = createSession(sqlite, "admin-1");
+  const extra = await createSession(db, internalSchema, "admin-1");
 
   const response = await handleAdminApi(
     adminReq(`/sessions/${extra}`, adminSession, { method: "DELETE" }),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
   expect(response.status).toBe(200);
   const body = await response.json() as { deleted: boolean };
@@ -202,9 +229,9 @@ test("DELETE /sessions/:id removes a session", async () => {
 });
 
 test("GET /logs returns request logs", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
-  pushRequestLog(sqlite, {
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
+  await pushRequestLog(db, internalSchema, {
     id: "req-1",
     method: "POST",
     path: "/auth/login",
@@ -216,10 +243,13 @@ test("GET /logs returns request logs", async () => {
 
   const response = await handleAdminApi(
     adminReq("/logs", sessionId),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
   expect(response.status).toBe(200);
   const logs = await response.json() as Array<{ method: string }>;
@@ -228,9 +258,9 @@ test("GET /logs returns request logs", async () => {
 });
 
 test("DELETE /logs clears all request logs", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
-  pushRequestLog(sqlite, {
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
+  await pushRequestLog(db, internalSchema, {
     id: "req-clear",
     method: "GET",
     path: "/",
@@ -242,10 +272,13 @@ test("DELETE /logs clears all request logs", async () => {
 
   const response = await handleAdminApi(
     adminReq("/logs", sessionId, { method: "DELETE" }),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
   expect(response.status).toBe(200);
   const body = await response.json() as { cleared: boolean };
@@ -259,37 +292,43 @@ test("DELETE /logs clears all request logs", async () => {
 });
 
 test("GET /config returns sanitized configuration", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
 
   const response = await handleAdminApi(
     adminReq("/config", sessionId),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
   expect(response.status).toBe(200);
   const body = await response.json() as {
     development: boolean;
-    dbPath: string;
+    database: { driver: string };
     auth: { tokenExpiry: number };
   };
   expect(body.development).toBe(true);
-  expect(typeof body.dbPath).toBe("string");
+  expect(typeof body.database.driver).toBe("string");
   expect(typeof body.auth.tokenExpiry).toBe("number");
 });
 
 test("GET /schema returns table column definitions", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
 
   const response = await handleAdminApi(
     adminReq("/schema", sessionId),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
   expect(response.status).toBe(200);
   const body = await response.json() as Record<string, Array<{ key: string }>>;
@@ -298,18 +337,21 @@ test("GET /schema returns table column definitions", async () => {
 });
 
 test("GET /tables returns table names and record counts", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
   sqlite
     .query("INSERT INTO posts (id, title) VALUES ($id, $title)")
     .run({ $id: "p1", $title: "Hello" });
 
   const response = await handleAdminApi(
     adminReq("/tables", sessionId),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
   expect(response.status).toBe(200);
   const body = await response.json() as Array<{ name: string; count: number }>;
@@ -318,15 +360,18 @@ test("GET /tables returns table names and record counts", async () => {
 });
 
 test("GET /files returns all file records", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
 
   const response = await handleAdminApi(
     adminReq("/files", sessionId),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
   expect(response.status).toBe(200);
   const files = await response.json() as unknown[];
@@ -334,15 +379,18 @@ test("GET /files returns all file records", async () => {
 });
 
 test("GET /oauth returns all oauth accounts", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
 
   const response = await handleAdminApi(
     adminReq("/oauth", sessionId),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
   expect(response.status).toBe(200);
   const accounts = await response.json() as unknown[];
@@ -350,47 +398,56 @@ test("GET /oauth returns all oauth accounts", async () => {
 });
 
 test("GET /records/:table returns paginated rows", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
   sqlite
     .query("INSERT INTO posts (id, title) VALUES ($id, $title)")
     .run({ $id: "p1", $title: "Hello" });
 
   const response = await handleAdminApi(
     adminReq("/records/posts", sessionId),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
   expect(response.status).toBe(200);
 });
 
 test("GET /records/:table returns 404 for unknown table", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
 
   const response = await handleAdminApi(
     adminReq("/records/nonexistent", sessionId),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
   expect(response.status).toBe(404);
   sqlite.close();
 });
 
 test("DELETE /files/:id returns 404 when file not found", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
 
   const response = await handleAdminApi(
     adminReq("/files/no-such-file", sessionId, { method: "DELETE" }),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
   expect(response.status).toBe(404);
   sqlite.close();

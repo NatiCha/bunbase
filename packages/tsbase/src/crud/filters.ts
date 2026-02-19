@@ -13,7 +13,7 @@ import {
   and,
   type SQL,
 } from "drizzle-orm";
-import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
+import type { Column } from "drizzle-orm";
 
 export interface FilterOperators {
   eq?: unknown;
@@ -34,7 +34,7 @@ export type FilterInput = Record<string, FilterOperators | unknown>;
 
 export function buildWhereConditions(
   filters: FilterInput,
-  columns: Record<string, SQLiteColumn>,
+  columns: Record<string, Column>,
 ): SQL | undefined {
   const conditions: SQL[] = [];
 

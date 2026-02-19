@@ -1,14 +1,15 @@
-import type { Database } from "bun:sqlite";
+import { eq, and, getColumns, getTableName } from "drizzle-orm";
+import type { Column } from "drizzle-orm";
 import type { ResolvedConfig } from "../core/config.ts";
+import type { AnyDb } from "../core/db-types.ts";
+import type { InternalSchema } from "../core/internal-schema.ts";
+import type { DatabaseAdapter } from "../core/adapter.ts";
 import type { StorageDriver } from "./local.ts";
 import { createLocalStorage } from "./local.ts";
 import { createS3Storage } from "./s3.ts";
 import { extractAuth } from "../auth/middleware.ts";
 import { evaluateRule } from "../rules/evaluator.ts";
 import type { TableRules } from "../rules/types.ts";
-import { and, eq, getColumns, getTableName } from "drizzle-orm";
-import type { SQLiteBunDatabase } from "drizzle-orm/bun-sqlite";
-import type { SQLiteColumn, SQLiteTableWithColumns } from "drizzle-orm/sqlite-core";
 import { extname } from "node:path";
 
 function jsonError(code: string, message: string, status: number): Response {
@@ -23,11 +24,13 @@ function sanitizeFilename(name: string): string {
 }
 
 interface FileRouteDeps {
-  sqlite: Database;
-  db: SQLiteBunDatabase;
+  db: AnyDb;
+  adapter: DatabaseAdapter;
+  internalSchema: InternalSchema;
   config: ResolvedConfig;
   schema: Record<string, unknown>;
   rules?: Record<string, TableRules>;
+  usersTable: any;
 }
 
 export function createStorageDriver(config: ResolvedConfig): StorageDriver {
@@ -38,18 +41,16 @@ export function createStorageDriver(config: ResolvedConfig): StorageDriver {
 }
 
 export function createFileRoutes(deps: FileRouteDeps) {
-  const { sqlite, db, config, schema, rules } = deps;
+  const { db, adapter, internalSchema, config, schema, rules, usersTable } = deps;
   const storage = createStorageDriver(config);
-  const collectionTables = new Map<string, SQLiteTableWithColumns<any>>();
+  const files = internalSchema.files;
+  const collectionTables = new Map<string, any>();
 
   for (const table of Object.values(schema)) {
-    if (typeof table !== "object" || table === null) {
-      continue;
-    }
-
+    if (typeof table !== "object" || table === null) continue;
     try {
-      const tableName = getTableName(table as SQLiteTableWithColumns<any>);
-      collectionTables.set(tableName, table as SQLiteTableWithColumns<any>);
+      const tableName = getTableName(table as any);
+      collectionTables.set(tableName, table);
     } catch {
       // Not a Drizzle table
     }
@@ -66,7 +67,7 @@ export function createFileRoutes(deps: FileRouteDeps) {
     }
 
     const tableColumns = getColumns(table);
-    const idColumn = tableColumns.id as SQLiteColumn | undefined;
+    const idColumn = tableColumns.id as Column | undefined;
     if (!idColumn) {
       return jsonError(
         "INTERNAL_SERVER_ERROR",
@@ -90,12 +91,12 @@ export function createFileRoutes(deps: FileRouteDeps) {
     }
 
     const where = conditions.length > 1 ? and(...conditions) : conditions[0];
-    const row = db
+    const row = await (db as any)
       .select({ id: idColumn })
       .from(table)
       .where(where)
       .limit(1)
-      .all();
+      ;
 
     if (row.length === 0) {
       return jsonError("FORBIDDEN", "Access denied", 403);
@@ -107,7 +108,7 @@ export function createFileRoutes(deps: FileRouteDeps) {
   return {
     "/files/:collection/:recordId": {
       async POST(req: Request): Promise<Response> {
-        const user = await extractAuth(req, sqlite);
+        const user = await extractAuth(req, db, internalSchema, usersTable);
         if (!user) {
           return jsonError("UNAUTHORIZED", "Not authenticated", 401);
         }
@@ -129,13 +130,12 @@ export function createFileRoutes(deps: FileRouteDeps) {
           return jsonError("FORBIDDEN", "Access denied", 403);
         }
 
-        // Check the record exists
+        // Check the record exists via adapter (dynamic table name)
         try {
-          const row = sqlite
-            .query<{ id: string }, { $id: string }>(
-              `SELECT id FROM "${collection}" WHERE id = $id`,
-            )
-            .get({ $id: recordId });
+          const row = await adapter.rawQueryOne<{ id: string }>(
+            `SELECT id FROM "${collection}" WHERE id = $id`,
+            { $id: recordId },
+          );
 
           if (!row) {
             return jsonError("NOT_FOUND", "Record not found", 404);
@@ -177,22 +177,20 @@ export function createFileRoutes(deps: FileRouteDeps) {
         const data = new Uint8Array(await file.arrayBuffer());
         await storage.write(storagePath, data);
 
-        // Save file record
-        sqlite
-          .query(
-            `INSERT INTO _files (id, collection, record_id, filename, mime_type, size, storage_path, created_at)
-             VALUES ($id, $collection, $recordId, $filename, $mimeType, $size, $storagePath, $createdAt)`,
-          )
-          .run({
-            $id: id,
-            $collection: collection,
-            $recordId: recordId,
-            $filename: filename,
-            $mimeType: file.type,
-            $size: file.size,
-            $storagePath: storagePath,
-            $createdAt: new Date().toISOString(),
-          });
+        // Save file record via Drizzle
+        await (db as any)
+          .insert(files)
+          .values({
+            id,
+            collection,
+            recordId,
+            filename,
+            mimeType: file.type,
+            size: file.size,
+            storagePath,
+            createdAt: new Date().toISOString(),
+          })
+          ;
 
         return Response.json({
           file: {
@@ -209,7 +207,7 @@ export function createFileRoutes(deps: FileRouteDeps) {
 
     "/files/:id": {
       async GET(req: Request): Promise<Response> {
-        const user = await extractAuth(req, sqlite);
+        const user = await extractAuth(req, db, internalSchema, usersTable);
         if (!user) {
           return jsonError("UNAUTHORIZED", "Not authenticated", 401);
         }
@@ -222,42 +220,34 @@ export function createFileRoutes(deps: FileRouteDeps) {
           return jsonError("BAD_REQUEST", "Missing file ID", 400);
         }
 
-        const fileRecord = sqlite
-          .query<
-            {
-              id: string;
-              collection: string;
-              record_id: string;
-              filename: string;
-              mime_type: string;
-              size: number;
-              storage_path: string;
-            },
-            { $id: string }
-          >("SELECT * FROM _files WHERE id = $id")
-          .get({ $id: fileId });
+        const fileRows = await (db as any)
+          .select()
+          .from(files)
+          .where(eq(files.id, fileId))
+          ;
 
+        const fileRecord = fileRows[0];
         if (!fileRecord) {
           return jsonError("NOT_FOUND", "File not found", 404);
         }
 
         const accessError = await ensureReadAccess(
           fileRecord.collection,
-          fileRecord.record_id,
+          fileRecord.recordId,
           user,
         );
         if (accessError) {
           return accessError;
         }
 
-        const data = await storage.read(fileRecord.storage_path);
+        const data = await storage.read(fileRecord.storagePath);
         if (!data) {
           return jsonError("NOT_FOUND", "File data not found", 404);
         }
 
         return new Response(Uint8Array.from(data), {
           headers: {
-            "Content-Type": fileRecord.mime_type,
+            "Content-Type": fileRecord.mimeType,
             "Content-Disposition": `inline; filename="${fileRecord.filename}"`,
             "Content-Length": String(fileRecord.size),
           },
@@ -265,7 +255,7 @@ export function createFileRoutes(deps: FileRouteDeps) {
       },
 
       async DELETE(req: Request): Promise<Response> {
-        const user = await extractAuth(req, sqlite);
+        const user = await extractAuth(req, db, internalSchema, usersTable);
         if (!user) {
           return jsonError("UNAUTHORIZED", "Not authenticated", 401);
         }
@@ -278,40 +268,30 @@ export function createFileRoutes(deps: FileRouteDeps) {
           return jsonError("BAD_REQUEST", "Missing file ID", 400);
         }
 
-        const fileRecord = sqlite
-          .query<{ id: string; storage_path: string }, { $id: string }>(
-            "SELECT id, storage_path FROM _files WHERE id = $id",
-          )
-          .get({ $id: fileId });
+        const fileRows = await (db as any)
+          .select()
+          .from(files)
+          .where(eq(files.id, fileId))
+          ;
 
+        const fileRecord = fileRows[0];
         if (!fileRecord) {
           return jsonError("NOT_FOUND", "File not found", 404);
         }
 
-        const record = sqlite
-          .query<{ collection: string; record_id: string }, { $id: string }>(
-            "SELECT collection, record_id FROM _files WHERE id = $id",
-          )
-          .get({ $id: fileId });
-        if (!record) {
-          return jsonError("NOT_FOUND", "File not found", 404);
-        }
-
         const deleteRuleResult = await evaluateRule(
-          rules?.[record.collection]?.delete,
+          rules?.[fileRecord.collection]?.delete,
           {
             auth: user,
-            id: record.record_id,
+            id: fileRecord.recordId,
           },
         );
         if (!deleteRuleResult.allowed) {
           return jsonError("FORBIDDEN", "Access denied", 403);
         }
 
-        await storage.delete(fileRecord.storage_path);
-        sqlite
-          .query("DELETE FROM _files WHERE id = $id")
-          .run({ $id: fileId });
+        await storage.delete(fileRecord.storagePath);
+        await (db as any).delete(files).where(eq(files.id, fileId));
 
         return Response.json({ deleted: true });
       },
@@ -320,27 +300,25 @@ export function createFileRoutes(deps: FileRouteDeps) {
 }
 
 /** Delete all files associated with a record (for cascade delete) */
-export function deleteRecordFiles(
-  sqlite: Database,
+export async function deleteRecordFiles(
+  db: AnyDb,
+  internalSchema: InternalSchema,
   storage: StorageDriver,
   collection: string,
   recordId: string,
 ): Promise<void> {
-  const files = sqlite
-    .query<
-      { id: string; storage_path: string },
-      { $collection: string; $recordId: string }
-    >(
-      "SELECT id, storage_path FROM _files WHERE collection = $collection AND record_id = $recordId",
-    )
-    .all({ $collection: collection, $recordId: recordId });
+  const files = internalSchema.files;
+  const fileRows = await (db as any)
+    .select({ id: files.id, storagePath: files.storagePath })
+    .from(files)
+    .where(and(eq(files.collection, collection), eq(files.recordId, recordId)))
+    ;
 
-  const deletions = files.map((file) => storage.delete(file.storage_path));
-  return Promise.all(deletions).then(() => {
-    sqlite
-      .query(
-        "DELETE FROM _files WHERE collection = $collection AND record_id = $recordId",
-      )
-      .run({ $collection: collection, $recordId: recordId });
-  });
+  const deletions = fileRows.map((file: any) => storage.delete(file.storagePath));
+  await Promise.all(deletions);
+
+  await (db as any)
+    .delete(files)
+    .where(and(eq(files.collection, collection), eq(files.recordId, recordId)))
+    ;
 }

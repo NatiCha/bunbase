@@ -1,12 +1,23 @@
 import { test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
-import { bootstrapInternalTables } from "../core/bootstrap.ts";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { SqliteAdapter } from "../core/adapters/sqlite.ts";
+import { getInternalSchema } from "../core/internal-schema.ts";
 import { createEmailRoutes } from "../auth/email.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 
-function setupEmailDb(): Database {
+const usersTable = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash"),
+  role: text("role").notNull(),
+});
+
+function setupEmailDb() {
   const sqlite = new Database(":memory:");
-  bootstrapInternalTables(sqlite);
+  const adapter = new SqliteAdapter(sqlite);
+  adapter.bootstrapInternalTables();
   sqlite.run(`
     CREATE TABLE users (
       id TEXT PRIMARY KEY,
@@ -25,11 +36,13 @@ function setupEmailDb(): Database {
       $passwordHash: "hash",
       $role: "user",
     });
-  return sqlite;
+  const db = drizzle({ client: sqlite });
+  const internalSchema = getInternalSchema("sqlite");
+  return { sqlite, db, internalSchema };
 }
 
 test("password reset posts webhook payload when configured", async () => {
-  const sqlite = setupEmailDb();
+  const { sqlite, db, internalSchema } = setupEmailDb();
   const calls: Array<{ url: string; body: string }> = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -42,13 +55,15 @@ test("password reset posts webhook payload when configured", async () => {
 
   try {
     const routes = createEmailRoutes({
-      sqlite,
+      db,
+      internalSchema,
       config: makeResolvedConfig({
         auth: {
           tokenExpiry: 3600,
           email: { webhook: "https://example.com/send-email" },
         },
       }),
+      usersTable,
     });
 
     const response = await routes["/auth/request-password-reset"].POST(
@@ -74,19 +89,21 @@ test("password reset posts webhook payload when configured", async () => {
 });
 
 test("password reset returns server error when webhook fails", async () => {
-  const sqlite = setupEmailDb();
+  const { sqlite, db, internalSchema } = setupEmailDb();
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => new Response("bad", { status: 500 })) as unknown as typeof fetch;
 
   try {
     const routes = createEmailRoutes({
-      sqlite,
+      db,
+      internalSchema,
       config: makeResolvedConfig({
         auth: {
           tokenExpiry: 3600,
           email: { webhook: "https://example.com/send-email" },
         },
       }),
+      usersTable,
     });
 
     const response = await routes["/auth/request-password-reset"].POST(

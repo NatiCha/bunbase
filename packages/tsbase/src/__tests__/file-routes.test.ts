@@ -6,10 +6,11 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { createFileRoutes } from "../storage/routes.ts";
-import { bootstrapInternalTables } from "../core/bootstrap.ts";
+import { SqliteAdapter } from "../core/adapters/sqlite.ts";
+import { getInternalSchema } from "../core/internal-schema.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 
-const users = sqliteTable("users", {
+const usersTable = sqliteTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull(),
   passwordHash: text("password_hash"),
@@ -23,8 +24,11 @@ const posts = sqliteTable("posts", {
 
 function setupDbAndRoutes(allowView: boolean) {
   const sqlite = new Database(":memory:");
+  const adapter = new SqliteAdapter(sqlite);
+  adapter.bootstrapInternalTables();
   const db = drizzle({ client: sqlite });
-  bootstrapInternalTables(sqlite);
+  const internalSchema = getInternalSchema("sqlite");
+
   sqlite.run(`
     CREATE TABLE users (
       id TEXT PRIMARY KEY,
@@ -85,8 +89,9 @@ function setupDbAndRoutes(allowView: boolean) {
     });
 
   const routes = createFileRoutes({
-    sqlite,
     db,
+    adapter,
+    internalSchema,
     config: makeResolvedConfig({
       storage: {
         driver: "local",
@@ -94,12 +99,13 @@ function setupDbAndRoutes(allowView: boolean) {
         maxFileSize: 10 * 1024 * 1024,
       },
     }),
-    schema: { users, posts },
+    schema: { users: usersTable, posts },
     rules: {
       posts: {
         view: () => allowView,
       },
     },
+    usersTable,
   });
 
   return { sqlite, routes, sessionId, tempRoot };

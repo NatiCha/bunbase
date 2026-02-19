@@ -1,8 +1,10 @@
 import { test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { createAuthRoutes } from "../auth/routes.ts";
-import { bootstrapInternalTables } from "../core/bootstrap.ts";
+import { SqliteAdapter } from "../core/adapters/sqlite.ts";
+import { getInternalSchema } from "../core/internal-schema.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 
 const usersTable = sqliteTable("users", {
@@ -12,9 +14,10 @@ const usersTable = sqliteTable("users", {
   role: text("role").notNull().default("user"),
 });
 
-function setupDb(): Database {
+function setupDb() {
   const sqlite = new Database(":memory:");
-  bootstrapInternalTables(sqlite);
+  const adapter = new SqliteAdapter(sqlite);
+  adapter.bootstrapInternalTables();
   sqlite.run(`
     CREATE TABLE users (
       id TEXT PRIMARY KEY,
@@ -23,7 +26,9 @@ function setupDb(): Database {
       role TEXT NOT NULL DEFAULT 'user'
     )
   `);
-  return sqlite;
+  const db = drizzle({ client: sqlite });
+  const internalSchema = getInternalSchema("sqlite");
+  return { sqlite, db, internalSchema };
 }
 
 // Each test uses a unique x-forwarded-for IP so the shared rate-limit store
@@ -42,9 +47,10 @@ function makeReq(path: string, options: RequestInit, ip?: string): Request {
 // /auth/register — error branches
 
 test("register returns 400 for invalid JSON body", async () => {
-  const sqlite = setupDb();
+  const { sqlite, db, internalSchema } = setupDb();
   const routes = createAuthRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
     usersTable,
   });
@@ -61,9 +67,10 @@ test("register returns 400 for invalid JSON body", async () => {
 });
 
 test("register returns 400 when password is too short", async () => {
-  const sqlite = setupDb();
+  const { sqlite, db, internalSchema } = setupDb();
   const routes = createAuthRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
     usersTable,
   });
@@ -80,9 +87,10 @@ test("register returns 400 when password is too short", async () => {
 });
 
 test("register returns 409 when email is already registered", async () => {
-  const sqlite = setupDb();
+  const { sqlite, db, internalSchema } = setupDb();
   const routes = createAuthRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
     usersTable,
   });
@@ -108,9 +116,10 @@ test("register returns 409 when email is already registered", async () => {
 });
 
 test("register returns 500 when usersTable is null", async () => {
-  const sqlite = setupDb();
+  const { sqlite, db, internalSchema } = setupDb();
   const routes = createAuthRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
     usersTable: null,
   });
@@ -129,9 +138,10 @@ test("register returns 500 when usersTable is null", async () => {
 // /auth/login — error branches
 
 test("login returns 400 for invalid JSON", async () => {
-  const sqlite = setupDb();
+  const { sqlite, db, internalSchema } = setupDb();
   const routes = createAuthRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
     usersTable,
   });
@@ -148,9 +158,10 @@ test("login returns 400 for invalid JSON", async () => {
 });
 
 test("login returns 400 for missing fields", async () => {
-  const sqlite = setupDb();
+  const { sqlite, db, internalSchema } = setupDb();
   const routes = createAuthRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
     usersTable,
   });
@@ -167,9 +178,10 @@ test("login returns 400 for missing fields", async () => {
 });
 
 test("login returns 401 for unknown email", async () => {
-  const sqlite = setupDb();
+  const { sqlite, db, internalSchema } = setupDb();
   const routes = createAuthRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
     usersTable,
   });
@@ -186,7 +198,7 @@ test("login returns 401 for unknown email", async () => {
 });
 
 test("login returns 401 for wrong password", async () => {
-  const sqlite = setupDb();
+  const { sqlite, db, internalSchema } = setupDb();
   const passwordHash = await Bun.password.hash("correctpass");
   sqlite
     .query(
@@ -200,7 +212,8 @@ test("login returns 401 for wrong password", async () => {
     });
 
   const routes = createAuthRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
     usersTable,
   });
@@ -217,7 +230,7 @@ test("login returns 401 for wrong password", async () => {
 });
 
 test("login returns 401 for OAuth user without password hash", async () => {
-  const sqlite = setupDb();
+  const { sqlite, db, internalSchema } = setupDb();
   sqlite
     .query(
       "INSERT INTO users (id, email, password_hash, role) VALUES ($id, $email, $hash, $role)",
@@ -230,7 +243,8 @@ test("login returns 401 for OAuth user without password hash", async () => {
     });
 
   const routes = createAuthRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
     usersTable,
   });
@@ -251,9 +265,10 @@ test("login returns 401 for OAuth user without password hash", async () => {
 // /auth/logout — CSRF protection
 
 test("logout returns 403 when CSRF token is missing", async () => {
-  const sqlite = setupDb();
+  const { sqlite, db, internalSchema } = setupDb();
   const routes = createAuthRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
     usersTable,
   });
@@ -268,10 +283,10 @@ test("logout returns 403 when CSRF token is missing", async () => {
 // /auth/me
 
 test("/auth/me returns 401 when no session cookie is present", async () => {
-  const sqlite = setupDb();
-  bootstrapInternalTables(sqlite);
+  const { sqlite, db, internalSchema } = setupDb();
   const routes = createAuthRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
     usersTable,
   });
@@ -286,9 +301,10 @@ test("/auth/me returns 401 when no session cookie is present", async () => {
 // register — non-record JSON body (array/number)
 
 test("register returns 400 when JSON body is an array", async () => {
-  const sqlite = setupDb();
+  const { sqlite, db, internalSchema } = setupDb();
   const routes = createAuthRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
     usersTable,
   });
@@ -304,10 +320,7 @@ test("register returns 400 when JSON body is an array", async () => {
   sqlite.close();
 });
 
-// register — extra field whose Drizzle key is not blocked but whose DB column name IS (lines 185-193)
-// e.g., key="myRole" → column name="role". The field name "myRole" passes the direct BLOCKED check
-// (line 168) but the resolved column name "role" triggers the secondary check (lines 185-193).
-
+// register — extra field whose Drizzle key is not blocked but whose DB column name IS
 const usersTableWithRoleAlias = sqliteTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull().unique(),
@@ -316,9 +329,10 @@ const usersTableWithRoleAlias = sqliteTable("users", {
 });
 
 test("register returns 400 when signup field maps via column name to a blocked field", async () => {
-  const sqlite = setupDb(); // existing schema still has a "role" column — alias still maps to it
+  const { sqlite, db, internalSchema } = setupDb();
   const routes = createAuthRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
     usersTable: usersTableWithRoleAlias,
   });
@@ -327,7 +341,6 @@ test("register returns 400 when signup field maps via column name to a blocked f
     makeReq("/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      // "myRole" is not in BLOCKED_SIGNUP_FIELDS directly, but maps to DB column "role" which is
       body: JSON.stringify({ email: "user@example.com", password: "password123", myRole: "admin" }),
     }),
   );
@@ -347,9 +360,10 @@ const usersWithRequiredCompany = sqliteTable("users", {
   company: text("company").notNull(), // required, no default, not blocked
 });
 
-function setupDbWithCompany(): Database {
+function setupDbWithCompany() {
   const sqlite = new Database(":memory:");
-  bootstrapInternalTables(sqlite);
+  const adapter = new SqliteAdapter(sqlite);
+  adapter.bootstrapInternalTables();
   sqlite.run(`
     CREATE TABLE users (
       id TEXT PRIMARY KEY,
@@ -359,13 +373,16 @@ function setupDbWithCompany(): Database {
       company TEXT NOT NULL
     )
   `);
-  return sqlite;
+  const db = drizzle({ client: sqlite });
+  const internalSchema = getInternalSchema("sqlite");
+  return { sqlite, db, internalSchema };
 }
 
 test("register returns 400 when a required schema field is missing", async () => {
-  const sqlite = setupDbWithCompany();
+  const { sqlite, db, internalSchema } = setupDbWithCompany();
   const routes = createAuthRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
     usersTable: usersWithRequiredCompany,
   });
@@ -384,12 +401,13 @@ test("register returns 400 when a required schema field is missing", async () =>
   sqlite.close();
 });
 
-// /auth/register — rate-limit block (auth/routes.ts lines 57-63)
+// /auth/register — rate-limit block
 
 test("register returns 429 after exceeding the rate limit", async () => {
-  const sqlite = setupDb();
+  const { sqlite, db, internalSchema } = setupDb();
   const routes = createAuthRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
     usersTable,
   });

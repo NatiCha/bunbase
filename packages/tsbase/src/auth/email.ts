@@ -1,5 +1,7 @@
-import type { Database } from "bun:sqlite";
+import { eq, and, gt } from "drizzle-orm";
 import type { ResolvedConfig } from "../core/config.ts";
+import type { AnyDb } from "../core/db-types.ts";
+import type { InternalSchema } from "../core/internal-schema.ts";
 import { hashPassword } from "./passwords.ts";
 import { createSession, deleteUserSessions } from "./sessions.ts";
 import {
@@ -31,13 +33,16 @@ async function hashToken(token: string): Promise<string> {
 }
 
 interface EmailRouteDeps {
-  sqlite: Database;
+  db: AnyDb;
+  internalSchema: InternalSchema;
   config: ResolvedConfig;
+  usersTable: any;
 }
 
 export function createEmailRoutes(deps: EmailRouteDeps) {
-  const { sqlite, config } = deps;
+  const { db, internalSchema, config, usersTable } = deps;
   const isDev = config.development;
+  const tokens = internalSchema.verificationTokens;
 
   return {
     "/auth/request-password-reset": {
@@ -72,41 +77,37 @@ export function createEmailRoutes(deps: EmailRouteDeps) {
         }
 
         // Always return success to prevent user enumeration
-        const user = sqlite
-          .query<{ id: string }, { $email: string }>(
-            "SELECT id FROM users WHERE email = $email",
-          )
-          .get({ $email: email });
+        const userRows = await (db as any)
+          .select({ id: usersTable.id })
+          .from(usersTable)
+          .where(eq(usersTable.email, email))
+          ;
+
+        const user = userRows[0];
 
         if (user) {
           // Invalidate previous tokens
-          sqlite
-            .query(
-              "DELETE FROM _verification_tokens WHERE user_id = $userId AND type = $type",
-            )
-            .run({
-              $userId: user.id,
-              $type: "password_reset",
-            });
+          await (db as any)
+            .delete(tokens)
+            .where(and(eq(tokens.userId, user.id), eq(tokens.type, "password_reset")))
+            ;
 
           const token = Bun.randomUUIDv7();
           const tokenHash = await hashToken(token);
           const id = Bun.randomUUIDv7();
           const expiresAt = Math.floor(Date.now() / 1000) + 3600; // 1 hour
 
-          sqlite
-            .query(
-              `INSERT INTO _verification_tokens (id, user_id, token_hash, type, expires_at, created_at)
-               VALUES ($id, $userId, $tokenHash, $type, $expiresAt, $createdAt)`,
-            )
-            .run({
-              $id: id,
-              $userId: user.id,
-              $tokenHash: tokenHash,
-              $type: "password_reset",
-              $expiresAt: expiresAt,
-              $createdAt: new Date().toISOString(),
-            });
+          await (db as any)
+            .insert(tokens)
+            .values({
+              id,
+              userId: user.id,
+              tokenHash,
+              type: "password_reset",
+              expiresAt,
+              createdAt: new Date().toISOString(),
+            })
+            ;
 
           if (webhookUrl) {
             const webhookResponse = await fetch(webhookUrl, {
@@ -179,19 +180,19 @@ export function createEmailRoutes(deps: EmailRouteDeps) {
         const tokenHash = await hashToken(token);
         const now = Math.floor(Date.now() / 1000);
 
-        const tokenRow = sqlite
-          .query<
-            { id: string; user_id: string },
-            { $tokenHash: string; $type: string; $now: number }
-          >(
-            `SELECT id, user_id FROM _verification_tokens
-             WHERE token_hash = $tokenHash AND type = $type AND expires_at > $now`,
+        const tokenRows = await (db as any)
+          .select({ id: tokens.id, userId: tokens.userId })
+          .from(tokens)
+          .where(
+            and(
+              eq(tokens.tokenHash, tokenHash),
+              eq(tokens.type, "password_reset"),
+              gt(tokens.expiresAt, now),
+            ),
           )
-          .get({
-            $tokenHash: tokenHash,
-            $type: "password_reset",
-            $now: now,
-          });
+          ;
+
+        const tokenRow = tokenRows[0];
 
         if (!tokenRow) {
           return jsonError(
@@ -203,25 +204,24 @@ export function createEmailRoutes(deps: EmailRouteDeps) {
 
         // Update password
         const passwordHash = await hashPassword(password);
-        sqlite
-          .query("UPDATE users SET password_hash = $hash WHERE id = $id")
-          .run({ $hash: passwordHash, $id: tokenRow.user_id });
+        await (db as any)
+          .update(usersTable)
+          .set({ passwordHash })
+          .where(eq(usersTable.id, tokenRow.userId))
+          ;
 
         // Delete all sessions and tokens
-        deleteUserSessions(sqlite, tokenRow.user_id);
-        sqlite
-          .query(
-            "DELETE FROM _verification_tokens WHERE user_id = $userId AND type = $type",
-          )
-          .run({
-            $userId: tokenRow.user_id,
-            $type: "password_reset",
-          });
+        await deleteUserSessions(db, internalSchema, tokenRow.userId);
+        await (db as any)
+          .delete(tokens)
+          .where(and(eq(tokens.userId, tokenRow.userId), eq(tokens.type, "password_reset")))
+          ;
 
         // Create new session
-        const sessionId = createSession(
-          sqlite,
-          tokenRow.user_id,
+        const sessionId = await createSession(
+          db,
+          internalSchema,
+          tokenRow.userId,
           config.auth.tokenExpiry,
         );
         const sessionCookie = serializeCookie(
@@ -265,19 +265,19 @@ export function createEmailRoutes(deps: EmailRouteDeps) {
         const tokenHash = await hashToken(token);
         const now = Math.floor(Date.now() / 1000);
 
-        const tokenRow = sqlite
-          .query<
-            { id: string; user_id: string },
-            { $tokenHash: string; $type: string; $now: number }
-          >(
-            `SELECT id, user_id FROM _verification_tokens
-             WHERE token_hash = $tokenHash AND type = $type AND expires_at > $now`,
+        const tokenRows = await (db as any)
+          .select({ id: tokens.id, userId: tokens.userId })
+          .from(tokens)
+          .where(
+            and(
+              eq(tokens.tokenHash, tokenHash),
+              eq(tokens.type, "email_verification"),
+              gt(tokens.expiresAt, now),
+            ),
           )
-          .get({
-            $tokenHash: tokenHash,
-            $type: "email_verification",
-            $now: now,
-          });
+          ;
+
+        const tokenRow = tokenRows[0];
 
         if (!tokenRow) {
           return jsonError(
@@ -287,21 +287,22 @@ export function createEmailRoutes(deps: EmailRouteDeps) {
           );
         }
 
-        // Mark email as verified
+        // Mark email as verified (try — column might not exist)
         try {
-          sqlite
-            .query(
-              "UPDATE users SET email_verified = 1 WHERE id = $id",
-            )
-            .run({ $id: tokenRow.user_id });
+          await (db as any)
+            .update(usersTable)
+            .set({ emailVerified: 1 } as any)
+            .where(eq(usersTable.id, tokenRow.userId))
+            ;
         } catch {
           // email_verified column might not exist — that's OK
         }
 
         // Delete used token
-        sqlite
-          .query("DELETE FROM _verification_tokens WHERE id = $id")
-          .run({ $id: tokenRow.id });
+        await (db as any)
+          .delete(tokens)
+          .where(eq(tokens.id, tokenRow.id))
+          ;
 
         return Response.json({ message: "Email verified successfully" });
       },

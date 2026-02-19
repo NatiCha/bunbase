@@ -5,7 +5,8 @@ import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { join } from "node:path";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { bootstrapInternalTables } from "../core/bootstrap.ts";
+import { SqliteAdapter } from "../core/adapters/sqlite.ts";
+import { getInternalSchema } from "../core/internal-schema.ts";
 import { createFileRoutes, deleteRecordFiles, createStorageDriver } from "../storage/routes.ts";
 import { createLocalStorage } from "../storage/local.ts";
 import { createSession } from "../auth/sessions.ts";
@@ -25,27 +26,36 @@ const postsTable = sqliteTable("posts", {
   title: text("title").notNull(),
 });
 
+const usersTable = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash"),
+  role: text("role").notNull().default("user"),
+});
+
 function setupDb() {
   const sqlite = new Database(":memory:");
-  bootstrapInternalTables(sqlite);
+  const adapter = new SqliteAdapter(sqlite);
+  adapter.bootstrapInternalTables();
   sqlite.run("CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, role TEXT NOT NULL DEFAULT 'user')");
   sqlite.run("CREATE TABLE posts (id TEXT PRIMARY KEY, title TEXT NOT NULL)");
   const db = drizzle({ client: sqlite });
-  return { sqlite, db };
+  const internalSchema = getInternalSchema("sqlite");
+  return { sqlite, db, adapter, internalSchema };
 }
 
-function createAdminUser(sqlite: Database): string {
+async function createAdminUser(sqlite: Database, db: any, internalSchema: any): Promise<string> {
   sqlite
     .query("INSERT INTO users (id, email, role) VALUES ($id, $email, $role)")
     .run({ $id: "admin-1", $email: "admin@example.com", $role: "admin" });
-  return createSession(sqlite, "admin-1");
+  return createSession(db, internalSchema, "admin-1");
 }
 
-function createUser(sqlite: Database): string {
+async function createUser(sqlite: Database, db: any, internalSchema: any): Promise<string> {
   sqlite
     .query("INSERT INTO users (id, email, role) VALUES ($id, $email, $role)")
     .run({ $id: "user-1", $email: "user@example.com", $role: "user" });
-  return createSession(sqlite, "user-1");
+  return createSession(db, internalSchema, "user-1");
 }
 
 function makeConfig(overrides = {}) {
@@ -68,12 +78,14 @@ test("createStorageDriver returns local driver for local config", () => {
 // ─── POST /files/:collection/:recordId ───────────────────────────────────────
 
 test("POST /files: returns 401 when not authenticated", async () => {
-  const { sqlite, db } = setupDb();
+  const { sqlite, db, adapter, internalSchema } = setupDb();
   const routes = createFileRoutes({
-    sqlite,
     db,
+    adapter,
+    internalSchema,
     config: makeConfig(),
     schema: { posts: postsTable },
+    usersTable,
   });
 
   const response = await routes["/files/:collection/:recordId"].POST(
@@ -84,13 +96,15 @@ test("POST /files: returns 401 when not authenticated", async () => {
 });
 
 test("POST /files: returns 404 when record does not exist", async () => {
-  const { sqlite, db } = setupDb();
-  const sessionId = createUser(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createUser(sqlite, db, internalSchema);
   const routes = createFileRoutes({
-    sqlite,
     db,
+    adapter,
+    internalSchema,
     config: makeConfig(),
     schema: { posts: postsTable },
+    usersTable,
   });
 
   const formData = new FormData();
@@ -108,17 +122,19 @@ test("POST /files: returns 404 when record does not exist", async () => {
 });
 
 test("POST /files: returns 400 when no file is provided", async () => {
-  const { sqlite, db } = setupDb();
-  const sessionId = createUser(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createUser(sqlite, db, internalSchema);
   sqlite
     .query("INSERT INTO posts (id, title) VALUES ($id, $title)")
     .run({ $id: "rec-1", $title: "Post 1" });
 
   const routes = createFileRoutes({
-    sqlite,
     db,
+    adapter,
+    internalSchema,
     config: makeConfig(),
     schema: { posts: postsTable },
+    usersTable,
   });
 
   const formData = new FormData();
@@ -136,20 +152,22 @@ test("POST /files: returns 400 when no file is provided", async () => {
 });
 
 test("POST /files: returns 400 when file exceeds maxFileSize", async () => {
-  const { sqlite, db } = setupDb();
-  const sessionId = createUser(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createUser(sqlite, db, internalSchema);
   sqlite
     .query("INSERT INTO posts (id, title) VALUES ($id, $title)")
     .run({ $id: "rec-1", $title: "Post 1" });
 
   const routes = createFileRoutes({
-    sqlite,
     db,
+    adapter,
+    internalSchema,
     config: makeResolvedConfig({
       development: true,
       storage: { driver: "local" as const, localPath: storageDir, maxFileSize: 5 }, // 5 bytes max
     }),
     schema: { posts: postsTable },
+    usersTable,
   });
 
   const formData = new FormData();
@@ -169,15 +187,16 @@ test("POST /files: returns 400 when file exceeds maxFileSize", async () => {
 });
 
 test("POST /files: returns 400 when MIME type is not allowed", async () => {
-  const { sqlite, db } = setupDb();
-  const sessionId = createUser(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createUser(sqlite, db, internalSchema);
   sqlite
     .query("INSERT INTO posts (id, title) VALUES ($id, $title)")
     .run({ $id: "rec-1", $title: "Post 1" });
 
   const routes = createFileRoutes({
-    sqlite,
     db,
+    adapter,
+    internalSchema,
     config: makeResolvedConfig({
       development: true,
       storage: {
@@ -187,6 +206,7 @@ test("POST /files: returns 400 when MIME type is not allowed", async () => {
       },
     }),
     schema: { posts: postsTable },
+    usersTable,
   });
 
   const formData = new FormData();
@@ -204,17 +224,19 @@ test("POST /files: returns 400 when MIME type is not allowed", async () => {
 });
 
 test("POST /files: successfully uploads a file and returns 201", async () => {
-  const { sqlite, db } = setupDb();
-  const sessionId = createUser(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createUser(sqlite, db, internalSchema);
   sqlite
     .query("INSERT INTO posts (id, title) VALUES ($id, $title)")
     .run({ $id: "rec-1", $title: "Post 1" });
 
   const routes = createFileRoutes({
-    sqlite,
     db,
+    adapter,
+    internalSchema,
     config: makeConfig(),
     schema: { posts: postsTable },
+    usersTable,
   });
 
   const content = "Hello, file content!";
@@ -245,12 +267,14 @@ test("POST /files: successfully uploads a file and returns 201", async () => {
 // ─── GET /files/:id ──────────────────────────────────────────────────────────
 
 test("GET /files: returns 401 when not authenticated", async () => {
-  const { sqlite, db } = setupDb();
+  const { sqlite, db, adapter, internalSchema } = setupDb();
   const routes = createFileRoutes({
-    sqlite,
     db,
+    adapter,
+    internalSchema,
     config: makeConfig(),
     schema: { posts: postsTable },
+    usersTable,
   });
 
   const response = await routes["/files/:id"].GET(
@@ -261,13 +285,15 @@ test("GET /files: returns 401 when not authenticated", async () => {
 });
 
 test("GET /files: returns 404 for unknown file id", async () => {
-  const { sqlite, db } = setupDb();
-  const sessionId = createUser(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createUser(sqlite, db, internalSchema);
   const routes = createFileRoutes({
-    sqlite,
     db,
+    adapter,
+    internalSchema,
     config: makeConfig(),
     schema: { posts: postsTable },
+    usersTable,
   });
 
   const response = await routes["/files/:id"].GET(
@@ -282,12 +308,14 @@ test("GET /files: returns 404 for unknown file id", async () => {
 // ─── DELETE /files/:id ───────────────────────────────────────────────────────
 
 test("DELETE /files: returns 401 when not authenticated", async () => {
-  const { sqlite, db } = setupDb();
+  const { sqlite, db, adapter, internalSchema } = setupDb();
   const routes = createFileRoutes({
-    sqlite,
     db,
+    adapter,
+    internalSchema,
     config: makeConfig(),
     schema: { posts: postsTable },
+    usersTable,
   });
 
   const response = await routes["/files/:id"].DELETE(
@@ -298,13 +326,15 @@ test("DELETE /files: returns 401 when not authenticated", async () => {
 });
 
 test("DELETE /files: returns 404 for unknown file id", async () => {
-  const { sqlite, db } = setupDb();
-  const sessionId = createUser(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createUser(sqlite, db, internalSchema);
   const routes = createFileRoutes({
-    sqlite,
     db,
+    adapter,
+    internalSchema,
     config: makeConfig(),
     schema: { posts: postsTable },
+    usersTable,
   });
 
   const response = await routes["/files/:id"].DELETE(
@@ -320,7 +350,7 @@ test("DELETE /files: returns 404 for unknown file id", async () => {
 // ─── deleteRecordFiles ───────────────────────────────────────────────────────
 
 test("deleteRecordFiles removes all files for a record", async () => {
-  const { sqlite } = setupDb();
+  const { sqlite, db, internalSchema } = setupDb();
   const storage = createLocalStorage(storageDir);
 
   // Write a file to storage and insert a DB record
@@ -342,7 +372,7 @@ test("deleteRecordFiles removes all files for a record", async () => {
       $ca: new Date().toISOString(),
     });
 
-  await deleteRecordFiles(sqlite, storage, "posts", "rec-del");
+  await deleteRecordFiles(db, internalSchema, storage, "posts", "rec-del");
 
   // The DB record and the actual file should be gone
   const remaining = sqlite

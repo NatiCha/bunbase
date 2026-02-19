@@ -21,9 +21,7 @@ export function printSummary({
   const lines: string[] = [];
 
   lines.push("");
-  lines.push(
-    `  ${GREEN}✓${RESET} ${BOLD}TSBase project "${projectName}" is running!${RESET}`,
-  );
+  lines.push(`  ${GREEN}✓${RESET} ${BOLD}TSBase project "${projectName}" is running!${RESET}`);
   lines.push("");
   lines.push(`  ${BOLD}Server:${RESET}     ${CYAN}${base}${RESET}`);
   lines.push(`  ${BOLD}Admin UI:${RESET}   ${CYAN}${base}/_admin${RESET}`);
@@ -52,20 +50,19 @@ export function printSummary({
   }
 
   lines.push("");
-  lines.push(`  ${BOLD}Try it:${RESET}`);
-  lines.push(`    ${DIM}curl ${base}/health${RESET}`);
-  lines.push(
-    `    ${DIM}curl -X POST ${base}/auth/register \\${RESET}`,
-  );
-  lines.push(
-    `    ${DIM}  -H "Content-Type: application/json" \\${RESET}`,
-  );
-  lines.push(
-    `    ${DIM}  -d '{"email":"test@example.com","password":"password123"}'${RESET}`,
-  );
+  lines.push(`  ${BOLD}Admin login:${RESET}`);
+  lines.push(`    Email:    ${BOLD}admin@example.com${RESET}`);
+  lines.push(`    Password: ${BOLD}admin${RESET}`);
+  lines.push(`    ${DIM}(change this after first login)${RESET}`);
 
   lines.push("");
-  lines.push(`  Press ${BOLD}Ctrl+C${RESET} to stop the server.`);
+  lines.push(`  ${BOLD}Try it:${RESET}`);
+  lines.push(`    ${DIM}curl ${base}/health${RESET}`);
+  lines.push(`    ${DIM}curl -X POST ${base}/auth/register \\${RESET}`);
+  lines.push(`    ${DIM}  -H "Content-Type: application/json" \\${RESET}`);
+  lines.push(`    ${DIM}  -d '{"email":"test@example.com","password":"password123"}'${RESET}`);
+
+
   lines.push("");
 
   console.log(lines.join("\n"));

@@ -1,27 +1,19 @@
 import { mkdirSync, existsSync } from "node:fs";
-import { join } from "node:path";
-import { text, select, multiSelect, closePrompts } from "./prompts.ts";
+import { join, resolve } from "node:path";
+import { text, select, multiSelect, closePrompts, clack } from "./prompts.ts";
 import {
   getTemplate,
+  slugifyDbName,
   TEMPLATE_OPTIONS,
+  DATABASE_OPTIONS,
   OAUTH_OPTIONS,
   type TemplateType,
   type OAuthProvider,
+  type DatabaseDriver,
 } from "./templates.ts";
 import { printSummary } from "./summary.ts";
 
 const STATIC_FILES: Record<string, string> = {
-  "drizzle.config.ts": `import { defineConfig } from "drizzle-kit";
-
-export default defineConfig({
-  dialect: "sqlite",
-  schema: "./src/schema.ts",
-  dbCredentials: {
-    url: "./data/db.sqlite",
-  },
-});
-`,
-
   "tsconfig.json": `{
   "compilerOptions": {
     "lib": ["ESNext", "DOM"],
@@ -48,6 +40,10 @@ export default defineConfig({
 }
 `,
 
+  "bunfig.toml": `[serve.static]
+plugins = ["bun-plugin-tailwind"]
+`,
+
   ".gitignore": `node_modules
 dist
 data/
@@ -65,8 +61,7 @@ export interface InitOptions {
 }
 
 export async function init({ projectName, nonInteractive }: InitOptions) {
-  // Welcome banner
-  console.log(`\n  \x1b[1m\x1b[36mTSBase\x1b[0m — create a new project\n`);
+  clack.intro("\x1b[1m\x1b[36mTSBase\x1b[0m — create a new project");
 
   // 1. Get project name
   if (!projectName) {
@@ -88,17 +83,30 @@ export async function init({ projectName, nonInteractive }: InitOptions) {
     process.exit(1);
   }
 
-  // 3. Select template
+  // 3. Select database driver
+  let driver: DatabaseDriver = "sqlite";
+  if (!nonInteractive) {
+    driver = await select("Database", DATABASE_OPTIONS);
+  }
+
+  // 4. For Postgres/MySQL: prompt for database name (default derived from project name)
+  let dbName = slugifyDbName(projectName);
+  if (driver !== "sqlite" && !nonInteractive) {
+    const input = await text("Database name", dbName);
+    if (input) dbName = slugifyDbName(input);
+  }
+
+  // 5. Select template
   let templateType: TemplateType = "empty";
   if (!nonInteractive) {
     templateType = await select("What are you building?", TEMPLATE_OPTIONS);
   }
 
-  // 4. Select OAuth providers
+  // 6. Select OAuth providers
   let oauthProviders: OAuthProvider[] = [];
   if (!nonInteractive) {
     oauthProviders = await multiSelect(
-      "OAuth providers? (optional)",
+      "OAuth providers? (Space to select, Enter to skip)",
       OAUTH_OPTIONS,
     );
   }
@@ -106,10 +114,8 @@ export async function init({ projectName, nonInteractive }: InitOptions) {
   // Done with prompts
   closePrompts();
 
-  // 5. Generate template
-  const template = getTemplate(templateType, oauthProviders);
-
-  console.log(`\n  Creating ${projectName}...`);
+  // 7. Generate template
+  const template = getTemplate(templateType, driver, oauthProviders, dbName);
 
   // Create directories
   mkdirSync(join(projectDir, "src"), { recursive: true });
@@ -119,6 +125,7 @@ export async function init({ projectName, nonInteractive }: InitOptions) {
     "src/index.ts": template.indexTs,
     "src/schema.ts": template.schema,
     "src/rules.ts": template.rules,
+    "drizzle.config.ts": template.drizzleConfig,
     ".env": template.env,
     ...STATIC_FILES,
   };
@@ -130,7 +137,6 @@ export async function init({ projectName, nonInteractive }: InitOptions) {
       mkdirSync(dir, { recursive: true });
     }
     await Bun.write(fullPath, content);
-    console.log(`  \x1b[32m+\x1b[0m ${filePath}`);
   }
 
   // Write package.json
@@ -144,10 +150,12 @@ export async function init({ projectName, nonInteractive }: InitOptions) {
       studio: "bunx drizzle-kit studio",
     },
     dependencies: {
-      tsbase: "latest",
+      tsbase: resolveTsbaseVersion(projectDir),
+      "drizzle-orm": "latest",
     },
     devDependencies: {
       "@types/bun": "latest",
+      "bun-plugin-tailwind": "latest",
       "drizzle-kit": "latest",
     },
   };
@@ -156,23 +164,28 @@ export async function init({ projectName, nonInteractive }: InitOptions) {
     join(projectDir, "package.json"),
     JSON.stringify(packageJson, null, 2),
   );
-  console.log(`  \x1b[32m+\x1b[0m package.json`);
 
-  // 6. Auto-install
-  console.log(`\n  Installing dependencies...\n`);
+  const allFiles = [...Object.keys(files), "package.json"];
+  clack.log.info("Created files:\n" + allFiles.map(f => `  \x1b[2m${f}\x1b[0m`).join("\n"));
+
+  // 7. Auto-install
+  const installSpinner = clack.spinner();
+  installSpinner.start("Installing dependencies");
   try {
     await Bun.$`cd ${projectDir} && bun install`.quiet();
-    console.log(`  \x1b[32m✓\x1b[0m Dependencies installed`);
+    installSpinner.stop("Dependencies installed");
   } catch (err) {
-    console.error(`\n  \x1b[31m✗\x1b[0m Failed to install dependencies.`);
-    console.error(`  Run \x1b[1mcd ${projectName} && bun install\x1b[0m manually.\n`);
+    installSpinner.stop("Failed to install dependencies");
+    clack.log.error(`Run \x1b[1mcd ${projectName} && bun install\x1b[0m manually.`);
     process.exit(1);
   }
 
-  // 7. Auto-start dev server
-  console.log(`\n  Starting dev server...\n`);
-
   const port = 3000;
+
+  // 8. Auto-start dev server (both SQLite and Postgres)
+  const serverSpinner = clack.spinner();
+  serverSpinner.start("Starting dev server");
+
   const serverProc = Bun.spawn(["bun", "--hot", "src/index.ts"], {
     cwd: projectDir,
     stdout: "inherit",
@@ -183,15 +196,12 @@ export async function init({ projectName, nonInteractive }: InitOptions) {
   const ready = await waitForServer(serverProc, port);
 
   if (!ready && serverProc.exitCode !== null) {
-    console.error(`\n  \x1b[31m✗\x1b[0m Server failed to start (exit code ${serverProc.exitCode}).\n`);
-    console.error(`  Try running manually:`);
-    console.error(`    cd ${projectName} && bun --hot src/index.ts\n`);
+    serverSpinner.stop("Server failed to start");
+    clack.log.error(`Try running manually: cd ${projectName} && bun --hot src/index.ts`);
     process.exit(1);
   }
 
-  if (!ready) {
-    console.log(`\n  \x1b[33m⚠\x1b[0m Server is taking longer than expected to start...`);
-  }
+  serverSpinner.stop(ready ? "Server started" : "Server is taking longer than expected...");
 
   printSummary({
     projectName,
@@ -202,12 +212,14 @@ export async function init({ projectName, nonInteractive }: InitOptions) {
 
   // Offer to open admin UI
   if (!nonInteractive) {
-    const openAdmin = await promptYesNo("  Open admin UI in browser? (Y/n): ");
-    if (openAdmin) {
+    const openAdmin = await clack.confirm({ message: "Open admin UI in browser?", initialValue: true });
+    if (!clack.isCancel(openAdmin) && openAdmin) {
       const cmd = process.platform === "darwin" ? "open" : "xdg-open";
       Bun.spawn([cmd, `http://localhost:${port}/_admin`]);
     }
   }
+
+  clack.outro("Press Ctrl+C to stop the server.");
 
   // Keep process alive until server exits or Ctrl+C
   process.on("SIGINT", () => {
@@ -216,6 +228,33 @@ export async function init({ projectName, nonInteractive }: InitOptions) {
   });
 
   await serverProc.exited;
+}
+
+/**
+ * When running the CLI directly from the source tree (e.g. during development),
+ * use a `file:` reference to the local package so the scaffolded project gets
+ * the in-development code rather than the last published npm version.
+ * In a normal install (bunx tsbase / npx tsbase) __dirname resolves inside
+ * node_modules and the `file:` path won't exist, so we fall back to "latest".
+ */
+function resolveTsbaseVersion(_projectDir: string): string {
+  // import.meta.dir is src/cli/ — two levels up reaches packages/tsbase/
+  const packageRoot = resolve(import.meta.dir, "../..");
+  const packageJsonPath = join(packageRoot, "package.json");
+  if (existsSync(packageJsonPath)) {
+    try {
+      const pkg = JSON.parse(
+        require("node:fs").readFileSync(packageJsonPath, "utf8"),
+      );
+      if (pkg.name === "tsbase") {
+        // Running from source — point directly at the local package
+        return `file:${packageRoot}`;
+      }
+    } catch {
+      // fall through
+    }
+  }
+  return "latest";
 }
 
 async function waitForServer(
@@ -243,15 +282,3 @@ async function waitForServer(
 }
 
 
-function promptYesNo(message: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    process.stdout.write(message);
-    const { createInterface } = require("node:readline");
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    rl.once("line", (answer: string) => {
-      rl.close();
-      const trimmed = answer.trim().toLowerCase();
-      resolve(trimmed === "" || trimmed.startsWith("y"));
-    });
-  });
-}

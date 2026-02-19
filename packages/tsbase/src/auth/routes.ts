@@ -1,5 +1,8 @@
-import type { Database } from "bun:sqlite";
+import { eq, getColumns } from "drizzle-orm";
 import type { ResolvedConfig } from "../core/config.ts";
+import type { AnyDb } from "../core/db-types.ts";
+import type { InternalSchema } from "../core/internal-schema.ts";
+import type { Column } from "drizzle-orm";
 import { hashPassword, verifyPassword } from "./passwords.ts";
 import { createSession, deleteSession } from "./sessions.ts";
 import {
@@ -12,8 +15,6 @@ import {
 import { setCsrfCookie, validateCsrf } from "./csrf.ts";
 import { checkRateLimit, getClientIp } from "./rate-limit.ts";
 import { extractAuth, extractSessionId } from "./middleware.ts";
-import { getColumns } from "drizzle-orm";
-import type { SQLiteColumn, SQLiteTableWithColumns } from "drizzle-orm/sqlite-core";
 import { z } from "zod/v4";
 
 const SESSION_COOKIE = "tsbase_session";
@@ -29,20 +30,17 @@ const BLOCKED_SIGNUP_FIELDS = new Set([
 type UsersRow = Record<string, unknown>;
 type UsersColumnInfo = {
   key: string;
-  column: SQLiteColumn;
+  column: Column;
 };
 
 interface AuthRouteDeps {
-  sqlite: Database;
+  db: AnyDb;
+  internalSchema: InternalSchema;
   config: ResolvedConfig;
-  usersTable: SQLiteTableWithColumns<any> | null;
+  usersTable: any | null;
 }
 
-function jsonError(
-  code: string,
-  message: string,
-  status: number,
-): Response {
+function jsonError(code: string, message: string, status: number): Response {
   return Response.json({ error: { code, message } }, { status });
 }
 
@@ -73,7 +71,7 @@ function stripSensitiveUserFields(user: UsersRow): UsersRow {
   return sanitized;
 }
 
-function getUsersColumns(usersTable: SQLiteTableWithColumns<any> | null): {
+function getUsersColumns(usersTable: any | null): {
   byInputField: Map<string, UsersColumnInfo>;
   requiredSignupColumns: Set<string>;
 } {
@@ -86,15 +84,15 @@ function getUsersColumns(usersTable: SQLiteTableWithColumns<any> | null): {
 
   const columns = getColumns(usersTable);
   for (const [key, column] of Object.entries(columns)) {
-    const sqliteColumn = column as SQLiteColumn;
-    byInputField.set(key, { key, column: sqliteColumn });
-    byInputField.set(sqliteColumn.name, { key, column: sqliteColumn });
+    const col = column as Column;
+    byInputField.set(key, { key, column: col });
+    byInputField.set((col as any).name, { key, column: col });
 
     if (
-      sqliteColumn.notNull &&
-      !sqliteColumn.hasDefault &&
+      (col as any).notNull &&
+      !(col as any).hasDefault &&
       !BLOCKED_SIGNUP_FIELDS.has(key) &&
-      !BLOCKED_SIGNUP_FIELDS.has(sqliteColumn.name) &&
+      !BLOCKED_SIGNUP_FIELDS.has((col as any).name) &&
       key !== "email"
     ) {
       requiredSignupColumns.add(key);
@@ -113,7 +111,7 @@ function resolvePasswordHash(user: UsersRow): string | null {
 }
 
 export function createAuthRoutes(deps: AuthRouteDeps) {
-  const { sqlite, config, usersTable } = deps;
+  const { db, internalSchema, config, usersTable } = deps;
   const isDev = config.development;
   const { byInputField, requiredSignupColumns } = getUsersColumns(usersTable);
 
@@ -162,7 +160,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
             ([key]) => key !== "email" && key !== "password",
           );
 
-          const signupExtrasByColumn: Record<string, unknown> = {};
+          const signupExtrasByKey: Record<string, unknown> = {};
           const providedExtraColumns = new Set<string>();
           for (const [field, value] of extraFields) {
             if (BLOCKED_SIGNUP_FIELDS.has(field)) {
@@ -184,7 +182,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
 
             if (
               BLOCKED_SIGNUP_FIELDS.has(columnInfo.key) ||
-              BLOCKED_SIGNUP_FIELDS.has(columnInfo.column.name)
+              BLOCKED_SIGNUP_FIELDS.has((columnInfo.column as any).name)
             ) {
               return jsonError(
                 "BAD_REQUEST",
@@ -193,7 +191,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
               );
             }
 
-            signupExtrasByColumn[columnInfo.column.name] = value;
+            signupExtrasByKey[columnInfo.key] = value;
             providedExtraColumns.add(columnInfo.key);
           }
 
@@ -208,42 +206,40 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
             );
           }
 
-          // Check existing user
-          const existing = sqlite
-            .query<{ id: string }, { $email: string }>(
-              "SELECT id FROM users WHERE email = $email",
-            )
-            .get({ $email: email });
+          // Check existing user via Drizzle
+          const existingRows = await (db as any)
+            .select({ id: usersTable.id })
+            .from(usersTable)
+            .where(eq(usersTable.email, email))
+            ;
 
-          if (existing) {
+          if (existingRows.length > 0) {
             return jsonError("CONFLICT", "Email already registered", 409);
           }
 
           const id = Bun.randomUUIDv7();
           const passwordHash = await hashPassword(password);
 
-          const insertRow: Record<string, unknown> = {
+          const insertData: Record<string, unknown> = {
             id,
             email,
-            password_hash: passwordHash,
+            passwordHash: passwordHash,
             role: "user",
-            ...signupExtrasByColumn,
+            ...signupExtrasByKey,
           };
 
-          const insertColumns = Object.keys(insertRow);
-          const insertSql = `INSERT INTO users (${insertColumns.map((column) => `"${column}"`).join(", ")}) VALUES (${insertColumns.map((column) => `$${column}`).join(", ")})`;
-          const insertParams = Object.fromEntries(
-            insertColumns.map((column) => [`$${column}`, insertRow[column]]),
-          );
+          await (db as any).insert(usersTable).values(insertData);
 
-          sqlite.query(insertSql).run(insertParams as any);
+          const createdRows = await (db as any)
+            .select()
+            .from(usersTable)
+            .where(eq(usersTable.id, id))
+            ;
 
-          const createdUser = sqlite
-            .query<UsersRow, { $id: string }>("SELECT * FROM users WHERE id = $id")
-            .get({ $id: id });
+          const createdUser = createdRows[0];
 
           // Create session
-          const sessionId = createSession(sqlite, id, config.auth.tokenExpiry);
+          const sessionId = await createSession(db, internalSchema, id, config.auth.tokenExpiry);
 
           // Set cookies
           const sessionCookie = serializeCookie(
@@ -276,6 +272,14 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
     "/auth/login": {
       async POST(req: Request): Promise<Response> {
         return withRateLimit(req, async () => {
+          if (!usersTable) {
+            return jsonError(
+              "INTERNAL_SERVER_ERROR",
+              "TSBase users table is not configured",
+              500,
+            );
+          }
+
           let body: unknown;
           try {
             body = await req.json();
@@ -283,12 +287,12 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
             return jsonError("BAD_REQUEST", "Invalid JSON body", 400);
           }
 
-          const schema = z.object({
+          const valSchema = z.object({
             email: z.email(),
             password: z.string(),
           });
 
-          const result = schema.safeParse(body);
+          const result = valSchema.safeParse(body);
           if (!result.success) {
             return jsonError(
               "VALIDATION_ERROR",
@@ -299,12 +303,13 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
 
           const { email, password } = result.data;
 
-          const user = sqlite
-            .query<UsersRow, { $email: string }>(
-              "SELECT * FROM users WHERE email = $email",
-            )
-            .get({ $email: email });
+          const rows = await (db as any)
+            .select()
+            .from(usersTable)
+            .where(eq(usersTable.email, email))
+            ;
 
+          const user = rows[0];
           if (!user) {
             return jsonError("UNAUTHORIZED", "Invalid email or password", 401);
           }
@@ -323,8 +328,9 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
             return jsonError("UNAUTHORIZED", "Invalid email or password", 401);
           }
 
-          const sessionId = createSession(
-            sqlite,
+          const sessionId = await createSession(
+            db,
+            internalSchema,
             String(user.id),
             config.auth.tokenExpiry,
           );
@@ -362,7 +368,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
 
         const sessionId = extractSessionId(req);
         if (sessionId) {
-          deleteSession(sqlite, sessionId);
+          await deleteSession(db, internalSchema, sessionId);
         }
 
         const clearSession = clearCookie(SESSION_COOKIE, isDev);
@@ -385,12 +391,11 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
 
     "/auth/me": {
       async GET(req: Request): Promise<Response> {
-        const user = await extractAuth(req, sqlite);
+        const user = await extractAuth(req, db, internalSchema, usersTable);
         if (!user) {
           return jsonError("UNAUTHORIZED", "Not authenticated", 401);
         }
 
-        // Remove sensitive fields
         return Response.json({ user: stripSensitiveUserFields(user as UsersRow) });
       },
     },

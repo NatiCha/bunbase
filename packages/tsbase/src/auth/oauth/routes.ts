@@ -1,5 +1,7 @@
-import type { Database } from "bun:sqlite";
+import { eq, and } from "drizzle-orm";
 import type { ResolvedConfig, OAuthProviderConfig } from "../../core/config.ts";
+import type { AnyDb } from "../../core/db-types.ts";
+import type { InternalSchema } from "../../core/internal-schema.ts";
 import type { OAuthProvider } from "./types.ts";
 import { google } from "./google.ts";
 import { github } from "./github.ts";
@@ -22,14 +24,17 @@ function jsonError(code: string, message: string, status: number): Response {
 }
 
 interface OAuthRouteDeps {
-  sqlite: Database;
+  db: AnyDb;
+  internalSchema: InternalSchema;
   config: ResolvedConfig;
+  usersTable: any;
 }
 
 export function createOAuthRoutes(deps: OAuthRouteDeps) {
-  const { sqlite, config } = deps;
+  const { db, internalSchema, config, usersTable } = deps;
   const isDev = config.development;
   const oauthConfig = config.auth.oauth;
+  const oauthAccounts = internalSchema.oauthAccounts;
 
   if (!oauthConfig) return {};
 
@@ -104,66 +109,67 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
           const userInfo = await provider.getUserInfo(accessToken);
 
           // Check for existing OAuth account link
-          const existingOAuth = sqlite
-            .query<
-              { user_id: string },
-              { $provider: string; $providerAccountId: string }
-            >(
-              "SELECT user_id FROM _oauth_accounts WHERE provider = $provider AND provider_account_id = $providerAccountId",
+          const existingOAuthRows = await (db as any)
+            .select({ userId: oauthAccounts.userId })
+            .from(oauthAccounts)
+            .where(
+              and(
+                eq(oauthAccounts.provider, providerName),
+                eq(oauthAccounts.providerAccountId, userInfo.id),
+              ),
             )
-            .get({
-              $provider: providerName,
-              $providerAccountId: userInfo.id,
-            });
+            ;
 
+          const existingOAuth = existingOAuthRows[0];
           let userId: string;
 
           if (existingOAuth) {
-            userId = existingOAuth.user_id;
+            userId = existingOAuth.userId;
           } else {
             // Check if user with this email exists
-            const existingUser = sqlite
-              .query<{ id: string }, { $email: string }>(
-                "SELECT id FROM users WHERE email = $email",
-              )
-              .get({ $email: userInfo.email });
+            const existingUserRows = await (db as any)
+              .select({ id: usersTable.id })
+              .from(usersTable)
+              .where(eq(usersTable.email, userInfo.email))
+              ;
+
+            const existingUser = existingUserRows[0];
 
             if (existingUser) {
               userId = existingUser.id;
             } else {
               // Create new user
               userId = Bun.randomUUIDv7();
-              sqlite
-                .query(
-                  `INSERT INTO users (id, email, password_hash, role, name)
-                   VALUES ($id, $email, NULL, $role, $name)`,
-                )
-                .run({
-                  $id: userId,
-                  $email: userInfo.email,
-                  $role: "user",
-                  $name: userInfo.name ?? null,
-                });
+              const insertData: Record<string, unknown> = {
+                id: userId,
+                email: userInfo.email,
+                passwordHash: null,
+                role: "user",
+              };
+              // Add name if the column exists
+              if (usersTable.name) {
+                insertData.name = userInfo.name ?? null;
+              }
+              await (db as any).insert(usersTable).values(insertData);
             }
 
             // Link OAuth account
-            sqlite
-              .query(
-                `INSERT INTO _oauth_accounts (id, user_id, provider, provider_account_id, created_at)
-                 VALUES ($id, $userId, $provider, $providerAccountId, $createdAt)`,
-              )
-              .run({
-                $id: Bun.randomUUIDv7(),
-                $userId: userId,
-                $provider: providerName,
-                $providerAccountId: userInfo.id,
-                $createdAt: new Date().toISOString(),
-              });
+            await (db as any)
+              .insert(oauthAccounts)
+              .values({
+                id: Bun.randomUUIDv7(),
+                userId,
+                provider: providerName,
+                providerAccountId: userInfo.id,
+                createdAt: new Date().toISOString(),
+              })
+              ;
           }
 
           // Create session
-          const sessionId = createSession(
-            sqlite,
+          const sessionId = await createSession(
+            db,
+            internalSchema,
             userId,
             config.auth.tokenExpiry,
           );

@@ -1,5 +1,5 @@
 import { eq, and, type SQL } from "drizzle-orm";
-import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
+import type { Column } from "drizzle-orm";
 import type { RuleContext } from "./types.ts";
 
 // Common rule helpers that users can use in their rule definitions
@@ -16,7 +16,7 @@ export function admin(ctx: RuleContext): boolean {
 
 /** Allow only the record owner (match column value to auth user id) */
 export function ownerOnly(
-  ownerColumn: SQLiteColumn,
+  ownerColumn: Column,
   ctx: RuleContext,
 ): SQL | boolean {
   if (!ctx.auth) return false;
@@ -25,7 +25,7 @@ export function ownerOnly(
 
 /** Allow admins or the record owner */
 export function adminOrOwner(
-  ownerColumn: SQLiteColumn,
+  ownerColumn: Column,
   ctx: RuleContext,
 ): SQL | boolean {
   if (!ctx.auth) return false;

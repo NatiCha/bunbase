@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createDatabase, runUserMigrations } from "../core/database.ts";
+import { makeResolvedConfig } from "./test-helpers.ts";
 
 const testRoot = join(tmpdir(), `tsbase-db-test-${Date.now()}`);
 mkdirSync(testRoot, { recursive: true });
@@ -15,26 +16,20 @@ afterAll(() => {
 
 // ─── createDatabase ──────────────────────────────────────────────────────────
 
-test("createDatabase creates the SQLite file and returns db+sqlite", () => {
+test("createDatabase creates the SQLite file and returns db+adapter", () => {
   const dbPath = join(testRoot, "new-dir", "test.sqlite");
-  const { db, sqlite } = createDatabase({
+  const config = makeResolvedConfig({
+    database: { driver: "sqlite", url: dbPath },
     dbPath,
-    migrationsPath: "./drizzle",
-    development: true,
-    auth: { tokenExpiry: 3600 },
-    storage: { driver: "local", localPath: "./data/uploads", maxFileSize: 10_000_000 },
-    cors: { origins: [] },
   });
+  const { db, dialect, adapter } = createDatabase(config);
 
   expect(existsSync(dbPath)).toBe(true);
   expect(db).toBeDefined();
-  expect(sqlite).toBeDefined();
+  expect(dialect).toBe("sqlite");
+  expect(adapter).toBeDefined();
 
-  // WAL mode should be set
-  const mode = sqlite.query<{ journal_mode: string }, []>("PRAGMA journal_mode").get([]);
-  expect(mode?.journal_mode).toBe("wal");
-
-  sqlite.close();
+  adapter.close();
 });
 
 test("createDatabase works when the directory already exists", () => {
@@ -42,30 +37,28 @@ test("createDatabase works when the directory already exists", () => {
   mkdirSync(dir, { recursive: true });
   const dbPath = join(dir, "second.sqlite");
 
-  const { sqlite } = createDatabase({
+  const config = makeResolvedConfig({
+    database: { driver: "sqlite", url: dbPath },
     dbPath,
-    migrationsPath: "./drizzle",
-    development: true,
-    auth: { tokenExpiry: 3600 },
-    storage: { driver: "local", localPath: "./data/uploads", maxFileSize: 10_000_000 },
-    cors: { origins: [] },
   });
+  const { adapter } = createDatabase(config);
 
   expect(existsSync(dbPath)).toBe(true);
-  sqlite.close();
+  adapter.close();
 });
 
 // ─── runUserMigrations ───────────────────────────────────────────────────────
 
-test("runUserMigrations warns and continues in dev when migrations folder is missing", () => {
-  const { db, sqlite } = createDatabase({
-    dbPath: join(testRoot, "migrations-dev.sqlite"),
-    migrationsPath: join(testRoot, "no-such-migrations"),
+test("runUserMigrations warns and continues in dev when migrations folder is missing", async () => {
+  const dbPath = join(testRoot, "migrations-dev.sqlite");
+  const migrationsPath = join(testRoot, "no-such-migrations");
+  const config = makeResolvedConfig({
+    database: { driver: "sqlite", url: dbPath },
+    dbPath,
+    migrationsPath,
     development: true,
-    auth: { tokenExpiry: 3600 },
-    storage: { driver: "local", localPath: "./data/uploads", maxFileSize: 10_000_000 },
-    cors: { origins: [] },
   });
+  const { db, adapter } = createDatabase(config);
 
   const warnings: string[] = [];
   const origWarn = console.warn;
@@ -73,28 +66,18 @@ test("runUserMigrations warns and continues in dev when migrations folder is mis
 
   try {
     // Should not throw in dev mode
-    expect(() =>
-      runUserMigrations(db, {
-        dbPath: join(testRoot, "migrations-dev.sqlite"),
-        migrationsPath: join(testRoot, "no-such-migrations"),
-        development: true,
-        auth: { tokenExpiry: 3600 },
-        storage: { driver: "local", localPath: "./data/uploads", maxFileSize: 10_000_000 },
-        cors: { origins: [] },
-      }),
-    ).not.toThrow();
-
+    await runUserMigrations(db, config);
     expect(warnings.some((w) => w.includes("migrations folder not found"))).toBe(true);
   } finally {
     console.warn = origWarn;
-    sqlite.close();
+    adapter.close();
   }
 });
 
-// ─── runUserMigrations — catch block (lines 49-53) ───────────────────────────
+// ─── runUserMigrations — catch block ─────────────────────────────────────────
 // Create a folder with invalid _journal.json so migrate() throws a parse error.
 
-test("runUserMigrations warns and continues in dev when migrate() throws", () => {
+test("runUserMigrations warns and continues in dev when migrate() throws", async () => {
   const migrationsPath = join(testRoot, "invalid-meta-dev");
   mkdirSync(join(migrationsPath, "meta"), { recursive: true });
   writeFileSync(
@@ -102,40 +85,31 @@ test("runUserMigrations warns and continues in dev when migrate() throws", () =>
     "{ this is not valid json }",
   );
 
-  const { db, sqlite } = createDatabase({
-    dbPath: join(testRoot, "migrate-catch-dev.sqlite"),
+  const dbPath = join(testRoot, "migrate-catch-dev.sqlite");
+  const config = makeResolvedConfig({
+    database: { driver: "sqlite", url: dbPath },
+    dbPath,
     migrationsPath,
     development: true,
-    auth: { tokenExpiry: 3600 },
-    storage: { driver: "local", localPath: "./data/uploads", maxFileSize: 10_000_000 },
-    cors: { origins: [] },
   });
+  const { db, adapter } = createDatabase(config);
 
   const warnings: string[] = [];
   const origWarn = console.warn;
   console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
 
   try {
-    expect(() =>
-      runUserMigrations(db, {
-        dbPath: join(testRoot, "migrate-catch-dev.sqlite"),
-        migrationsPath,
-        development: true,
-        auth: { tokenExpiry: 3600 },
-        storage: { driver: "local", localPath: "./data/uploads", maxFileSize: 10_000_000 },
-        cors: { origins: [] },
-      }),
-    ).not.toThrow();
+    await runUserMigrations(db, config);
     expect(
       warnings.some((w) => w.includes("failed to run migrations")),
     ).toBe(true);
   } finally {
     console.warn = origWarn;
-    sqlite.close();
+    adapter.close();
   }
 });
 
-test("runUserMigrations re-throws in production when migrate() throws", () => {
+test("runUserMigrations re-throws in production when migrate() throws", async () => {
   const migrationsPath = join(testRoot, "invalid-meta-prod");
   mkdirSync(join(migrationsPath, "meta"), { recursive: true });
   writeFileSync(
@@ -143,53 +117,38 @@ test("runUserMigrations re-throws in production when migrate() throws", () => {
     "{ not json }",
   );
 
-  const { db, sqlite } = createDatabase({
-    dbPath: join(testRoot, "migrate-catch-prod.sqlite"),
+  const dbPath = join(testRoot, "migrate-catch-prod.sqlite");
+  const config = makeResolvedConfig({
+    database: { driver: "sqlite", url: dbPath },
+    dbPath,
     migrationsPath,
     development: false,
-    auth: { tokenExpiry: 3600 },
-    storage: { driver: "local", localPath: "./data/uploads", maxFileSize: 10_000_000 },
     cors: { origins: ["https://example.com"] },
   });
+  const { db, adapter } = createDatabase(config);
 
   try {
-    expect(() =>
-      runUserMigrations(db, {
-        dbPath: join(testRoot, "migrate-catch-prod.sqlite"),
-        migrationsPath,
-        development: false,
-        auth: { tokenExpiry: 3600 },
-        storage: { driver: "local", localPath: "./data/uploads", maxFileSize: 10_000_000 },
-        cors: { origins: ["https://example.com"] },
-      }),
-    ).toThrow();
+    await expect(runUserMigrations(db, config)).rejects.toThrow();
   } finally {
-    sqlite.close();
+    adapter.close();
   }
 });
 
-test("runUserMigrations throws in production when migrations folder is missing", () => {
-  const { db, sqlite } = createDatabase({
-    dbPath: join(testRoot, "migrations-prod.sqlite"),
-    migrationsPath: join(testRoot, "no-such-migrations-prod"),
+test("runUserMigrations throws in production when migrations folder is missing", async () => {
+  const dbPath = join(testRoot, "migrations-prod.sqlite");
+  const migrationsPath = join(testRoot, "no-such-migrations-prod");
+  const config = makeResolvedConfig({
+    database: { driver: "sqlite", url: dbPath },
+    dbPath,
+    migrationsPath,
     development: false,
-    auth: { tokenExpiry: 3600 },
-    storage: { driver: "local", localPath: "./data/uploads", maxFileSize: 10_000_000 },
     cors: { origins: ["https://example.com"] },
   });
+  const { db, adapter } = createDatabase(config);
 
   try {
-    expect(() =>
-      runUserMigrations(db, {
-        dbPath: join(testRoot, "migrations-prod.sqlite"),
-        migrationsPath: join(testRoot, "no-such-migrations-prod"),
-        development: false,
-        auth: { tokenExpiry: 3600 },
-        storage: { driver: "local", localPath: "./data/uploads", maxFileSize: 10_000_000 },
-        cors: { origins: ["https://example.com"] },
-      }),
-    ).toThrow("migrations folder not found");
+    await expect(runUserMigrations(db, config)).rejects.toThrow("migrations folder not found");
   } finally {
-    sqlite.close();
+    adapter.close();
   }
 });

@@ -1,5 +1,8 @@
-import type { Database } from "bun:sqlite";
+import { eq, desc } from "drizzle-orm";
 import type { ResolvedConfig } from "../core/config.ts";
+import type { AnyDb } from "../core/db-types.ts";
+import type { InternalSchema } from "../core/internal-schema.ts";
+import type { DatabaseAdapter } from "../core/adapter.ts";
 import { extractAuth } from "../auth/middleware.ts";
 import { createStorageDriver } from "../storage/routes.ts";
 import type { StorageDriver } from "../storage/local.ts";
@@ -15,34 +18,46 @@ export interface RequestLogEntry {
   timestamp: string;
 }
 
-export function pushRequestLog(
-  sqlite: Database,
+export async function pushRequestLog(
+  db: AnyDb,
+  internalSchema: InternalSchema,
   entry: RequestLogEntry,
-): void {
-  sqlite
-    .query(
-      `INSERT INTO _request_logs (id, method, path, status, duration_ms, user_id, timestamp)
-       VALUES ($id, $method, $path, $status, $durationMs, $userId, $timestamp)`,
-    )
-    .run({
-      $id: entry.id,
-      $method: entry.method,
-      $path: entry.path,
-      $status: entry.status,
-      $durationMs: entry.durationMs,
-      $userId: entry.userId,
-      $timestamp: entry.timestamp,
-    });
+): Promise<void> {
+  const logs = internalSchema.requestLogs;
+  await (db as any)
+    .insert(logs)
+    .values({
+      id: entry.id,
+      method: entry.method,
+      path: entry.path,
+      status: entry.status,
+      durationMs: entry.durationMs,
+      userId: entry.userId,
+      timestamp: entry.timestamp,
+    })
+    ;
 
-  // Trim to 500 most recent entries
-  sqlite
-    .query(
-      `DELETE FROM _request_logs
-       WHERE id NOT IN (
-         SELECT id FROM _request_logs ORDER BY timestamp DESC LIMIT 500
-       )`,
-    )
-    .run();
+  // Trim to 500 most recent entries — use raw SQL since subquery-based delete
+  // is cleaner in raw SQL than Drizzle's API
+  try {
+    // Delete older entries beyond 500
+    // SQLite requires LIMIT before OFFSET, so use a large limit
+    const oldRows = await (db as any)
+      .select({ id: logs.id })
+      .from(logs)
+      .orderBy(desc(logs.timestamp))
+      .limit(999999)
+      .offset(500)
+      ;
+
+    if (oldRows.length > 0) {
+      for (const row of oldRows) {
+        await (db as any).delete(logs).where(eq(logs.id, row.id));
+      }
+    }
+  } catch {
+    // Non-critical — just log trimming
+  }
 }
 
 function jsonError(code: string, message: string, status: number): Response {
@@ -51,9 +66,11 @@ function jsonError(code: string, message: string, status: number): Response {
 
 async function requireAdmin(
   req: Request,
-  sqlite: Database,
+  db: AnyDb,
+  internalSchema: InternalSchema,
+  usersTable: any,
 ): Promise<{ user: Record<string, unknown> } | Response> {
-  const user = await extractAuth(req, sqlite);
+  const user = await extractAuth(req, db, internalSchema, usersTable);
   if (!user) {
     return jsonError("UNAUTHORIZED", "Not authenticated", 401);
   }
@@ -104,10 +121,13 @@ function getSchemaColumns(
 
 export async function handleAdminApi(
   req: Request,
-  sqlite: Database,
+  db: AnyDb,
+  adapter: DatabaseAdapter,
+  internalSchema: InternalSchema,
   config: ResolvedConfig,
   schema: Record<string, unknown>,
   storage: StorageDriver,
+  usersTable: any,
 ): Promise<Response> {
   const url = new URL(req.url);
   const pathname = url.pathname;
@@ -117,18 +137,26 @@ export async function handleAdminApi(
   const path = pathname.slice("/_admin/api".length) || "/";
 
   // Auth check for all admin endpoints
-  const authResult = await requireAdmin(req, sqlite);
+  const authResult = await requireAdmin(req, db, internalSchema, usersTable);
   if (authResult instanceof Response) return authResult;
+
+  const sessions = internalSchema.sessions;
+  const oauthAccounts = internalSchema.oauthAccounts;
+  const files = internalSchema.files;
+  const requestLogs = internalSchema.requestLogs;
+
+  const qi = adapter.quoteIdentifier.bind(adapter);
 
   // GET /users — paginated, strips password fields
   if (path === "/users" && method === "GET") {
     const page = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10));
     const limit = 50;
     const offset = (page - 1) * limit;
-    const users = sqlite
-      .query("SELECT * FROM users LIMIT $limit OFFSET $offset")
-      .all({ $limit: limit, $offset: offset }) as Record<string, unknown>[];
-    const sanitized = users.map((u) => {
+    const users = await adapter.rawQuery(
+      `SELECT * FROM ${qi("users")} LIMIT $limit OFFSET $offset`,
+      { $limit: limit, $offset: offset },
+    );
+    const sanitized = users.map((u: Record<string, unknown>) => {
       const copy = { ...u };
       delete copy.password_hash;
       delete copy.passwordHash;
@@ -139,72 +167,79 @@ export async function handleAdminApi(
 
   // GET /sessions
   if (path === "/sessions" && method === "GET") {
-    const sessions = sqlite
-      .query("SELECT * FROM _sessions ORDER BY created_at DESC")
-      .all();
-    return Response.json(sessions);
+    const rows = await (db as any)
+      .select()
+      .from(sessions)
+      .orderBy(desc(sessions.createdAt))
+      ;
+    return Response.json(rows);
   }
 
   // DELETE /sessions/:id
   const sessionDeleteMatch = path.match(/^\/sessions\/([^/]+)$/);
   if (sessionDeleteMatch && method === "DELETE") {
     const id = sessionDeleteMatch[1];
-    sqlite.query("DELETE FROM _sessions WHERE id = $id").run({ $id: id });
+    await (db as any)
+      .delete(sessions)
+      .where(eq(sessions.id, id))
+      ;
     return Response.json({ deleted: true });
   }
 
   // GET /oauth
   if (path === "/oauth" && method === "GET") {
-    const accounts = sqlite
-      .query("SELECT * FROM _oauth_accounts ORDER BY created_at DESC")
-      .all();
-    return Response.json(accounts);
+    const rows = await (db as any)
+      .select()
+      .from(oauthAccounts)
+      .orderBy(desc(oauthAccounts.createdAt))
+      ;
+    return Response.json(rows);
   }
 
   // GET /files
   if (path === "/files" && method === "GET") {
-    const files = sqlite
-      .query("SELECT * FROM _files ORDER BY created_at DESC")
-      .all();
-    return Response.json(files);
+    const rows = await (db as any)
+      .select()
+      .from(files)
+      .orderBy(desc(files.createdAt))
+      ;
+    return Response.json(rows);
   }
 
   // DELETE /files/:id
   const fileDeleteMatch = path.match(/^\/files\/([^/]+)$/);
   if (fileDeleteMatch && method === "DELETE") {
     const id = fileDeleteMatch[1];
-    const file = sqlite
-      .query<{ storage_path: string }, { $id: string }>(
-        "SELECT storage_path FROM _files WHERE id = $id",
-      )
-      .get({ $id: id });
+    const fileRows = await (db as any)
+      .select({ storagePath: files.storagePath })
+      .from(files)
+      .where(eq(files.id, id))
+      ;
 
+    const file = fileRows[0];
     if (!file) {
       return jsonError("NOT_FOUND", "File not found", 404);
     }
 
-    await storage.delete(file.storage_path);
-    sqlite.query("DELETE FROM _files WHERE id = $id").run({ $id: id });
+    await storage.delete(file.storagePath);
+    await (db as any).delete(files).where(eq(files.id, id));
     return Response.json({ deleted: true });
   }
 
   // GET /logs — newest first
   if (path === "/logs" && method === "GET") {
-    const logs = sqlite
-      .query(
-        `SELECT id, method, path, status,
-                duration_ms as durationMs,
-                user_id as userId,
-                timestamp
-         FROM _request_logs ORDER BY timestamp DESC LIMIT 500`,
-      )
-      .all();
-    return Response.json(logs);
+    const rows = await (db as any)
+      .select()
+      .from(requestLogs)
+      .orderBy(desc(requestLogs.timestamp))
+      .limit(500)
+      ;
+    return Response.json(rows);
   }
 
   // DELETE /logs — clear table
   if (path === "/logs" && method === "DELETE") {
-    sqlite.query("DELETE FROM _request_logs").run();
+    await (db as any).delete(requestLogs);
     return Response.json({ cleared: true });
   }
 
@@ -240,7 +275,9 @@ export async function handleAdminApi(
   if (path === "/config" && method === "GET") {
     const sanitized = {
       development: config.development,
-      dbPath: config.dbPath,
+      database: {
+        driver: config.database.driver,
+      },
       storage: {
         driver: config.storage.driver,
         maxFileSize: config.storage.maxFileSize,
@@ -264,9 +301,9 @@ export async function handleAdminApi(
     const result: Array<{ name: string; count: number; type: "base" | "auth" }> = [];
     for (const name of tableNames) {
       try {
-        const row = sqlite
-          .query<{ count: number }, []>(`SELECT COUNT(*) as count FROM "${name}"`)
-          .get([]);
+        const row = await adapter.rawQueryOne<{ count: number }>(
+          `SELECT COUNT(*) as count FROM ${qi(name)}`,
+        );
         result.push({ name, count: row?.count ?? 0, type: name === "users" ? "auth" : "base" });
       } catch {
         // Table might not exist yet
@@ -299,31 +336,31 @@ export async function handleAdminApi(
 
     const columns = getSchemaColumns(schema, tableName);
     const allColNames = columns.map((c) => c.name);
-    const textColNames = columns.filter((c) => c.type === "SQLiteText").map((c) => c.name);
-    const sortCol = allColNames.includes(sortKey) ? sortKey : (allColNames[0] ?? "rowid");
+    const textColNames = columns
+      .filter((c) => c.type.includes("Text") || c.type.includes("Varchar"))
+      .map((c) => c.name);
+    const sortCol = allColNames.includes(sortKey) ? sortKey : (allColNames[0] ?? "id");
 
     let whereClause = "";
     const queryParams: Record<string, unknown> = {};
     if (search && textColNames.length > 0) {
-      const conditions = textColNames.map((col) => `"${col}" LIKE $search`);
+      const conditions = textColNames.map((col) => `${qi(col)} LIKE $search`);
       whereClause = `WHERE ${conditions.join(" OR ")}`;
       queryParams.$search = `%${search}%`;
     }
 
-    const countRow = sqlite
-      .query<{ count: number }, Record<string, unknown>>(
-        `SELECT COUNT(*) as count FROM "${tableName}" ${whereClause}`,
-      )
-      .get(queryParams);
+    const countRow = await adapter.rawQueryOne<{ count: number }>(
+      `SELECT COUNT(*) as count FROM ${qi(tableName)} ${whereClause}`,
+      queryParams,
+    );
     const total = countRow?.count ?? 0;
 
-    const rows = sqlite
-      .query<Record<string, unknown>, Record<string, unknown>>(
-        `SELECT * FROM "${tableName}" ${whereClause} ORDER BY "${sortCol}" ${orderDir} LIMIT $limit OFFSET $offset`,
-      )
-      .all({ ...queryParams, $limit: limit, $offset: offset });
+    const rows = await adapter.rawQuery(
+      `SELECT * FROM ${qi(tableName)} ${whereClause} ORDER BY ${qi(sortCol)} ${orderDir} LIMIT $limit OFFSET $offset`,
+      { ...queryParams, $limit: limit, $offset: offset },
+    );
 
-    const sanitized = (rows as Record<string, unknown>[]).map((row) => {
+    const sanitized = rows.map((row: Record<string, unknown>) => {
       const copy = { ...row };
       delete copy.password_hash;
       delete copy.passwordHash;
@@ -364,17 +401,15 @@ export async function handleAdminApi(
     const placeholders = fieldNames.map((f) => `$${f}`);
     const params = Object.fromEntries(fieldNames.map((f) => [`$${f}`, insertData[f]]));
 
-    sqlite
-      .query(
-        `INSERT INTO "${tableName}" (${fieldNames.map((f) => `"${f}"`).join(", ")}) VALUES (${placeholders.join(", ")})`,
-      )
-      .run(params);
+    await adapter.rawExecute(
+      `INSERT INTO ${qi(tableName)} (${fieldNames.map((f) => qi(f)).join(", ")}) VALUES (${placeholders.join(", ")})`,
+      params,
+    );
 
-    const created = sqlite
-      .query<Record<string, unknown>, Record<string, unknown>>(
-        `SELECT * FROM "${tableName}" WHERE id = $id`,
-      )
-      .get({ $id: insertData.id });
+    const created = await adapter.rawQueryOne(
+      `SELECT * FROM ${qi(tableName)} WHERE id = $id`,
+      { $id: insertData.id },
+    );
 
     return Response.json(created, { status: 201 });
   }
@@ -405,25 +440,25 @@ export async function handleAdminApi(
       return jsonError("BAD_REQUEST", "No valid fields to update", 400);
     }
 
-    const setClauses = Object.keys(updateData).map((f) => `"${f}" = $${f}`);
+    const setClauses = Object.keys(updateData).map((f) => `${qi(f)} = $${f}`);
     const params: Record<string, unknown> = {
       ...Object.fromEntries(Object.keys(updateData).map((f) => [`$${f}`, updateData[f]])),
       $id: id,
     };
 
-    sqlite
-      .query(`UPDATE "${tableName}" SET ${setClauses.join(", ")} WHERE id = $id`)
-      .run(params);
+    await adapter.rawExecute(
+      `UPDATE ${qi(tableName)} SET ${setClauses.join(", ")} WHERE id = $id`,
+      params,
+    );
 
-    const updated = sqlite
-      .query<Record<string, unknown>, Record<string, unknown>>(
-        `SELECT * FROM "${tableName}" WHERE id = $id`,
-      )
-      .get({ $id: id });
+    const updated = await adapter.rawQueryOne(
+      `SELECT * FROM ${qi(tableName)} WHERE id = $id`,
+      { $id: id },
+    );
 
     const sanitized = { ...(updated ?? {}) };
-    delete sanitized.password_hash;
-    delete sanitized.passwordHash;
+    delete (sanitized as any).password_hash;
+    delete (sanitized as any).passwordHash;
     return Response.json(sanitized);
   }
 
@@ -434,7 +469,10 @@ export async function handleAdminApi(
     const validTables = getSchemaTableNames(schema);
     if (!validTables.has(tableName)) return jsonError("NOT_FOUND", "Table not found", 404);
 
-    sqlite.query(`DELETE FROM "${tableName}" WHERE id = $id`).run({ $id: id });
+    await adapter.rawExecute(
+      `DELETE FROM ${qi(tableName)} WHERE id = $id`,
+      { $id: id },
+    );
     return Response.json({ deleted: true });
   }
 

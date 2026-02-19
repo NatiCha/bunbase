@@ -15,12 +15,14 @@ const users = sqliteTable("users", {
 
 test("admin file listing requires an authenticated admin user", async () => {
   const root = mkdtempSync(join(tmpdir(), "tsbase-admin-test-"));
+  const dbPath = join(root, "db.sqlite");
 
   const tsbase = createServer({
     schema: { users },
     config: makeResolvedConfig({
       development: true,
-      dbPath: join(root, "db.sqlite"),
+      dbPath,
+      database: { driver: "sqlite" as const, url: dbPath },
       storage: {
         driver: "local",
         localPath: join(root, "uploads"),
@@ -30,7 +32,7 @@ test("admin file listing requires an authenticated admin user", async () => {
     }),
   });
 
-  tsbase.sqlite.run(`
+  await tsbase.adapter.rawExecute(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       email TEXT NOT NULL,
@@ -39,64 +41,26 @@ test("admin file listing requires an authenticated admin user", async () => {
     );
   `);
 
-  tsbase.sqlite
-    .query(
-      "INSERT INTO users (id, email, password_hash, role) VALUES ($id, $email, $passwordHash, $role)",
-    )
-    .run({
-      $id: "admin-1",
-      $email: "admin@example.com",
-      $passwordHash: "hash",
-      $role: "admin",
-    });
-  tsbase.sqlite
-    .query(
-      "INSERT INTO users (id, email, password_hash, role) VALUES ($id, $email, $passwordHash, $role)",
-    )
-    .run({
-      $id: "user-1",
-      $email: "user@example.com",
-      $passwordHash: "hash",
-      $role: "user",
-    });
+  await tsbase.adapter.rawExecute(
+    "INSERT INTO users (id, email, password_hash, role) VALUES ('admin-1', 'admin@example.com', 'hash', 'admin')",
+  );
+  await tsbase.adapter.rawExecute(
+    "INSERT INTO users (id, email, password_hash, role) VALUES ('user-1', 'user@example.com', 'hash', 'user')",
+  );
 
   const now = Math.floor(Date.now() / 1000) + 3600;
-  tsbase.sqlite
-    .query(
-      "INSERT INTO _sessions (id, user_id, expires_at, created_at) VALUES ($id, $userId, $expiresAt, $createdAt)",
-    )
-    .run({
-      $id: "admin-session",
-      $userId: "admin-1",
-      $expiresAt: now,
-      $createdAt: new Date().toISOString(),
-    });
-  tsbase.sqlite
-    .query(
-      "INSERT INTO _sessions (id, user_id, expires_at, created_at) VALUES ($id, $userId, $expiresAt, $createdAt)",
-    )
-    .run({
-      $id: "user-session",
-      $userId: "user-1",
-      $expiresAt: now,
-      $createdAt: new Date().toISOString(),
-    });
+  const createdAt = new Date().toISOString();
+  await tsbase.adapter.rawExecute(
+    `INSERT INTO _sessions (id, user_id, expires_at, created_at) VALUES ('admin-session', 'admin-1', ${now}, '${createdAt}')`,
+  );
+  await tsbase.adapter.rawExecute(
+    `INSERT INTO _sessions (id, user_id, expires_at, created_at) VALUES ('user-session', 'user-1', ${now}, '${createdAt}')`,
+  );
 
-  tsbase.sqlite
-    .query(
-      `INSERT INTO _files (id, collection, record_id, filename, mime_type, size, storage_path, created_at)
-       VALUES ($id, $collection, $recordId, $filename, $mimeType, $size, $storagePath, $createdAt)`,
-    )
-    .run({
-      $id: "file-1",
-      $collection: "users",
-      $recordId: "user-1",
-      $filename: "avatar.png",
-      $mimeType: "image/png",
-      $size: 123,
-      $storagePath: "users/user-1/avatar.png",
-      $createdAt: new Date().toISOString(),
-    });
+  await tsbase.adapter.rawExecute(
+    `INSERT INTO _files (id, collection, record_id, filename, mime_type, size, storage_path, created_at)
+     VALUES ('file-1', 'users', 'user-1', 'avatar.png', 'image/png', 123, 'users/user-1/avatar.png', '${createdAt}')`,
+  );
 
   const server = tsbase.listen(0);
 
@@ -121,7 +85,7 @@ test("admin file listing requires an authenticated admin user", async () => {
     expect(payload[0]?.id).toBe("file-1");
   } finally {
     server.stop();
-    tsbase.sqlite.close();
+    tsbase.adapter.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

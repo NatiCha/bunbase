@@ -1,8 +1,10 @@
 import { test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { createAuthRoutes } from "../auth/routes.ts";
-import { bootstrapInternalTables } from "../core/bootstrap.ts";
+import { SqliteAdapter } from "../core/adapters/sqlite.ts";
+import { getInternalSchema } from "../core/internal-schema.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 
 const usersTable = sqliteTable("users", {
@@ -14,9 +16,10 @@ const usersTable = sqliteTable("users", {
   nickname: text("nickname"),
 });
 
-function setupAuthRouteDb(): Database {
+function setupAuthRouteDb() {
   const sqlite = new Database(":memory:");
-  bootstrapInternalTables(sqlite);
+  const adapter = new SqliteAdapter(sqlite);
+  adapter.bootstrapInternalTables();
   sqlite.run(`
     CREATE TABLE users (
       id TEXT PRIMARY KEY,
@@ -27,13 +30,16 @@ function setupAuthRouteDb(): Database {
       nickname TEXT
     )
   `);
-  return sqlite;
+  const db = drizzle({ client: sqlite });
+  const internalSchema = getInternalSchema("sqlite");
+  return { sqlite, db, internalSchema };
 }
 
 test("register accepts safe schema extras and sets cookies via separate headers", async () => {
-  const sqlite = setupAuthRouteDb();
+  const { sqlite, db, internalSchema } = setupAuthRouteDb();
   const routes = createAuthRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
     usersTable,
   });
@@ -71,9 +77,10 @@ test("register accepts safe schema extras and sets cookies via separate headers"
 });
 
 test("register rejects privileged fields and unknown fields", async () => {
-  const sqlite = setupAuthRouteDb();
+  const { sqlite, db, internalSchema } = setupAuthRouteDb();
   const routes = createAuthRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
     usersTable,
   });
@@ -114,9 +121,10 @@ test("register rejects privileged fields and unknown fields", async () => {
 });
 
 test("login and logout emit separate cookie headers", async () => {
-  const sqlite = setupAuthRouteDb();
+  const { sqlite, db, internalSchema } = setupAuthRouteDb();
   const routes = createAuthRoutes({
-    sqlite,
+    db,
+    internalSchema,
     config: makeResolvedConfig({ development: true }),
     usersTable,
   });

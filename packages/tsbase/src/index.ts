@@ -8,3 +8,6 @@ export type { TSBaseServer, CreateServerOptions } from "./core/server.ts";
 export type { AuthUser, Context } from "./trpc/context.ts";
 export type { Rules, TableRules, RuleContext, RuleFunction } from "./rules/types.ts";
 export type { AppRouter } from "./trpc/router.ts";
+export type { AnyDb, AnyTable, AnyColumn, Dialect } from "./core/db-types.ts";
+export type { DatabaseAdapter } from "./core/adapter.ts";
+export type { DatabaseConfig, ResolvedDatabaseConfig } from "./core/config.ts";

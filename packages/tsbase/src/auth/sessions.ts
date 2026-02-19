@@ -1,26 +1,23 @@
-import type { Database } from "bun:sqlite";
+import { eq, lt } from "drizzle-orm";
+import type { AnyDb } from "../core/db-types.ts";
+import type { InternalSchema } from "../core/internal-schema.ts";
 
 let cleanupCounter = 0;
 
-export function createSession(
-  sqlite: Database,
+export async function createSession(
+  db: AnyDb,
+  schema: InternalSchema,
   userId: string,
   ttlSeconds: number = 30 * 24 * 60 * 60,
-): string {
+): Promise<string> {
   const id = Bun.randomUUIDv7();
   const expiresAt = Math.floor(Date.now() / 1000) + ttlSeconds;
   const createdAt = new Date().toISOString();
 
-  sqlite
-    .query(
-      "INSERT INTO _sessions (id, user_id, expires_at, created_at) VALUES ($id, $userId, $expiresAt, $createdAt)",
-    )
-    .run({
-      $id: id,
-      $userId: userId,
-      $expiresAt: expiresAt,
-      $createdAt: createdAt,
-    });
+  await (db as any)
+    .insert(schema.sessions)
+    .values({ id, userId, expiresAt, createdAt })
+    ;
 
   return id;
 }
@@ -32,21 +29,32 @@ export interface SessionRow {
   created_at: string;
 }
 
-export function getSession(
-  sqlite: Database,
+export async function getSession(
+  db: AnyDb,
+  schema: InternalSchema,
   sessionId: string,
-): SessionRow | null {
-  const row = sqlite
-    .query<SessionRow, { $id: string }>(
-      "SELECT * FROM _sessions WHERE id = $id",
-    )
-    .get({ $id: sessionId });
+): Promise<SessionRow | null> {
+  const sessions = schema.sessions;
+  const rows = await (db as any)
+    .select()
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    ;
 
+  const row = rows[0];
   if (!row) return null;
 
+  // Normalize to snake_case for backward compatibility
+  const result: SessionRow = {
+    id: row.id,
+    user_id: row.userId,
+    expires_at: row.expiresAt,
+    created_at: row.createdAt,
+  };
+
   const now = Math.floor(Date.now() / 1000);
-  if (row.expires_at < now) {
-    deleteSession(sqlite, sessionId);
+  if (result.expires_at < now) {
+    await deleteSession(db, schema, sessionId);
     return null;
   }
 
@@ -54,27 +62,41 @@ export function getSession(
   cleanupCounter++;
   if (cleanupCounter >= 100) {
     cleanupCounter = 0;
-    cleanupExpiredSessions(sqlite);
+    await cleanupExpiredSessions(db, schema);
   }
 
-  return row;
+  return result;
 }
 
-export function deleteSession(sqlite: Database, sessionId: string) {
-  sqlite
-    .query("DELETE FROM _sessions WHERE id = $id")
-    .run({ $id: sessionId });
+export async function deleteSession(
+  db: AnyDb,
+  schema: InternalSchema,
+  sessionId: string,
+): Promise<void> {
+  await (db as any)
+    .delete(schema.sessions)
+    .where(eq(schema.sessions.id, sessionId))
+    ;
 }
 
-export function deleteUserSessions(sqlite: Database, userId: string) {
-  sqlite
-    .query("DELETE FROM _sessions WHERE user_id = $userId")
-    .run({ $userId: userId });
+export async function deleteUserSessions(
+  db: AnyDb,
+  schema: InternalSchema,
+  userId: string,
+): Promise<void> {
+  await (db as any)
+    .delete(schema.sessions)
+    .where(eq(schema.sessions.userId, userId))
+    ;
 }
 
-export function cleanupExpiredSessions(sqlite: Database) {
+export async function cleanupExpiredSessions(
+  db: AnyDb,
+  schema: InternalSchema,
+): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
-  sqlite
-    .query("DELETE FROM _sessions WHERE expires_at < $now")
-    .run({ $now: now });
+  await (db as any)
+    .delete(schema.sessions)
+    .where(lt(schema.sessions.expiresAt, now))
+    ;
 }

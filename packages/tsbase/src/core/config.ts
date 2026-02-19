@@ -4,6 +4,19 @@ export interface OAuthProviderConfig {
   scopes?: string[];
 }
 
+export interface DatabaseConfig {
+  driver: "sqlite" | "postgres" | "mysql";
+  url?: string; // connection string, e.g. "postgres://..." or "./data/db.sqlite"
+  // SQLite-specific
+  path?: string; // default ./data/db.sqlite (shorthand for url)
+  // Postgres/MySQL-specific (alternative to url)
+  host?: string;
+  port?: number;
+  user?: string;
+  password?: string;
+  dbName?: string;
+}
+
 export interface TSBaseConfig {
   auth?: {
     tokenExpiry?: number; // session TTL in seconds, default 30 days
@@ -34,12 +47,19 @@ export interface TSBaseConfig {
     origins?: string[]; // required in production
   };
   development?: boolean; // default: NODE_ENV !== 'production'
+  database?: DatabaseConfig; // default: { driver: "sqlite", path: "./data/db.sqlite" }
+  /** @deprecated Use `database.path` instead */
   dbPath?: string; // default ./data/db.sqlite
   migrationsPath?: string; // default ./drizzle
 }
 
 export function defineConfig(config: TSBaseConfig): TSBaseConfig {
   return config;
+}
+
+export interface ResolvedDatabaseConfig {
+  driver: "sqlite" | "postgres" | "mysql";
+  url: string; // normalized connection string
 }
 
 export interface ResolvedConfig {
@@ -72,12 +92,53 @@ export interface ResolvedConfig {
     origins: string[];
   };
   development: boolean;
+  database: ResolvedDatabaseConfig;
+  /** @deprecated Use `database.url` for SQLite path */
   dbPath: string;
   migrationsPath: string;
 }
 
+function resolveDatabaseConfig(config?: TSBaseConfig): ResolvedDatabaseConfig {
+  // Explicit database config takes priority
+  if (config?.database) {
+    const db = config.database;
+    if (db.driver === "postgres") {
+      const url =
+        db.url ??
+        (db.host
+          ? `postgres://${db.user ?? ""}${db.password ? `:${db.password}` : ""}${db.user || db.password ? "@" : ""}${db.host}:${db.port ?? 5432}/${db.dbName ?? ""}`
+          : "");
+      if (!url) {
+        throw new Error(
+          "TSBase: database.url or database.host is required for Postgres",
+        );
+      }
+      return { driver: "postgres", url };
+    }
+    if (db.driver === "mysql") {
+      const url =
+        db.url ??
+        (db.host
+          ? `mysql://${db.user ?? "root"}${db.password ? `:${db.password}` : ""}@${db.host}:${db.port ?? 3306}/${db.dbName ?? ""}`
+          : "");
+      if (!url) {
+        throw new Error(
+          "TSBase: database.url or database.host is required for MySQL",
+        );
+      }
+      return { driver: "mysql", url };
+    }
+    // SQLite
+    return { driver: "sqlite", url: db.url ?? db.path ?? "./data/db.sqlite" };
+  }
+
+  // Legacy dbPath support
+  return { driver: "sqlite", url: config?.dbPath ?? "./data/db.sqlite" };
+}
+
 export function resolveConfig(config?: TSBaseConfig): ResolvedConfig {
   const isDev = config?.development ?? process.env.NODE_ENV !== "production";
+  const database = resolveDatabaseConfig(config);
 
   const resolved: ResolvedConfig = {
     auth: {
@@ -96,7 +157,8 @@ export function resolveConfig(config?: TSBaseConfig): ResolvedConfig {
       origins: config?.cors?.origins ?? [],
     },
     development: isDev,
-    dbPath: config?.dbPath ?? "./data/db.sqlite",
+    database,
+    dbPath: database.url,
     migrationsPath: config?.migrationsPath ?? "./drizzle",
   };
 

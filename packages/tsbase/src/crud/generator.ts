@@ -1,9 +1,5 @@
 import { getColumns, getTableName, eq, and } from "drizzle-orm";
-import type { SQL } from "drizzle-orm";
-import type {
-  SQLiteTableWithColumns,
-  SQLiteColumn,
-} from "drizzle-orm/sqlite-core";
+import type { SQL, Column, Table } from "drizzle-orm";
 import { z } from "zod/v4";
 import { router, publicProcedure } from "../trpc/procedures.ts";
 import { buildWhereConditions, type FilterInput } from "./filters.ts";
@@ -15,18 +11,18 @@ import {
 } from "./pagination.ts";
 import { evaluateRule } from "../rules/evaluator.ts";
 import type { TableRules } from "../rules/types.ts";
-import type { SQLiteBunDatabase } from "drizzle-orm/bun-sqlite";
+import type { AnyDb } from "../core/db-types.ts";
 import { TRPCError } from "@trpc/server";
 
 export function generateCrudRouter(
-  table: SQLiteTableWithColumns<any>,
-  db: SQLiteBunDatabase,
+  table: Table,
+  db: AnyDb,
   tableRules?: TableRules,
 ) {
   const tableName = getTableName(table);
   const columns = getColumns(table);
 
-  const idColumn = columns["id"] as SQLiteColumn | undefined;
+  const idColumn = columns["id"] as Column | undefined;
   if (!idColumn) {
     throw new Error(
       `TSBase: Table "${tableName}" must have an "id" column for CRUD generation`,
@@ -61,7 +57,7 @@ export function generateCrudRouter(
         const order = input?.order ?? "asc";
 
         const sortColumn = sortField
-          ? (columns[sortField] as SQLiteColumn | undefined)
+          ? (columns[sortField] as Column | undefined)
           : undefined;
 
         // Build where conditions
@@ -70,7 +66,7 @@ export function generateCrudRouter(
         allConditions.push(
           buildWhereConditions(
             filter,
-            columns as Record<string, SQLiteColumn>,
+            columns as Record<string, Column>,
           ),
         );
 
@@ -93,13 +89,13 @@ export function generateCrudRouter(
 
         const orderBy = buildOrderBy(idColumn, sortColumn, order);
 
-        const rows = ctx.db
+        const rows = await (ctx.db as any)
           .select()
           .from(table)
           .where(where)
           .orderBy(...orderBy)
           .limit(limit)
-          .all();
+          ;
 
         const nextCursor = buildNextCursor(rows, limit, sortField);
 
@@ -128,7 +124,7 @@ export function generateCrudRouter(
         const where =
           conditions.length > 1 ? and(...conditions) : conditions[0];
 
-        const rows = ctx.db.select().from(table).where(where).all();
+        const rows = await (ctx.db as any).select().from(table).where(where);
 
         const row = rows[0];
         if (!row) return null;
@@ -159,7 +155,7 @@ export function generateCrudRouter(
 
         const insertData: Record<string, unknown> = {};
         for (const [key, col] of Object.entries(columns)) {
-          const colName = (col as SQLiteColumn).name;
+          const colName = (col as Column).name;
           if (key in data) {
             insertData[key] = data[key];
           } else if (colName in data) {
@@ -167,13 +163,13 @@ export function generateCrudRouter(
           }
         }
 
-        ctx.db.insert(table).values(insertData).run();
+        await (ctx.db as any).insert(table).values(insertData);
 
-        const rows = ctx.db
+        const rows = await (ctx.db as any)
           .select()
           .from(table)
           .where(eq(idColumn, id))
-          .all();
+          ;
 
         return rows[0] ?? insertData;
       }),
@@ -196,11 +192,11 @@ export function generateCrudRouter(
 
         // If rule has WHERE clause, verify the record matches
         if (ruleResult.whereClause) {
-          const check = ctx.db
+          const check = await (ctx.db as any)
             .select()
             .from(table)
             .where(and(eq(idColumn, input.id), ruleResult.whereClause))
-            .all();
+            ;
           if (check.length === 0) {
             throw new TRPCError({
               code: "FORBIDDEN",
@@ -217,7 +213,7 @@ export function generateCrudRouter(
 
         const filtered: Record<string, unknown> = {};
         for (const [key, col] of Object.entries(columns)) {
-          const colName = (col as SQLiteColumn).name;
+          const colName = (col as Column).name;
           if (key in updateData) {
             filtered[key] = updateData[key];
           } else if (colName in updateData) {
@@ -225,17 +221,17 @@ export function generateCrudRouter(
           }
         }
 
-        ctx.db
+        await (ctx.db as any)
           .update(table)
           .set(filtered)
           .where(eq(idColumn, input.id))
-          .run();
+          ;
 
-        const rows = ctx.db
+        const rows = await (ctx.db as any)
           .select()
           .from(table)
           .where(eq(idColumn, input.id))
-          .all();
+          ;
 
         return rows[0] ?? null;
       }),
@@ -253,11 +249,11 @@ export function generateCrudRouter(
 
         // If rule has WHERE clause, verify the record matches
         if (ruleResult.whereClause) {
-          const check = ctx.db
+          const check = await (ctx.db as any)
             .select()
             .from(table)
             .where(and(eq(idColumn, input.id), ruleResult.whereClause))
-            .all();
+            ;
           if (check.length === 0) {
             throw new TRPCError({
               code: "FORBIDDEN",
@@ -266,15 +262,15 @@ export function generateCrudRouter(
           }
         }
 
-        const rows = ctx.db
+        const rows = await (ctx.db as any)
           .select()
           .from(table)
           .where(eq(idColumn, input.id))
-          .all();
+          ;
 
         if (rows.length === 0) return { deleted: false };
 
-        ctx.db.delete(table).where(eq(idColumn, input.id)).run();
+        await (ctx.db as any).delete(table).where(eq(idColumn, input.id));
 
         return { deleted: true };
       }),
@@ -283,7 +279,7 @@ export function generateCrudRouter(
 
 export function generateAllCrudRouters(
   schema: Record<string, unknown>,
-  db: SQLiteBunDatabase,
+  db: AnyDb,
   rules?: Record<string, TableRules>,
 ): Record<string, ReturnType<typeof router>> {
   const routers: Record<string, ReturnType<typeof router>> = {};
@@ -302,7 +298,7 @@ export function generateAllCrudRouters(
 
     try {
       routers[tableName] = generateCrudRouter(
-        table as SQLiteTableWithColumns<any>,
+        table as Table,
         db,
         rules?.[tableName],
       );

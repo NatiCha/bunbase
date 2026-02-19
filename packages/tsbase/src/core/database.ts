@@ -1,12 +1,33 @@
-import { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { mkdirSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ResolvedConfig } from "./config.ts";
+import type { AnyDb, Dialect } from "./db-types.ts";
+import type { DatabaseAdapter } from "./adapter.ts";
+import { SqliteAdapter } from "./adapters/sqlite.ts";
+import { PostgresAdapter } from "./adapters/postgres.ts";
+import { MysqlAdapter } from "./adapters/mysql.ts";
 
-export function createDatabase(config: ResolvedConfig) {
-  const dbPath = config.dbPath;
+export interface DatabaseResult {
+  db: AnyDb;
+  dialect: Dialect;
+  adapter: DatabaseAdapter;
+}
+
+export function createDatabase(config: ResolvedConfig): DatabaseResult {
+  if (config.database.driver === "postgres") {
+    return createPostgresDatabase(config);
+  }
+  if (config.database.driver === "mysql") {
+    return createMysqlDatabase(config);
+  }
+  return createSqliteDatabase(config);
+}
+
+function createSqliteDatabase(config: ResolvedConfig): DatabaseResult {
+  const { Database } = require("bun:sqlite") as typeof import("bun:sqlite");
+  const { drizzle } = require("drizzle-orm/bun-sqlite") as typeof import("drizzle-orm/bun-sqlite");
+
+  const dbPath = config.database.url;
   const dir = dirname(dbPath);
 
   if (!existsSync(dir)) {
@@ -22,14 +43,37 @@ export function createDatabase(config: ResolvedConfig) {
   sqlite.run("PRAGMA foreign_keys = ON");
 
   const db = drizzle({ client: sqlite });
+  const adapter = new SqliteAdapter(sqlite);
 
-  return { db, sqlite };
+  return { db, dialect: "sqlite", adapter };
 }
 
-export function runUserMigrations(
-  db: ReturnType<typeof drizzle>,
+function createPostgresDatabase(config: ResolvedConfig): DatabaseResult {
+  const { SQL } = require("bun") as typeof import("bun");
+  const { drizzle } = require("drizzle-orm/bun-sql") as typeof import("drizzle-orm/bun-sql");
+
+  const client = new SQL(config.database.url);
+  const db = drizzle({ client });
+  const adapter = new PostgresAdapter(config.database.url);
+
+  return { db, dialect: "postgres", adapter };
+}
+
+function createMysqlDatabase(config: ResolvedConfig): DatabaseResult {
+  const { SQL } = require("bun") as typeof import("bun");
+  const { drizzle } = require("drizzle-orm/bun-sql/mysql") as typeof import("drizzle-orm/bun-sql/mysql");
+
+  const client = new SQL(config.database.url);
+  const db = drizzle({ client });
+  const adapter = new MysqlAdapter(config.database.url);
+
+  return { db, dialect: "mysql", adapter };
+}
+
+export async function runUserMigrations(
+  db: AnyDb,
   config: ResolvedConfig,
-): void {
+): Promise<void> {
   if (!existsSync(config.migrationsPath)) {
     const message = `TSBase: migrations folder not found at "${config.migrationsPath}"`;
     if (config.development) {
@@ -40,11 +84,20 @@ export function runUserMigrations(
   }
 
   try {
-    const result = migrate(db, { migrationsFolder: config.migrationsPath });
-    if (result && typeof result === "object" && "exitCode" in result) {
-      throw new Error(
-        `TSBase: migration initialization failed with exit code "${result.exitCode}"`,
-      );
+    if (config.database.driver === "postgres") {
+      const { migrate } = await import("drizzle-orm/bun-sql/migrator");
+      await migrate(db as any, { migrationsFolder: config.migrationsPath });
+    } else if (config.database.driver === "mysql") {
+      const { migrate } = await import("drizzle-orm/bun-sql/mysql/migrator");
+      await migrate(db as any, { migrationsFolder: config.migrationsPath });
+    } else {
+      const { migrate } = await import("drizzle-orm/bun-sqlite/migrator");
+      const result = migrate(db as any, { migrationsFolder: config.migrationsPath });
+      if (result && typeof result === "object" && "exitCode" in result) {
+        throw new Error(
+          `TSBase: migration initialization failed with exit code "${result.exitCode}"`,
+        );
+      }
     }
   } catch (error) {
     if (config.development) {

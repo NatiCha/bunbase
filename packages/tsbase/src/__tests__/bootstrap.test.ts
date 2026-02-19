@@ -3,10 +3,9 @@ import { Database } from "bun:sqlite";
 import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 import {
   validateUsersTable,
-  createUserTables,
   getUserTableNames,
-  injectTimestampColumns,
 } from "../core/bootstrap.ts";
+import { SqliteAdapter } from "../core/adapters/sqlite.ts";
 
 // validateUsersTable
 
@@ -70,7 +69,7 @@ test("validateUsersTable skips non-object entries in schema", () => {
   expect(result).toBe(validUsersTable);
 });
 
-// createUserTables
+// createUserTables (now via SqliteAdapter)
 
 const mixedTypesTable = sqliteTable("mixed", {
   id: text("id").primaryKey(),
@@ -84,9 +83,10 @@ const internalTable = sqliteTable("_internal", {
   id: text("id").primaryKey(),
 });
 
-test("createUserTables creates the table in SQLite", () => {
+test("createUserTables creates the table in SQLite", async () => {
   const sqlite = new Database(":memory:");
-  createUserTables(sqlite, { mixed: mixedTypesTable });
+  const adapter = new SqliteAdapter(sqlite);
+  await adapter.createUserTables({ mixed: mixedTypesTable });
 
   // Should be able to insert a row
   sqlite
@@ -102,9 +102,10 @@ test("createUserTables creates the table in SQLite", () => {
   sqlite.close();
 });
 
-test("createUserTables skips tables whose names start with '_'", () => {
+test("createUserTables skips tables whose names start with '_'", async () => {
   const sqlite = new Database(":memory:");
-  createUserTables(sqlite, { _internal: internalTable });
+  const adapter = new SqliteAdapter(sqlite);
+  await adapter.createUserTables({ _internal: internalTable });
 
   const tables = sqlite
     .query<{ name: string }, []>(
@@ -115,10 +116,11 @@ test("createUserTables skips tables whose names start with '_'", () => {
   sqlite.close();
 });
 
-test("createUserTables skips non-object schema entries", () => {
+test("createUserTables skips non-object schema entries", async () => {
   const sqlite = new Database(":memory:");
+  const adapter = new SqliteAdapter(sqlite);
   // Should not throw
-  createUserTables(sqlite, { notATable: "string", nullEntry: null as any });
+  await adapter.createUserTables({ notATable: "string", nullEntry: null as any });
   sqlite.close();
 });
 
@@ -137,12 +139,13 @@ test("getUserTableNames returns empty array for empty schema", () => {
   expect(getUserTableNames({})).toEqual([]);
 });
 
-// injectTimestampColumns
+// injectTimestampColumns (now via SqliteAdapter)
 
-test("injectTimestampColumns adds created_at and updated_at", () => {
+test("injectTimestampColumns adds created_at and updated_at", async () => {
   const sqlite = new Database(":memory:");
+  const adapter = new SqliteAdapter(sqlite);
   sqlite.run("CREATE TABLE items (id TEXT PRIMARY KEY)");
-  injectTimestampColumns(sqlite, ["items"]);
+  await adapter.injectTimestampColumns(["items"]);
 
   const cols = sqlite
     .query<{ name: string }, []>("PRAGMA table_info(items)")
@@ -153,17 +156,17 @@ test("injectTimestampColumns adds created_at and updated_at", () => {
   sqlite.close();
 });
 
-test("injectTimestampColumns is idempotent (no error on second call)", () => {
+test("injectTimestampColumns is idempotent (no error on second call)", async () => {
   const sqlite = new Database(":memory:");
+  const adapter = new SqliteAdapter(sqlite);
   sqlite.run("CREATE TABLE things (id TEXT PRIMARY KEY)");
-  injectTimestampColumns(sqlite, ["things"]);
-  expect(() => injectTimestampColumns(sqlite, ["things"])).not.toThrow();
+  await adapter.injectTimestampColumns(["things"]);
+  // Should not throw
+  await adapter.injectTimestampColumns(["things"]);
   sqlite.close();
 });
 
-// validateUsersTable — exercises the getTableName catch block at lines 115-116.
-// A plain object {} passes the typeof/null check but causes getTableName to throw,
-// which the implementation catches and treats as "not a table".
+// validateUsersTable — exercises the getTableName catch block.
 test("validateUsersTable skips plain objects that cause getTableName to throw", () => {
   const result = validateUsersTable({
     probablyNotATable: {} as any,
@@ -171,7 +174,6 @@ test("validateUsersTable skips plain objects that cause getTableName to throw", 
   });
   expect(result).toBe(validUsersTable);
 });
-
 
 test("getUserTableNames skips plain objects that cause getTableName to throw", () => {
   const names = getUserTableNames({ notATable: {} as any, valid: validUsersTable });

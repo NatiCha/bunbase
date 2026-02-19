@@ -5,17 +5,21 @@ export type TemplateType =
   | "inventory"
   | "empty";
 export type OAuthProvider = "google" | "github" | "discord";
+export type DatabaseDriver = "sqlite" | "postgres" | "mysql";
 
 export interface Template {
   schema: string;
   rules: string;
   indexTs: string;
+  drizzleConfig: string;
   env: string;
   tables: string[];
   description: string;
 }
 
-const USERS_TABLE = `export const users = sqliteTable("users", {
+// ─── Schema helpers ───────────────────────────────────────────────────────────
+
+const SQLITE_USERS_TABLE = `export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
@@ -23,6 +27,83 @@ const USERS_TABLE = `export const users = sqliteTable("users", {
   name: text("name"),
   avatarUrl: text("avatar_url"),
 });`;
+
+const PG_USERS_TABLE = `export const users = pgTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  role: text("role").notNull().default("user"),
+  name: text("name"),
+  avatarUrl: text("avatar_url"),
+});`;
+
+const MYSQL_USERS_TABLE = `export const users = mysqlTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  role: text("role").notNull().default("user"),
+  name: text("name"),
+  avatarUrl: text("avatar_url"),
+});`;
+
+function schemaImport(driver: DatabaseDriver): string {
+  if (driver === "postgres") return `import { pgTable, text } from "drizzle-orm/pg-core";`;
+  if (driver === "mysql") return `import { mysqlTable, text } from "drizzle-orm/mysql-core";`;
+  return `import { sqliteTable, text } from "drizzle-orm/sqlite-core";`;
+}
+
+function tableConstructor(driver: DatabaseDriver): string {
+  if (driver === "postgres") return "pgTable";
+  if (driver === "mysql") return "mysqlTable";
+  return "sqliteTable";
+}
+
+function usersTableStr(driver: DatabaseDriver): string {
+  if (driver === "postgres") return PG_USERS_TABLE;
+  if (driver === "mysql") return MYSQL_USERS_TABLE;
+  return SQLITE_USERS_TABLE;
+}
+
+// ─── drizzle.config.ts ────────────────────────────────────────────────────────
+
+function buildDrizzleConfig(driver: DatabaseDriver): string {
+  if (driver === "postgres") {
+    return `import { defineConfig } from "drizzle-kit";
+
+export default defineConfig({
+  dialect: "postgresql",
+  schema: "./src/schema.ts",
+  dbCredentials: {
+    url: process.env.DATABASE_URL!,
+  },
+});
+`;
+  }
+  if (driver === "mysql") {
+    return `import { defineConfig } from "drizzle-kit";
+
+export default defineConfig({
+  dialect: "mysql",
+  schema: "./src/schema.ts",
+  dbCredentials: {
+    url: process.env.DATABASE_URL!,
+  },
+});
+`;
+  }
+  return `import { defineConfig } from "drizzle-kit";
+
+export default defineConfig({
+  dialect: "sqlite",
+  schema: "./src/schema.ts",
+  dbCredentials: {
+    url: "./data/db.sqlite",
+  },
+});
+`;
+}
+
+// ─── src/index.ts ─────────────────────────────────────────────────────────────
 
 function buildOAuthConfig(providers: OAuthProvider[]): string {
   if (providers.length === 0) return "";
@@ -33,12 +114,52 @@ function buildOAuthConfig(providers: OAuthProvider[]): string {
   return `\n    oauth: {\n${entries.join("\n")}\n    },`;
 }
 
-function buildEnv(providers: OAuthProvider[]): string {
+function buildDatabaseConfig(driver: DatabaseDriver): string {
+  if (driver === "postgres") {
+    return `\n    database: { driver: "postgres", url: process.env.DATABASE_URL! },`;
+  }
+  if (driver === "mysql") {
+    return `\n    database: { driver: "mysql", url: process.env.DATABASE_URL! },`;
+  }
+  // SQLite is the default — no database field needed
+  return "";
+}
+
+function buildIndexTs(driver: DatabaseDriver, providers: OAuthProvider[]): string {
+  const oauthConfig = buildOAuthConfig(providers);
+  const databaseConfig = buildDatabaseConfig(driver);
+  return `import { createServer, defineConfig } from "tsbase";
+import * as schema from "./schema";
+import { rules } from "./rules";
+
+const tsbase = createServer({
+  schema,
+  rules,
+  config: defineConfig({
+    development: process.env.NODE_ENV !== "production",${databaseConfig}${oauthConfig}
+  }),
+});
+
+tsbase.listen();
+`;
+}
+
+// ─── .env ─────────────────────────────────────────────────────────────────────
+
+function buildEnv(driver: DatabaseDriver, providers: OAuthProvider[], dbName: string): string {
   const lines = [
     "# TSBase Configuration",
     "# NODE_ENV=production",
     "# PORT=3000",
   ];
+  if (driver === "postgres") {
+    lines.push("", "# Database");
+    lines.push(`DATABASE_URL=postgres://localhost:5432/${dbName}`);
+  }
+  if (driver === "mysql") {
+    lines.push("", "# Database");
+    lines.push(`DATABASE_URL=mysql://root@127.0.0.1:3306/${dbName}`);
+  }
   if (providers.length > 0) {
     lines.push("", "# OAuth Providers");
     for (const p of providers) {
@@ -50,38 +171,22 @@ function buildEnv(providers: OAuthProvider[]): string {
   return lines.join("\n") + "\n";
 }
 
-function buildIndexTs(providers: OAuthProvider[]): string {
-  const oauthConfig = buildOAuthConfig(providers);
-  return `import { createServer, defineConfig } from "tsbase";
-import * as schema from "./schema";
-import { rules } from "./rules";
+// ─── Schema bodies ────────────────────────────────────────────────────────────
 
-const tsbase = createServer({
-  schema,
-  rules,
-  config: defineConfig({
-    development: process.env.NODE_ENV !== "production",${oauthConfig}
-  }),
-});
+function taskManagerSchema(driver: DatabaseDriver): string {
+  const tbl = tableConstructor(driver);
+  return `${schemaImport(driver)}
 
-tsbase.listen();
-`;
-}
+${usersTableStr(driver)}
 
-// --- Task Manager ---
-
-const taskManagerSchema = `import { sqliteTable, text } from "drizzle-orm/sqlite-core";
-
-${USERS_TABLE}
-
-export const projects = sqliteTable("projects", {
+export const projects = ${tbl}("projects", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
   ownerId: text("owner_id").notNull(),
 });
 
-export const tasks = sqliteTable("tasks", {
+export const tasks = ${tbl}("tasks", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   description: text("description"),
@@ -91,6 +196,115 @@ export const tasks = sqliteTable("tasks", {
   assigneeId: text("assignee_id"),
 });
 `;
+}
+
+function blogSchema(driver: DatabaseDriver): string {
+  const tbl = tableConstructor(driver);
+  return `${schemaImport(driver)}
+
+${usersTableStr(driver)}
+
+export const categories = ${tbl}("categories", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  slug: text("slug").notNull().unique(),
+});
+
+export const posts = ${tbl}("posts", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  slug: text("slug").notNull().unique(),
+  body: text("body"),
+  status: text("status").notNull().default("draft"),
+  authorId: text("author_id").notNull(),
+  categoryId: text("category_id"),
+});
+
+export const comments = ${tbl}("comments", {
+  id: text("id").primaryKey(),
+  body: text("body").notNull(),
+  postId: text("post_id").notNull(),
+  authorId: text("author_id").notNull(),
+});
+`;
+}
+
+function saasSchema(driver: DatabaseDriver): string {
+  const tbl = tableConstructor(driver);
+  return `${schemaImport(driver)}
+
+${usersTableStr(driver)}
+
+export const organizations = ${tbl}("organizations", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  ownerId: text("owner_id").notNull(),
+});
+
+export const members = ${tbl}("members", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull(),
+  userId: text("user_id").notNull(),
+  role: text("role").notNull().default("member"),
+});
+
+export const invoices = ${tbl}("invoices", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull(),
+  amount: text("amount").notNull(),
+  status: text("status").notNull().default("pending"),
+  description: text("description"),
+});
+`;
+}
+
+function inventorySchema(driver: DatabaseDriver): string {
+  const tbl = tableConstructor(driver);
+  return `${schemaImport(driver)}
+
+${usersTableStr(driver)}
+
+export const categories = ${tbl}("categories", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+});
+
+export const products = ${tbl}("products", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  price: text("price").notNull(),
+  sku: text("sku").unique(),
+  categoryId: text("category_id"),
+});
+
+export const orders = ${tbl}("orders", {
+  id: text("id").primaryKey(),
+  status: text("status").notNull().default("pending"),
+  customerId: text("customer_id").notNull(),
+  total: text("total").notNull(),
+});
+
+export const orderItems = ${tbl}("order_items", {
+  id: text("id").primaryKey(),
+  orderId: text("order_id").notNull(),
+  productId: text("product_id").notNull(),
+  quantity: text("quantity").notNull(),
+  price: text("price").notNull(),
+});
+`;
+}
+
+function emptySchema(driver: DatabaseDriver): string {
+  return `${schemaImport(driver)}
+
+${usersTableStr(driver)}
+`;
+}
+
+// ─── Rules (driver-agnostic) ──────────────────────────────────────────────────
 
 const taskManagerRules = `import { defineRules, authenticated, ownerOnly } from "tsbase";
 import { projects } from "./schema";
@@ -110,36 +324,6 @@ export const rules = defineRules({
     update: ({ auth }) => authenticated({ auth }),
     delete: ({ auth }) => auth?.role === "admin",
   },
-});
-`;
-
-// --- Blog ---
-
-const blogSchema = `import { sqliteTable, text } from "drizzle-orm/sqlite-core";
-
-${USERS_TABLE}
-
-export const categories = sqliteTable("categories", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull().unique(),
-  slug: text("slug").notNull().unique(),
-});
-
-export const posts = sqliteTable("posts", {
-  id: text("id").primaryKey(),
-  title: text("title").notNull(),
-  slug: text("slug").notNull().unique(),
-  body: text("body"),
-  status: text("status").notNull().default("draft"),
-  authorId: text("author_id").notNull(),
-  categoryId: text("category_id"),
-});
-
-export const comments = sqliteTable("comments", {
-  id: text("id").primaryKey(),
-  body: text("body").notNull(),
-  postId: text("post_id").notNull(),
-  authorId: text("author_id").notNull(),
 });
 `;
 
@@ -171,35 +355,6 @@ export const rules = defineRules({
 });
 `;
 
-// --- SaaS ---
-
-const saasSchema = `import { sqliteTable, text } from "drizzle-orm/sqlite-core";
-
-${USERS_TABLE}
-
-export const organizations = sqliteTable("organizations", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  slug: text("slug").notNull().unique(),
-  ownerId: text("owner_id").notNull(),
-});
-
-export const members = sqliteTable("members", {
-  id: text("id").primaryKey(),
-  organizationId: text("organization_id").notNull(),
-  userId: text("user_id").notNull(),
-  role: text("role").notNull().default("member"),
-});
-
-export const invoices = sqliteTable("invoices", {
-  id: text("id").primaryKey(),
-  organizationId: text("organization_id").notNull(),
-  amount: text("amount").notNull(),
-  status: text("status").notNull().default("pending"),
-  description: text("description"),
-});
-`;
-
 const saasRules = `import { defineRules, authenticated } from "tsbase";
 
 export const rules = defineRules({
@@ -224,43 +379,6 @@ export const rules = defineRules({
     update: ({ auth }) => auth?.role === "admin",
     delete: ({ auth }) => auth?.role === "admin",
   },
-});
-`;
-
-// --- Inventory ---
-
-const inventorySchema = `import { sqliteTable, text } from "drizzle-orm/sqlite-core";
-
-${USERS_TABLE}
-
-export const categories = sqliteTable("categories", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull().unique(),
-  description: text("description"),
-});
-
-export const products = sqliteTable("products", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  description: text("description"),
-  price: text("price").notNull(),
-  sku: text("sku").unique(),
-  categoryId: text("category_id"),
-});
-
-export const orders = sqliteTable("orders", {
-  id: text("id").primaryKey(),
-  status: text("status").notNull().default("pending"),
-  customerId: text("customer_id").notNull(),
-  total: text("total").notNull(),
-});
-
-export const orderItems = sqliteTable("order_items", {
-  id: text("id").primaryKey(),
-  orderId: text("order_id").notNull(),
-  productId: text("product_id").notNull(),
-  quantity: text("quantity").notNull(),
-  price: text("price").notNull(),
 });
 `;
 
@@ -298,24 +416,21 @@ export const rules = defineRules({
 });
 `;
 
-// --- Empty ---
-
-const emptySchema = `import { sqliteTable, text } from "drizzle-orm/sqlite-core";
-
-${USERS_TABLE}
-`;
-
 const emptyRules = `import { defineRules } from "tsbase";
 
 export const rules = defineRules({});
 `;
 
-// --- Template registry ---
+// ─── Template registry ────────────────────────────────────────────────────────
 
-const TEMPLATES: Record<
-  TemplateType,
-  { schema: string; rules: string; tables: string[]; description: string }
-> = {
+type TemplateBody = {
+  schema: (driver: DatabaseDriver) => string;
+  rules: string;
+  tables: string[];
+  description: string;
+};
+
+const TEMPLATES: Record<TemplateType, TemplateBody> = {
   "task-manager": {
     schema: taskManagerSchema,
     rules: taskManagerRules,
@@ -350,17 +465,24 @@ const TEMPLATES: Record<
 
 export function getTemplate(
   type: TemplateType,
+  driver: DatabaseDriver,
   oauthProviders: OAuthProvider[],
+  dbName: string = "myapp",
 ): Template {
   const t = TEMPLATES[type];
   return {
-    schema: t.schema,
+    schema: t.schema(driver),
     rules: t.rules,
-    indexTs: buildIndexTs(oauthProviders),
-    env: buildEnv(oauthProviders),
+    indexTs: buildIndexTs(driver, oauthProviders),
+    drizzleConfig: buildDrizzleConfig(driver),
+    env: buildEnv(driver, oauthProviders, dbName),
     tables: t.tables,
     description: t.description,
   };
+}
+
+export function slugifyDbName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "") || "myapp";
 }
 
 export const TEMPLATE_OPTIONS: { label: string; value: TemplateType }[] = [
@@ -372,6 +494,12 @@ export const TEMPLATE_OPTIONS: { label: string; value: TemplateType }[] = [
     value: "inventory",
   },
   { label: "Empty — users only (blank slate)", value: "empty" },
+];
+
+export const DATABASE_OPTIONS: { label: string; value: DatabaseDriver }[] = [
+  { label: "SQLite — zero-config, file-based", value: "sqlite" },
+  { label: "Postgres — requires DATABASE_URL", value: "postgres" },
+  { label: "MySQL — requires DATABASE_URL", value: "mysql" },
 ];
 
 export const OAUTH_OPTIONS: { label: string; value: OAuthProvider }[] = [

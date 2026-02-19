@@ -1,10 +1,12 @@
 import { test, expect, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { join } from "node:path";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { bootstrapInternalTables } from "../core/bootstrap.ts";
+import { SqliteAdapter } from "../core/adapters/sqlite.ts";
+import { getInternalSchema } from "../core/internal-schema.ts";
 import { handleAdminApi, pushRequestLog } from "../admin/routes.ts";
 import { createLocalStorage } from "../storage/local.ts";
 import { createSession } from "../auth/sessions.ts";
@@ -28,26 +30,30 @@ const postsTable = sqliteTable("posts", {
 const usersTable = sqliteTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull(),
+  passwordHash: text("password_hash"),
   role: text("role").notNull(),
 });
 
 function setupDb() {
   const sqlite = new Database(":memory:");
-  bootstrapInternalTables(sqlite);
+  const adapter = new SqliteAdapter(sqlite);
+  adapter.bootstrapInternalTables();
   sqlite.run(
     "CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT, role TEXT NOT NULL DEFAULT 'user')",
   );
   sqlite.run(
     "CREATE TABLE posts (id TEXT PRIMARY KEY, title TEXT NOT NULL, author TEXT NOT NULL)",
   );
-  return sqlite;
+  const db = drizzle({ client: sqlite });
+  const internalSchema = getInternalSchema("sqlite");
+  return { sqlite, db, adapter, internalSchema };
 }
 
-function createAdmin(sqlite: Database): string {
+async function createAdmin(sqlite: Database, db: any, internalSchema: any): Promise<string> {
   sqlite
     .query("INSERT INTO users (id, email, role) VALUES ($id, $email, $role)")
     .run({ $id: "admin-1", $email: "admin@example.com", $role: "admin" });
-  return createSession(sqlite, "admin-1");
+  return createSession(db, internalSchema, "admin-1");
 }
 
 function adminReq(
@@ -71,8 +77,8 @@ const schema = { posts: postsTable, users: usersTable };
 // ─── POST /records/:table ─────────────────────────────────────────────────────
 
 test("POST /records/:table creates a new record and returns 201", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
 
   const response = await handleAdminApi(
     adminReq("/records/posts", sessionId, {
@@ -80,10 +86,13 @@ test("POST /records/:table creates a new record and returns 201", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: "New Post", author: "Alice" }),
     }),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
 
   expect(response.status).toBe(201);
@@ -99,8 +108,8 @@ test("POST /records/:table creates a new record and returns 201", async () => {
 });
 
 test("POST /records/:table returns 404 for unknown table", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
 
   const response = await handleAdminApi(
     adminReq("/records/nonexistent", sessionId, {
@@ -108,18 +117,21 @@ test("POST /records/:table returns 404 for unknown table", async () => {
       body: JSON.stringify({ title: "x" }),
       headers: { "Content-Type": "application/json" },
     }),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
   expect(response.status).toBe(404);
   sqlite.close();
 });
 
 test("POST /records/:table uses provided id when given", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
 
   await handleAdminApi(
     adminReq("/records/posts", sessionId, {
@@ -127,10 +139,13 @@ test("POST /records/:table uses provided id when given", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: "custom-id", title: "Custom", author: "Bob" }),
     }),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
 
   const row = sqlite
@@ -143,8 +158,8 @@ test("POST /records/:table uses provided id when given", async () => {
 // ─── PATCH /records/:table/:id ────────────────────────────────────────────────
 
 test("PATCH /records/:table/:id updates a record and returns 200", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
   sqlite
     .query("INSERT INTO posts (id, title, author) VALUES ($id, $title, $author)")
     .run({ $id: "p1", $title: "Old Title", $author: "Alice" });
@@ -155,10 +170,13 @@ test("PATCH /records/:table/:id updates a record and returns 200", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: "Updated Title" }),
     }),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
 
   expect(response.status).toBe(200);
@@ -168,8 +186,8 @@ test("PATCH /records/:table/:id updates a record and returns 200", async () => {
 });
 
 test("PATCH /records/:table/:id returns 404 for unknown table", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
 
   const response = await handleAdminApi(
     adminReq("/records/nonexistent/p1", sessionId, {
@@ -177,18 +195,21 @@ test("PATCH /records/:table/:id returns 404 for unknown table", async () => {
       body: JSON.stringify({ title: "x" }),
       headers: { "Content-Type": "application/json" },
     }),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
   expect(response.status).toBe(404);
   sqlite.close();
 });
 
 test("PATCH /records/:table/:id returns 400 when no valid fields provided", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
   sqlite
     .query("INSERT INTO posts (id, title, author) VALUES ($id, $title, $author)")
     .run({ $id: "p1", $title: "Title", $author: "Alice" });
@@ -200,10 +221,13 @@ test("PATCH /records/:table/:id returns 400 when no valid fields provided", asyn
       // Send fields that are blocked (id, created_at) — results in no valid fields
       body: JSON.stringify({ id: "new-id", created_at: "2024-01-01" }),
     }),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
   expect(response.status).toBe(400);
   sqlite.close();
@@ -212,18 +236,21 @@ test("PATCH /records/:table/:id returns 400 when no valid fields provided", asyn
 // ─── DELETE /records/:table/:id ───────────────────────────────────────────────
 
 test("DELETE /records/:table/:id removes the record and returns deleted: true", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
   sqlite
     .query("INSERT INTO posts (id, title, author) VALUES ($id, $title, $author)")
     .run({ $id: "p1", $title: "Post", $author: "Alice" });
 
   const response = await handleAdminApi(
     adminReq("/records/posts/p1", sessionId, { method: "DELETE" }),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
 
   expect(response.status).toBe(200);
@@ -238,15 +265,18 @@ test("DELETE /records/:table/:id removes the record and returns deleted: true", 
 });
 
 test("DELETE /records/:table/:id returns 404 for unknown table", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
 
   const response = await handleAdminApi(
     adminReq("/records/nonexistent/p1", sessionId, { method: "DELETE" }),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
   expect(response.status).toBe(404);
   sqlite.close();
@@ -255,8 +285,8 @@ test("DELETE /records/:table/:id returns 404 for unknown table", async () => {
 // ─── GET /records/:table — search ─────────────────────────────────────────────
 
 test("GET /records/:table with search param filters results by text columns", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
   sqlite
     .query("INSERT INTO posts (id, title, author) VALUES ($id, $title, $author)")
     .run({ $id: "p1", $title: "Hello World", $author: "Alice" });
@@ -266,10 +296,13 @@ test("GET /records/:table with search param filters results by text columns", as
 
   const response = await handleAdminApi(
     adminReq("/records/posts?search=Hello", sessionId),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
 
   expect(response.status).toBe(200);
@@ -280,8 +313,8 @@ test("GET /records/:table with search param filters results by text columns", as
 });
 
 test("GET /records/:table with sort and order params returns sorted results", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
   sqlite
     .query("INSERT INTO posts (id, title, author) VALUES ($id, $title, $author)")
     .run({ $id: "p1", $title: "Zebra", $author: "Alice" });
@@ -291,10 +324,13 @@ test("GET /records/:table with sort and order params returns sorted results", as
 
   const response = await handleAdminApi(
     adminReq("/records/posts?sort=title&order=asc", sessionId),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
 
   expect(response.status).toBe(200);
@@ -306,15 +342,18 @@ test("GET /records/:table with sort and order params returns sorted results", as
 // ─── GET /tables — sort order ─────────────────────────────────────────────────
 
 test("GET /tables places users table before non-auth tables", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
 
   const response = await handleAdminApi(
     adminReq("/tables", sessionId),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
 
   expect(response.status).toBe(200);
@@ -329,8 +368,8 @@ test("GET /tables places users table before non-auth tables", async () => {
 // ─── DELETE /files/:id — success path ────────────────────────────────────────
 
 test("DELETE /files/:id in admin successfully removes file and storage", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
 
   // Write a real file to local storage
   const filePath = "posts/rec1/file1.txt";
@@ -353,10 +392,13 @@ test("DELETE /files/:id in admin successfully removes file and storage", async (
 
   const response = await handleAdminApi(
     adminReq("/files/file-admin-del", sessionId, { method: "DELETE" }),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
 
   expect(response.status).toBe(200);
@@ -379,8 +421,8 @@ test("DELETE /files/:id in admin successfully removes file and storage", async (
 // ─── GET /records/:table — pagination ─────────────────────────────────────────
 
 test("GET /records/:table returns pagination metadata", async () => {
-  const sqlite = setupDb();
-  const sessionId = createAdmin(sqlite);
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createAdmin(sqlite, db, internalSchema);
   for (let i = 1; i <= 5; i++) {
     sqlite
       .query("INSERT INTO posts (id, title, author) VALUES ($id, $title, $author)")
@@ -389,10 +431,13 @@ test("GET /records/:table returns pagination metadata", async () => {
 
   const response = await handleAdminApi(
     adminReq("/records/posts?limit=2&page=1", sessionId),
-    sqlite,
+    db,
+    adapter,
+    internalSchema,
     config,
     schema,
     storage,
+    usersTable,
   );
 
   expect(response.status).toBe(200);
@@ -411,11 +456,9 @@ test("GET /records/:table returns pagination metadata", async () => {
 
 // ─── Request log ─────────────────────────────────────────────────────────────
 
-test("pushRequestLog is covered by successful admin operations", () => {
-  const sqlite = setupDb();
-  // pushRequestLog is already tested in admin-routes-extended.test.ts
-  // This verifies that logs appear after admin operations
-  pushRequestLog(sqlite, {
+test("pushRequestLog is covered by successful admin operations", async () => {
+  const { sqlite, db, internalSchema } = setupDb();
+  await pushRequestLog(db, internalSchema, {
     id: "rlog-1",
     method: "PATCH",
     path: "/_admin/api/records/posts/p1",
