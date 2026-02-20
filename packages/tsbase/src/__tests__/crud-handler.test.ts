@@ -64,6 +64,19 @@ function makeRequest(
   return new Request(url, init);
 }
 
+function makeInvalidJsonRequest(
+  method: string,
+  path: string,
+  rawBody: string,
+  extraHeaders?: Record<string, string>,
+): Request {
+  return new Request(`http://localhost${path}`, {
+    method,
+    headers: { "Content-Type": "application/json", ...extraHeaders },
+    body: rawBody,
+  });
+}
+
 // ─── generateCrudHandlers: throw on missing id ───────────────────────────────
 
 test("generateCrudHandlers throws when table has no id column", () => {
@@ -263,6 +276,23 @@ test("POST /api/posts returns 403 when rule denies", async () => {
   sqlite.close();
 });
 
+test("POST /api/posts returns 400 for invalid JSON before evaluating create rule", async () => {
+  const { sqlite, db } = setupDb();
+  let ruleCalled = false;
+  const { exact } = generateCrudHandlers(posts, db, mockAuth(), {
+    create: () => {
+      ruleCalled = true;
+      return false;
+    },
+  });
+  const res = await exact["/api/posts"].POST(
+    makeInvalidJsonRequest("POST", "/api/posts", "{invalid-json"),
+  );
+  expect(res.status).toBe(400);
+  expect(ruleCalled).toBe(false);
+  sqlite.close();
+});
+
 // ─── update ──────────────────────────────────────────────────────────────────
 
 test("PATCH /api/posts/:id modifies and returns the updated row", async () => {
@@ -296,6 +326,23 @@ test("PATCH /api/posts/:id returns 403 when rule denies", async () => {
     makeRequest("PATCH", "/api/posts/p1", { title: "X" }),
   );
   expect(res.status).toBe(403);
+  sqlite.close();
+});
+
+test("PATCH /api/posts/:id returns 400 for invalid JSON before evaluating update rule", async () => {
+  const { sqlite, db } = setupDb();
+  let ruleCalled = false;
+  const { pattern } = generateCrudHandlers(posts, db, mockAuth(), {
+    update: () => {
+      ruleCalled = true;
+      return false;
+    },
+  });
+  const res = await pattern["/api/posts/:id"].PATCH(
+    makeInvalidJsonRequest("PATCH", "/api/posts/nope", "{invalid-json"),
+  );
+  expect(res.status).toBe(400);
+  expect(ruleCalled).toBe(false);
   sqlite.close();
 });
 

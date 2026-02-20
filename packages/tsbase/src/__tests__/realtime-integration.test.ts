@@ -140,6 +140,7 @@ let userAId: string;
 let userASession: string;
 let userBId: string;
 let userBSession: string;
+let latestListRuleArg: any = null;
 
 const CSRF = "rt-test-csrf";
 const csrfHeaders = { "x-csrf-token": CSRF, cookie: `csrf_token=${CSRF}` };
@@ -149,9 +150,10 @@ function csrfHeadersWithSession(sessionId: string) {
 }
 
 // ownerOnly rule: only see rows where ownerId === auth.id
-function ownerOnly({ auth }: { auth: any }) {
-  if (!auth) return false;
-  return eq(tasks.ownerId, auth.id);
+function ownerOnly(arg: any) {
+  latestListRuleArg = arg;
+  if (!arg?.auth) return false;
+  return eq(tasks.ownerId, arg.auth.id);
 }
 
 const dbPath = join(root, "rt.sqlite");
@@ -228,6 +230,28 @@ test("unauthenticated client subscribes to table with no ownerOnly → denied by
   ws.send(JSON.stringify({ type: "subscribe:table", table: "tasks" }));
   const msg = await helper.next((m) => m.type === "error");
   expect(msg.message).toMatch(/access denied/i);
+
+  ws.close();
+  await waitForClose(ws);
+});
+
+test("realtime subscribe passes RuleArg defaults to list rule", async () => {
+  latestListRuleArg = null;
+  const ws = new WebSocket(`${wsBase}/realtime`, {
+    headers: { cookie: `tsbase_session=${userASession}` },
+  });
+  await waitForOpen(ws);
+
+  ws.send(JSON.stringify({ type: "subscribe:table", table: "tasks" }));
+  await delay(100);
+
+  expect(latestListRuleArg).not.toBeNull();
+  expect(latestListRuleArg.auth.id).toBe(userAId);
+  expect(latestListRuleArg.method).toBe("SUBSCRIBE");
+  expect(latestListRuleArg.body).toEqual({});
+  expect(latestListRuleArg.headers).toEqual({});
+  expect(latestListRuleArg.query).toEqual({});
+  expect(typeof latestListRuleArg.db).toBe("object");
 
   ws.close();
   await waitForClose(ws);

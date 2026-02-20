@@ -151,6 +151,55 @@ test("POST /files returns 403 when create rule denies access", async () => {
   sqlite.close();
 });
 
+test("POST /files passes method/headers/query/db in rule arg", async () => {
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createUser(sqlite, db, internalSchema);
+  sqlite
+    .query("INSERT INTO posts (id, title) VALUES ($id, $title)")
+    .run({ $id: "rec-arg", $title: "Post Arg" });
+
+  let capturedArg: any = null;
+  const routes = createFileRoutes({
+    db,
+    adapter,
+    internalSchema,
+    config: makeConfig(),
+    schema: { posts: postsTable },
+    rules: {
+      posts: {
+        create: (arg) => {
+          capturedArg = arg;
+          return null;
+        },
+      },
+    },
+    usersTable,
+  });
+
+  const formData = new FormData();
+  formData.append("file", new File(["data"], "f.txt", { type: "text/plain" }));
+
+  const response = await routes["/files/:collection/:recordId"].POST(
+    new Request("http://localhost/files/posts/rec-arg?source=test-suite", {
+      method: "POST",
+      headers: {
+        cookie: `tsbase_session=${sessionId}`,
+        "X-Trace-Id": "trace-123",
+      },
+      body: formData,
+    }),
+  );
+
+  expect(response.status).toBe(201);
+  expect(capturedArg).not.toBeNull();
+  expect(capturedArg.method).toBe("POST");
+  expect(capturedArg.headers["x-trace-id"]).toBe("trace-123");
+  expect(capturedArg.query.source).toBe("test-suite");
+  expect(capturedArg.body).toEqual({});
+  expect(capturedArg.db).toBe(db);
+  sqlite.close();
+});
+
 // ─── POST /files — unknown collection in SQLite (line 143) ───────────────────
 
 test("POST /files returns 404 when collection table does not exist in SQLite", async () => {
@@ -409,6 +458,70 @@ test("GET /files returns file content when authenticated and file exists", async
   sqlite.close();
 });
 
+test("GET /files passes method/headers/query/id/db in read rule arg", async () => {
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createUser(sqlite, db, internalSchema);
+  sqlite
+    .query("INSERT INTO posts (id, title) VALUES ($id, $title)")
+    .run({ $id: "rec-get-arg", $title: "Post" });
+
+  const storagePath = "posts/rec-get-arg/get-arg-file.txt";
+  const storage = createLocalStorage(storageDir);
+  await storage.write(storagePath, new TextEncoder().encode("hello"));
+
+  sqlite
+    .query(
+      "INSERT INTO _files (id, collection, record_id, filename, mime_type, size, storage_path, created_at) VALUES ($id, $col, $recId, $fn, $mt, $sz, $sp, $ca)",
+    )
+    .run({
+      $id: "get-arg-file",
+      $col: "posts",
+      $recId: "rec-get-arg",
+      $fn: "get-arg-file.txt",
+      $mt: "text/plain",
+      $sz: 5,
+      $sp: storagePath,
+      $ca: new Date().toISOString(),
+    });
+
+  let capturedArg: any = null;
+  const routes = createFileRoutes({
+    db,
+    adapter,
+    internalSchema,
+    config: makeConfig(),
+    schema: { posts: postsTable },
+    rules: {
+      posts: {
+        view: (arg) => {
+          capturedArg = arg;
+          return null;
+        },
+      },
+    },
+    usersTable,
+  });
+
+  const response = await routes["/files/:id"].GET(
+    new Request("http://localhost/files/get-arg-file?download=1", {
+      headers: {
+        cookie: `tsbase_session=${sessionId}`,
+        "X-Client": "web",
+      },
+    }),
+  );
+
+  expect(response.status).toBe(200);
+  expect(capturedArg).not.toBeNull();
+  expect(capturedArg.id).toBe("rec-get-arg");
+  expect(capturedArg.method).toBe("GET");
+  expect(capturedArg.headers["x-client"]).toBe("web");
+  expect(capturedArg.query.download).toBe("1");
+  expect(capturedArg.body).toEqual({});
+  expect(capturedArg.db).toBe(db);
+  sqlite.close();
+});
+
 // ─── DELETE /files — missing fileId (line 278) ───────────────────────────────
 
 test("DELETE /files returns 400 when file ID is missing from URL", async () => {
@@ -535,6 +648,70 @@ test("DELETE /files successfully removes file and DB record", async () => {
     .get({ $id: "del-file" });
   expect(row).toBeNull();
   expect(await storage.exists(storagePath)).toBe(false);
+  sqlite.close();
+});
+
+test("DELETE /files passes method/headers/query/id/db in delete rule arg", async () => {
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const sessionId = await createUser(sqlite, db, internalSchema);
+  sqlite
+    .query("INSERT INTO posts (id, title) VALUES ($id, $title)")
+    .run({ $id: "rec-del-arg", $title: "Post" });
+
+  const storagePath = "posts/rec-del-arg/del-arg-file.txt";
+  await createLocalStorage(storageDir).write(storagePath, new Uint8Array([1]));
+
+  sqlite
+    .query(
+      "INSERT INTO _files (id, collection, record_id, filename, mime_type, size, storage_path, created_at) VALUES ($id, $col, $recId, $fn, $mt, $sz, $sp, $ca)",
+    )
+    .run({
+      $id: "del-arg-file",
+      $col: "posts",
+      $recId: "rec-del-arg",
+      $fn: "del-arg-file.txt",
+      $mt: "text/plain",
+      $sz: 1,
+      $sp: storagePath,
+      $ca: new Date().toISOString(),
+    });
+
+  let capturedArg: any = null;
+  const routes = createFileRoutes({
+    db,
+    adapter,
+    internalSchema,
+    config: makeConfig(),
+    schema: { posts: postsTable },
+    rules: {
+      posts: {
+        delete: (arg) => {
+          capturedArg = arg;
+          return null;
+        },
+      },
+    },
+    usersTable,
+  });
+
+  const response = await routes["/files/:id"].DELETE(
+    new Request("http://localhost/files/del-arg-file?cascade=1", {
+      method: "DELETE",
+      headers: {
+        cookie: `tsbase_session=${sessionId}`,
+        "X-Delete-Reason": "cleanup",
+      },
+    }),
+  );
+
+  expect(response.status).toBe(200);
+  expect(capturedArg).not.toBeNull();
+  expect(capturedArg.id).toBe("rec-del-arg");
+  expect(capturedArg.method).toBe("DELETE");
+  expect(capturedArg.headers["x-delete-reason"]).toBe("cleanup");
+  expect(capturedArg.query.cascade).toBe("1");
+  expect(capturedArg.body).toEqual({});
+  expect(capturedArg.db).toBe(db);
   sqlite.close();
 });
 
