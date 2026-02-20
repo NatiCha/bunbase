@@ -87,9 +87,15 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
     // Validate users table if provided
     const usersTable = validateUsersTable(options.schema);
 
-    // Seed default admin if users table exists and no admin user exists
+    // Seed default admin if users table exists and no admin user exists.
+    // Pass whether development mode was explicitly requested so that a
+    // misconfigured production environment (NODE_ENV not set) does not
+    // accidentally seed predictable credentials.
     if (usersTable) {
-      await seedDefaultAdmin(db, usersTable);
+      const devExplicit =
+        options.config?.development === true ||
+        process.env.NODE_ENV === "development";
+      await seedDefaultAdmin(db, usersTable, config.development, devExplicit);
     }
 
     bootstrapped = true;
@@ -218,6 +224,25 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
     }
   }
 
+  // SEC-002: Warn about CRUD tables where any operation has no rule defined.
+  // A missing rule defaults to deny (403), so uncovered operations are inaccessible until rules are added.
+  // "get" and "view" are aliases — either one covers single-record reads.
+  for (const path of Object.keys(crudExact)) {
+    const tableName = path.replace(/^\/api\//, "");
+    const tableRule = tableRules?.[tableName];
+    const uncovered: string[] = [];
+    if (!tableRule?.list) uncovered.push("list");
+    if (!tableRule?.get && !tableRule?.view) uncovered.push("get");
+    if (!tableRule?.create) uncovered.push("create");
+    if (!tableRule?.update) uncovered.push("update");
+    if (!tableRule?.delete) uncovered.push("delete");
+    if (uncovered.length > 0) {
+      console.warn(
+        `  \x1b[33m[TSBase]\x1b[0m Warning: table "${tableName}" has no rule for [${uncovered.join(", ")}] — ${uncovered.length === 5 ? "all operations are" : "these operations are"} denied by default. Use \`allowAll\` to explicitly allow public access.`,
+      );
+    }
+  }
+
   // Pattern-based routes (with path params)
   const patternRoutes: Array<{
     pattern: RegExp;
@@ -297,6 +322,9 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
       ...(websocketHandlers ? { websocket: websocketHandlers } : {}),
 
       async fetch(req, srv) {
+        // Capture socket IP before any cloning — srv.requestIP() needs the original request.
+        const socketIp = srv.requestIP(req)?.address ?? "unknown";
+
         // Ensure bootstrap is complete (important for Postgres)
         if (!bootstrapped) {
           const bootstrapResult = await bootstrapPromise;
@@ -314,7 +342,8 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
         const url = new URL(req.url);
         const pathname = url.pathname;
 
-        // WebSocket upgrade for /realtime
+        // WebSocket upgrade for /realtime — must use the original req, not a clone,
+        // because srv.upgrade() requires the native Bun request handle.
         if (pathname === "/realtime" && config.realtime.enabled && realtimeManager) {
           const auth = await extractAuthFromReq(req, db, internalSchema, usersTable).catch(() => null);
           const upgraded = srv.upgrade(req, {
@@ -326,6 +355,31 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
           });
           if (upgraded) return undefined as unknown as Response;
           return new Response("WebSocket upgrade failed", { status: 400 });
+        }
+
+        // Inject socket IP header for all HTTP routes. Must happen after the WebSocket
+        // path above since cloning req would invalidate the native handle needed by srv.upgrade().
+        // We always overwrite any client-provided value to prevent spoofing.
+        const enrichedHeaders = new Headers(req.headers);
+        enrichedHeaders.set("x-tsbase-socket-ip", socketIp);
+        req = new Request(req, { headers: enrichedHeaders });
+
+        // CSRF check for state-changing mutations — covers both /api/ and /_admin/api/
+        if (
+          (pathname.startsWith("/api/") || pathname.startsWith("/_admin/api/")) &&
+          ["POST", "PATCH", "DELETE"].includes(req.method) &&
+          !isCsrfExempt(pathname)
+        ) {
+          if (!validateCsrf(req)) {
+            return addCorsHeaders(
+              Response.json(
+                { error: { code: "FORBIDDEN", message: "Invalid CSRF token" } },
+                { status: 403 },
+              ),
+              req,
+              config,
+            );
+          }
         }
 
         // Admin API — must be before CRUD/user routes
@@ -360,24 +414,6 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
             status: 302,
             headers: { Location: "/_admin" },
           });
-        }
-
-        // CSRF check for API mutations
-        if (
-          pathname.startsWith("/api/") &&
-          ["POST", "PATCH", "DELETE"].includes(req.method) &&
-          !isCsrfExempt(pathname)
-        ) {
-          if (!validateCsrf(req)) {
-            return addCorsHeaders(
-              Response.json(
-                { error: { code: "FORBIDDEN", message: "Invalid CSRF token" } },
-                { status: 403 },
-              ),
-              req,
-              config,
-            );
-          }
         }
 
         // Exact match HTTP routes
@@ -457,7 +493,12 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
 const DEFAULT_ADMIN_EMAIL = "admin@example.com";
 const DEFAULT_ADMIN_PASSWORD = "admin";
 
-async function seedDefaultAdmin(db: AnyDb, usersTable: any) {
+async function seedDefaultAdmin(
+  db: AnyDb,
+  usersTable: any,
+  isDevelopment: boolean,
+  devExplicit: boolean,
+) {
   try {
     const { eq, getTableColumns } = await import("drizzle-orm");
     const columns = getTableColumns(usersTable);
@@ -472,20 +513,46 @@ async function seedDefaultAdmin(db: AnyDb, usersTable: any) {
 
     if (existing.length > 0) return;
 
-    const passwordHash = await hashPassword(DEFAULT_ADMIN_PASSWORD);
-    const id = Bun.randomUUIDv7();
-
-    await (db as any).insert(usersTable).values({
-      id,
-      email: DEFAULT_ADMIN_EMAIL,
-      passwordHash,
-      role: "admin",
-    });
-
-    console.log(`\n  \x1b[33m[TSBase]\x1b[0m Default admin created:`);
-    console.log(`    Email:    \x1b[1m${DEFAULT_ADMIN_EMAIL}\x1b[0m`);
-    console.log(`    Password: \x1b[1m${DEFAULT_ADMIN_PASSWORD}\x1b[0m`);
-    console.log(`  \x1b[2mChange this password after your first login.\x1b[0m\n`);
+    // Only seed predictable dev credentials when development mode was explicitly
+    // requested (development: true in config, or NODE_ENV=development).
+    // When isDevelopment is merely inferred from NODE_ENV being absent, we treat
+    // admin seeding as production to avoid predictable credentials in misconfigured
+    // production deployments.
+    if (isDevelopment && devExplicit) {
+      // Development: seed with well-known defaults for convenience
+      const passwordHash = await hashPassword(DEFAULT_ADMIN_PASSWORD);
+      const id = Bun.randomUUIDv7();
+      await (db as any).insert(usersTable).values({
+        id,
+        email: DEFAULT_ADMIN_EMAIL,
+        passwordHash,
+        role: "admin",
+      });
+      console.log(`\n  \x1b[33m[TSBase]\x1b[0m Default admin created:`);
+      console.log(`    Email:    \x1b[1m${DEFAULT_ADMIN_EMAIL}\x1b[0m`);
+      console.log(`    Password: \x1b[1m${DEFAULT_ADMIN_PASSWORD}\x1b[0m`);
+      console.log(`  \x1b[2mChange this password after your first login.\x1b[0m\n`);
+    } else {
+      // Production: seed from env vars, or warn if none are configured
+      const envEmail = process.env.TSBASE_ADMIN_EMAIL;
+      const envPassword = process.env.TSBASE_ADMIN_PASSWORD;
+      if (envEmail && envPassword) {
+        const passwordHash = await hashPassword(envPassword);
+        const id = Bun.randomUUIDv7();
+        await (db as any).insert(usersTable).values({
+          id,
+          email: envEmail,
+          passwordHash,
+          role: "admin",
+        });
+        console.log(`\n  \x1b[33m[TSBase]\x1b[0m Admin account created from environment variables.\n`);
+      } else {
+        console.warn(
+          `\n  \x1b[33m[TSBase]\x1b[0m Warning: No admin account exists and no bootstrap credentials are configured.\n` +
+          `  Set TSBASE_ADMIN_EMAIL and TSBASE_ADMIN_PASSWORD environment variables to create an admin on startup.\n`,
+        );
+      }
+    }
   } catch {
     // Users table may not have role/email columns — skip seeding silently
   }

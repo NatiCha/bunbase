@@ -178,6 +178,7 @@ test("POST /files returns 404 when collection table does not exist in SQLite", a
     internalSchema: internalSchema2,
     config: makeConfig(),
     schema: { posts: postsTable },
+    rules: { posts: { create: () => null } },
     usersTable,
   });
 
@@ -345,6 +346,7 @@ test("GET /files returns 404 when file data is missing from storage", async () =
     internalSchema,
     config: makeConfig(),
     schema: { posts: postsTable },
+    rules: { posts: { view: () => null } },
     usersTable,
   });
 
@@ -393,6 +395,7 @@ test("GET /files returns file content when authenticated and file exists", async
     internalSchema,
     config: makeConfig(),
     schema: { posts: postsTable },
+    rules: { posts: { view: () => null } },
     usersTable,
   });
 
@@ -511,6 +514,7 @@ test("DELETE /files successfully removes file and DB record", async () => {
     internalSchema,
     config: makeConfig(),
     schema: { posts: postsTable },
+    rules: { posts: { delete: () => null } },
     usersTable,
   });
 

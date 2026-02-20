@@ -43,15 +43,36 @@ NODE_ENV=production
 
 # Optional
 PORT=3000
+
+# Admin bootstrap (see Admin account below)
+TSBASE_ADMIN_EMAIL=admin@your-app.com
+TSBASE_ADMIN_PASSWORD=change-me
 ```
 
 Bun loads `.env` files automatically. For production, set environment variables through your hosting platform.
+
+## Admin account
+
+In development, TSBase automatically creates an admin account with the credentials `admin@example.com` / `admin` if no admin exists.
+
+In production this does **not** happen. Set `TSBASE_ADMIN_EMAIL` and `TSBASE_ADMIN_PASSWORD` environment variables to have TSBase create an admin on first startup:
+
+```bash
+TSBASE_ADMIN_EMAIL=admin@your-app.com
+TSBASE_ADMIN_PASSWORD=a-strong-password
+```
+
+If neither variable is set and no admin exists, TSBase logs a warning at startup but continues running. You can create an admin manually through the admin UI or database tools at any time.
 
 ## Example `.env.production`
 
 ```bash
 NODE_ENV=production
 PORT=3000
+
+# Admin bootstrap credentials (used once if no admin exists)
+TSBASE_ADMIN_EMAIL=admin@your-app.com
+TSBASE_ADMIN_PASSWORD=a-strong-password
 
 # OAuth (if using)
 GOOGLE_CLIENT_ID=...
@@ -67,6 +88,8 @@ S3_SECRET_KEY=...
 ## File storage
 
 For production, consider using S3 instead of local storage. Local storage works for single-server deployments but doesn't survive container restarts unless the data directory is mounted as a volume.
+
+> **Note:** Files downloaded via `GET /files/:id` are served with `Content-Disposition: attachment`, meaning the browser will download them rather than display them inline. If your app needs to display images or other files directly (e.g. in `<img>` tags), serve them from your S3 bucket URL or a CDN directly rather than proxying through TSBase.
 
 ```ts
 defineConfig({
@@ -137,8 +160,11 @@ docker run -p 3000:3000 -v my-data:/app/data -e NODE_ENV=production my-app
 
 - [ ] Set `NODE_ENV=production`
 - [ ] Configure `cors.origins` with your frontend domain(s)
+- [ ] Set `TSBASE_ADMIN_EMAIL` and `TSBASE_ADMIN_PASSWORD` for admin bootstrap
 - [ ] Set `auth.oauth.redirectUrl` if using OAuth
 - [ ] Configure `auth.email.webhook` if using password reset
+- [ ] Define access rules for every table (TSBase warns at startup for any unprotected table)
+- [ ] Set `trustedProxies` in `defineConfig` if running behind a reverse proxy (nginx, Cloudflare, etc.)
 - [ ] Use S3 storage or mount a persistent volume for local storage
 - [ ] Back up the SQLite database
 - [ ] Use HTTPS (via reverse proxy or hosting platform)

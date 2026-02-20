@@ -39,21 +39,65 @@ test("request beyond the limit is blocked", () => {
 
 // getClientIp
 
-test("getClientIp reads first entry from x-forwarded-for header", () => {
+test("getClientIp returns socket IP when no trusted proxies configured", () => {
   const req = new Request("http://localhost", {
-    headers: { "x-forwarded-for": "203.0.113.5, 10.0.0.1" },
+    headers: {
+      "x-tsbase-socket-ip": "1.2.3.4",
+      "x-forwarded-for": "203.0.113.5",
+    },
   });
-  expect(getClientIp(req)).toBe("203.0.113.5");
+  // No trusted proxies — forwarded header is ignored, socket IP is used
+  expect(getClientIp(req, [])).toBe("1.2.3.4");
 });
 
-test("getClientIp falls back to x-real-ip", () => {
+test("getClientIp parses x-forwarded-for right-to-left and returns first non-trusted hop", () => {
+  // nginx $proxy_add_x_forwarded_for appends connecting IP on the right.
+  // The leftmost value is client-controlled and could be spoofed.
   const req = new Request("http://localhost", {
-    headers: { "x-real-ip": "203.0.113.99" },
+    headers: {
+      "x-tsbase-socket-ip": "127.0.0.1",
+      "x-forwarded-for": "attacker-spoofed, 203.0.113.5, 127.0.0.1",
+    },
   });
-  expect(getClientIp(req)).toBe("203.0.113.99");
+  // 127.0.0.1 (rightmost) is trusted → skip; 203.0.113.5 is the real client
+  expect(getClientIp(req, ["127.0.0.1"])).toBe("203.0.113.5");
 });
 
-test("getClientIp returns 'unknown' when no headers present", () => {
+test("getClientIp with spoofed leading XFF entry returns true client, not spoofed IP", () => {
+  const req = new Request("http://localhost", {
+    headers: {
+      "x-tsbase-socket-ip": "10.0.0.1",
+      "x-forwarded-for": "1.1.1.1, 5.5.5.5",
+    },
+  });
+  // 10.0.0.1 is trusted; 5.5.5.5 is the real connecting client; 1.1.1.1 is spoofed
+  expect(getClientIp(req, ["10.0.0.1"])).toBe("5.5.5.5");
+});
+
+test("getClientIp falls back to x-real-ip when x-forwarded-for absent and proxy trusted", () => {
+  const req = new Request("http://localhost", {
+    headers: {
+      "x-tsbase-socket-ip": "10.0.0.2",
+      "x-real-ip": "203.0.113.99",
+    },
+  });
+  expect(getClientIp(req, ["10.0.0.2"])).toBe("203.0.113.99");
+});
+
+test("getClientIp returns socket IP when connection is not from a trusted proxy", () => {
+  const req = new Request("http://localhost", {
+    headers: {
+      "x-tsbase-socket-ip": "5.5.5.5",
+      "x-forwarded-for": "203.0.113.5",
+    },
+  });
+  // 5.5.5.5 is not in trusted list — forwarded header ignored
+  expect(getClientIp(req, ["127.0.0.1"])).toBe("5.5.5.5");
+});
+
+test("getClientIp returns a random UUID when socket IP header is absent (programmatic call)", () => {
   const req = new Request("http://localhost");
-  expect(getClientIp(req)).toBe("unknown");
+  const ip = getClientIp(req, []);
+  // Should be a valid UUID — not "unknown", not empty
+  expect(ip).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
 });

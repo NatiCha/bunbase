@@ -50,10 +50,11 @@ export function printSummary({
   }
 
   lines.push("");
-  lines.push(`  ${BOLD}Admin login:${RESET}`);
+  lines.push(`  ${BOLD}Admin login (development):${RESET}`);
   lines.push(`    Email:    ${BOLD}admin@example.com${RESET}`);
   lines.push(`    Password: ${BOLD}admin${RESET}`);
   lines.push(`    ${DIM}(change this after first login)${RESET}`);
+  lines.push(`    ${DIM}In production, set TSBASE_ADMIN_EMAIL and TSBASE_ADMIN_PASSWORD env vars.${RESET}`);
 
   lines.push("");
   lines.push(`  ${BOLD}Try it:${RESET}`);

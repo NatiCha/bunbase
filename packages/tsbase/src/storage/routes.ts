@@ -123,6 +123,10 @@ export function createFileRoutes(deps: FileRouteDeps) {
           return jsonError("BAD_REQUEST", "Missing collection or recordId", 400);
         }
 
+        if (!collectionTables.has(collection)) {
+          return jsonError("NOT_FOUND", "Collection not found", 404);
+        }
+
         const createRuleResult = await evaluateRule(rules?.[collection]?.create, {
           auth: user,
         });
@@ -248,8 +252,9 @@ export function createFileRoutes(deps: FileRouteDeps) {
         return new Response(Uint8Array.from(data), {
           headers: {
             "Content-Type": fileRecord.mimeType,
-            "Content-Disposition": `inline; filename="${fileRecord.filename}"`,
+            "Content-Disposition": `attachment; filename="${fileRecord.filename}"`,
             "Content-Length": String(fileRecord.size),
+            "X-Content-Type-Options": "nosniff",
           },
         });
       },

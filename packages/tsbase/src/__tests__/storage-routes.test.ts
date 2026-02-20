@@ -104,6 +104,7 @@ test("POST /files: returns 404 when record does not exist", async () => {
     internalSchema,
     config: makeConfig(),
     schema: { posts: postsTable },
+    rules: { posts: { create: () => null } },
     usersTable,
   });
 
@@ -134,6 +135,7 @@ test("POST /files: returns 400 when no file is provided", async () => {
     internalSchema,
     config: makeConfig(),
     schema: { posts: postsTable },
+    rules: { posts: { create: () => null } },
     usersTable,
   });
 
@@ -167,6 +169,7 @@ test("POST /files: returns 400 when file exceeds maxFileSize", async () => {
       storage: { driver: "local" as const, localPath: storageDir, maxFileSize: 5 }, // 5 bytes max
     }),
     schema: { posts: postsTable },
+    rules: { posts: { create: () => null } },
     usersTable,
   });
 
@@ -206,6 +209,7 @@ test("POST /files: returns 400 when MIME type is not allowed", async () => {
       },
     }),
     schema: { posts: postsTable },
+    rules: { posts: { create: () => null } },
     usersTable,
   });
 
@@ -236,6 +240,7 @@ test("POST /files: successfully uploads a file and returns 201", async () => {
     internalSchema,
     config: makeConfig(),
     schema: { posts: postsTable },
+    rules: { posts: { create: () => null } },
     usersTable,
   });
 

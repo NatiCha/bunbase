@@ -179,7 +179,7 @@ test("request-password-reset returns 429 when rate limited", async () => {
     await routes["/auth/request-password-reset"].POST(
       new Request("http://localhost/auth/request-password-reset", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-forwarded-for": ip },
+        headers: { "Content-Type": "application/json", "x-tsbase-socket-ip": ip },
         body: JSON.stringify({ email: "nobody@example.com" }),
       }),
     );
@@ -188,7 +188,7 @@ test("request-password-reset returns 429 when rate limited", async () => {
   const blocked = await routes["/auth/request-password-reset"].POST(
     new Request("http://localhost/auth/request-password-reset", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-forwarded-for": ip },
+      headers: { "Content-Type": "application/json", "x-tsbase-socket-ip": ip },
       body: JSON.stringify({ email: "nobody@example.com" }),
     }),
   );

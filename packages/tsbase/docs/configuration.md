@@ -80,6 +80,11 @@ const config = defineConfig({
     // Enable WebSocket endpoint at /realtime (default: false)
     enabled: true,
   },
+
+  // IPs of trusted reverse proxies (exact match, no CIDR). When a request
+  // arrives from one of these IPs, TSBase trusts X-Forwarded-For / X-Real-IP
+  // for rate limiting. When unset, the socket IP is used directly.
+  trustedProxies: ["127.0.0.1"],
 });
 ```
 
@@ -160,6 +165,22 @@ When `true`, TSBase opens a WebSocket endpoint at `/realtime` for live table sub
 
 Default: `false`
 
+### `trustedProxies`
+
+A list of IP addresses for trusted reverse proxies (exact match — CIDR ranges are not supported). When a request arrives from one of these IPs, TSBase will trust the `X-Forwarded-For` and `X-Real-IP` headers for rate limiting, using the forwarded client IP as the rate-limit key.
+
+When unset (the default), forwarded headers are ignored entirely and the raw socket IP is used. This is the safe default for deployments without a reverse proxy.
+
+Set this if you run TSBase behind nginx, Cloudflare Tunnel, or any load balancer that rewrites the client IP:
+
+```ts
+defineConfig({
+  trustedProxies: ["127.0.0.1"], // local nginx
+})
+```
+
+Default: `[]`
+
 ## Environment variables
 
 TSBase reads these environment variables:
@@ -168,6 +189,10 @@ TSBase reads these environment variables:
 |---|---|
 | `NODE_ENV` | Set to `"production"` for production mode |
 | `PORT` | Server port (default: 3000) |
+| `TSBASE_ADMIN_EMAIL` | Email for the admin account created on first startup (production only) |
+| `TSBASE_ADMIN_PASSWORD` | Password for the admin account created on first startup (production only) |
+
+> **Note:** `trustedProxies` is a code-level config option, not an environment variable. Set it in your `defineConfig()` call.
 
 Bun automatically loads `.env` files — no dotenv needed.
 

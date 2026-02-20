@@ -54,6 +54,14 @@ export interface TSBaseConfig {
   /** @deprecated Use `database.path` instead */
   dbPath?: string; // default ./data/db.sqlite
   migrationsPath?: string; // default ./drizzle
+  /**
+   * IPs of trusted reverse proxies (exact match only, no CIDR).
+   * When a request arrives from one of these IPs, TSBase will trust the
+   * X-Forwarded-For / X-Real-IP headers for rate limiting.
+   * When unset, forwarded headers are ignored and the socket IP is used directly.
+   * Example: ["127.0.0.1"] for a local nginx proxy.
+   */
+  trustedProxies?: string[];
 }
 
 export function defineConfig(config: TSBaseConfig): TSBaseConfig {
@@ -102,6 +110,7 @@ export interface ResolvedConfig {
   /** @deprecated Use `database.url` for SQLite path */
   dbPath: string;
   migrationsPath: string;
+  trustedProxies: string[];
 }
 
 function resolveDatabaseConfig(config?: TSBaseConfig): ResolvedDatabaseConfig {
@@ -169,6 +178,7 @@ export function resolveConfig(config?: TSBaseConfig): ResolvedConfig {
     database,
     dbPath: database.url,
     migrationsPath: config?.migrationsPath ?? "./drizzle",
+    trustedProxies: config?.trustedProxies ?? [],
   };
 
   if (!isDev) {

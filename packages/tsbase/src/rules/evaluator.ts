@@ -11,8 +11,8 @@ export async function evaluateRule(
   ctx: RuleContext,
 ): Promise<EvaluatedRule> {
   if (!rule) {
-    // No rule defined = allow all
-    return { allowed: true };
+    // No rule defined = deny by default
+    return { allowed: false };
   }
 
   const result: RuleResult = await rule(ctx);

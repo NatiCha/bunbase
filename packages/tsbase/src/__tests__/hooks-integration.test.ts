@@ -31,6 +31,9 @@ beforeAll(async () => {
 
   tsbaseModify = createServer({
     schema: { items },
+    rules: {
+      items: { list: () => null, view: () => null, get: () => null, create: () => null, update: () => null, delete: () => null },
+    },
     hooks: defineHooks({
       items: {
         beforeCreate: ({ data }) => ({ ...data, tag: "auto-tagged" }),
@@ -91,6 +94,9 @@ beforeAll(async () => {
 
   tsbaseBlock = createServer({
     schema: { items },
+    rules: {
+      items: { list: () => null, view: () => null, get: () => null, create: () => null, update: () => null, delete: () => null },
+    },
     hooks: defineHooks({
       items: {
         beforeDelete: ({ record }) => {

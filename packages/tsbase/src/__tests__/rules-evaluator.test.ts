@@ -16,9 +16,9 @@ const ctxAdmin: RuleContext = { auth: adminUser };
 
 // evaluateRule
 
-test("evaluateRule with no rule defined allows all", async () => {
+test("evaluateRule with no rule defined denies by default", async () => {
   const result = await evaluateRule(undefined, ctxNoAuth);
-  expect(result.allowed).toBe(true);
+  expect(result.allowed).toBe(false);
   expect(result.whereClause).toBeUndefined();
 });
 

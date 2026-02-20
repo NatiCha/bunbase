@@ -40,7 +40,7 @@ function uniqueIp(): string {
 
 function makeReq(path: string, options: RequestInit, ip?: string): Request {
   const headers = new Headers(options.headers);
-  headers.set("x-forwarded-for", ip ?? uniqueIp());
+  headers.set("x-tsbase-socket-ip", ip ?? uniqueIp());
   return new Request(`http://localhost${path}`, { ...options, headers });
 }
 
@@ -258,7 +258,7 @@ test("login returns 401 for OAuth user without password hash", async () => {
   );
   expect(response.status).toBe(401);
   const body = await response.json() as { error: { message: string } };
-  expect(body.error.message).toContain("OAuth");
+  expect(body.error.message).toBe("Invalid email or password");
   sqlite.close();
 });
 

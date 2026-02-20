@@ -49,9 +49,10 @@ function jsonError(code: string, message: string, status: number): Response {
 
 function withRateLimit(
   req: Request,
+  trustedProxies: string[],
   handler: () => Promise<Response>,
 ): Promise<Response> {
-  const ip = getClientIp(req);
+  const ip = getClientIp(req, trustedProxies);
   const { allowed, retryAfterMs } = checkRateLimit(ip);
 
   if (!allowed) {
@@ -121,7 +122,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
   return {
     "/auth/register": {
       async POST(req: Request): Promise<Response> {
-        return withRateLimit(req, async () => {
+        return withRateLimit(req, config.trustedProxies, async () => {
           if (!usersTable) {
             return jsonError(
               "INTERNAL_SERVER_ERROR",
@@ -302,7 +303,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
 
     "/auth/login": {
       async POST(req: Request): Promise<Response> {
-        return withRateLimit(req, async () => {
+        return withRateLimit(req, config.trustedProxies, async () => {
           if (!usersTable) {
             return jsonError(
               "INTERNAL_SERVER_ERROR",
@@ -358,11 +359,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
 
           const passwordHash = resolvePasswordHash(user);
           if (!passwordHash) {
-            return jsonError(
-              "UNAUTHORIZED",
-              "This account uses OAuth login. Please sign in with your provider.",
-              401,
-            );
+            return jsonError("UNAUTHORIZED", "Invalid email or password", 401);
           }
 
           const valid = await verifyPassword(password, passwordHash);

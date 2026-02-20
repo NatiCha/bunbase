@@ -50,7 +50,7 @@ export function createEmailRoutes(deps: EmailRouteDeps) {
   return {
     "/auth/request-password-reset": {
       async POST(req: Request): Promise<Response> {
-        const ip = getClientIp(req);
+        const ip = getClientIp(req, config.trustedProxies);
         const { allowed } = checkRateLimit(ip);
         if (!allowed) {
           return jsonError("RATE_LIMITED", "Too many attempts", 429);
@@ -152,7 +152,7 @@ export function createEmailRoutes(deps: EmailRouteDeps) {
 
     "/auth/reset-password": {
       async POST(req: Request): Promise<Response> {
-        const ip = getClientIp(req);
+        const ip = getClientIp(req, config.trustedProxies);
         const { allowed } = checkRateLimit(ip);
         if (!allowed) {
           return jsonError("RATE_LIMITED", "Too many attempts", 429);

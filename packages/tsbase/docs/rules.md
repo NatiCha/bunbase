@@ -41,7 +41,7 @@ Each table supports these operations:
 | `update` | Updating an existing record |
 | `delete` | Deleting a record |
 
-If no rule is defined for an operation, it defaults to **allow** (open access).
+If no rule is defined for an operation, it defaults to **deny** (403 Forbidden). TSBase logs a warning at startup for any operation that has no rule defined, so gaps are easy to spot before deploying. To explicitly allow public access to a table, use the `allowAll` helper.
 
 ## Rule context
 

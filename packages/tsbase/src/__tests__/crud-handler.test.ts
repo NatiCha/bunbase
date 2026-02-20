@@ -37,6 +37,16 @@ function mockAuth(user?: Partial<AuthUser>) {
 
 const noAuth = async (_req: Request) => null;
 
+// Open rules — allow all operations without restriction (explicit opt-in required since deny-by-default)
+const openRules = {
+  list: () => null,
+  view: () => null,
+  get: () => null,
+  create: () => null,
+  update: () => null,
+  delete: () => null,
+} as const;
+
 function makeRequest(
   method: string,
   path: string,
@@ -70,7 +80,7 @@ test("GET /api/posts returns all rows", async () => {
   sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
     .run({ $id: "p1", $title: "Hello", $authorId: "u1" });
 
-  const { exact } = generateCrudHandlers(posts, db, mockAuth());
+  const { exact } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await exact["/api/posts"].GET(makeRequest("GET", "/api/posts"));
   expect(res.status).toBe(200);
   const body = await res.json() as any;
@@ -82,7 +92,7 @@ test("GET /api/posts returns all rows", async () => {
 
 test("GET /api/posts returns empty result set", async () => {
   const { sqlite, db } = setupDb();
-  const { exact } = generateCrudHandlers(posts, db, mockAuth());
+  const { exact } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await exact["/api/posts"].GET(makeRequest("GET", "/api/posts"));
   const body = await res.json() as any;
   expect(body.data).toHaveLength(0);
@@ -95,7 +105,7 @@ test("GET /api/posts?limit=2 respects limit and returns nextCursor", async () =>
     sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
       .run({ $id: `p${i}`, $title: `Post ${i}`, $authorId: "u1" });
   }
-  const { exact } = generateCrudHandlers(posts, db, mockAuth());
+  const { exact } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await exact["/api/posts"].GET(makeRequest("GET", "/api/posts?limit=2"));
   const body = await res.json() as any;
   expect(body.data).toHaveLength(2);
@@ -109,7 +119,7 @@ test("GET /api/posts?filter applies filter conditions", async () => {
   sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)").run({ $id: "p1", $title: "Alpha", $authorId: "u1" });
   sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)").run({ $id: "p2", $title: "Beta", $authorId: "u2" });
 
-  const { exact } = generateCrudHandlers(posts, db, mockAuth());
+  const { exact } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await exact["/api/posts"].GET(
     makeRequest("GET", `/api/posts?filter=${encodeURIComponent(JSON.stringify({ authorId: "u1" }))}`),
   );
@@ -125,7 +135,7 @@ test("GET /api/posts applies sort order", async () => {
   sqlite.query("INSERT INTO posts (id, title, author_id, score) VALUES ($id, $title, $authorId, $score)").run({ $id: "p2", $title: "B", $authorId: "u1", $score: 10 });
   sqlite.query("INSERT INTO posts (id, title, author_id, score) VALUES ($id, $title, $authorId, $score)").run({ $id: "p3", $title: "C", $authorId: "u1", $score: 20 });
 
-  const { exact } = generateCrudHandlers(posts, db, mockAuth());
+  const { exact } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await exact["/api/posts"].GET(makeRequest("GET", "/api/posts?sort=score&order=asc"));
   const body = await res.json() as any;
   expect(body.data.map((r: any) => r.id)).toEqual(["p2", "p3", "p1"]);
@@ -138,7 +148,7 @@ test("list with cursor returns only subsequent rows (pagination)", async () => {
     sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
       .run({ $id: `p${i}`, $title: `Post ${i}`, $authorId: "u1" });
   }
-  const { exact } = generateCrudHandlers(posts, db, mockAuth());
+  const { exact } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res1 = await exact["/api/posts"].GET(makeRequest("GET", "/api/posts?limit=2"));
   const page1 = await res1.json() as any;
   expect(page1.nextCursor).not.toBeNull();
@@ -188,7 +198,7 @@ test("GET /api/posts/:id returns a row when it exists", async () => {
   sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
     .run({ $id: "p1", $title: "Hello", $authorId: "u1" });
 
-  const { pattern } = generateCrudHandlers(posts, db, mockAuth());
+  const { pattern } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await pattern["/api/posts/:id"].GET(makeRequest("GET", "/api/posts/p1"));
   expect(res.status).toBe(200);
   const body = await res.json() as any;
@@ -198,7 +208,7 @@ test("GET /api/posts/:id returns a row when it exists", async () => {
 
 test("GET /api/posts/:id returns 404 when row does not exist", async () => {
   const { sqlite, db } = setupDb();
-  const { pattern } = generateCrudHandlers(posts, db, mockAuth());
+  const { pattern } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await pattern["/api/posts/:id"].GET(makeRequest("GET", "/api/posts/nonexistent"));
   expect(res.status).toBe(404);
   sqlite.close();
@@ -218,7 +228,7 @@ test("GET /api/posts/:id returns 403 when rule denies", async () => {
 
 test("POST /api/posts inserts a row and returns 201", async () => {
   const { sqlite, db } = setupDb();
-  const { exact } = generateCrudHandlers(posts, db, mockAuth());
+  const { exact } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await exact["/api/posts"].POST(
     makeRequest("POST", "/api/posts", { title: "New Post", author_id: "u1" }),
   );
@@ -233,7 +243,7 @@ test("POST /api/posts inserts a row and returns 201", async () => {
 
 test("POST /api/posts uses provided id if given", async () => {
   const { sqlite, db } = setupDb();
-  const { exact } = generateCrudHandlers(posts, db, mockAuth());
+  const { exact } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   await exact["/api/posts"].POST(
     makeRequest("POST", "/api/posts", { id: "custom-id", title: "Post", author_id: "u1" }),
   );
@@ -259,7 +269,7 @@ test("PATCH /api/posts/:id modifies and returns the updated row", async () => {
   const { sqlite, db } = setupDb();
   sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
     .run({ $id: "p1", $title: "Old", $authorId: "u1" });
-  const { pattern } = generateCrudHandlers(posts, db, mockAuth());
+  const { pattern } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await pattern["/api/posts/:id"].PATCH(
     makeRequest("PATCH", "/api/posts/p1", { title: "New" }),
   );
@@ -271,7 +281,7 @@ test("PATCH /api/posts/:id modifies and returns the updated row", async () => {
 
 test("PATCH /api/posts/:id returns 404 when row does not exist", async () => {
   const { sqlite, db } = setupDb();
-  const { pattern } = generateCrudHandlers(posts, db, mockAuth());
+  const { pattern } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await pattern["/api/posts/:id"].PATCH(
     makeRequest("PATCH", "/api/posts/nope", { title: "X" }),
   );
@@ -293,7 +303,7 @@ test("PATCH maps snake_case field names to Drizzle column keys", async () => {
   const { sqlite, db } = setupDb();
   sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
     .run({ $id: "p1", $title: "Title", $authorId: "u1" });
-  const { pattern } = generateCrudHandlers(posts, db, mockAuth());
+  const { pattern } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await pattern["/api/posts/:id"].PATCH(
     makeRequest("PATCH", "/api/posts/p1", { author_id: "u2" }),
   );
@@ -343,7 +353,7 @@ test("DELETE /api/posts/:id removes the row and returns deleted:true", async () 
   const { sqlite, db } = setupDb();
   sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
     .run({ $id: "p1", $title: "Post", $authorId: "u1" });
-  const { pattern } = generateCrudHandlers(posts, db, mockAuth());
+  const { pattern } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await pattern["/api/posts/:id"].DELETE(
     makeRequest("DELETE", "/api/posts/p1"),
   );
@@ -357,7 +367,7 @@ test("DELETE /api/posts/:id removes the row and returns deleted:true", async () 
 
 test("DELETE /api/posts/:id returns deleted:false when row does not exist", async () => {
   const { sqlite, db } = setupDb();
-  const { pattern } = generateCrudHandlers(posts, db, mockAuth());
+  const { pattern } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await pattern["/api/posts/:id"].DELETE(
     makeRequest("DELETE", "/api/posts/no-such-row"),
   );

@@ -33,6 +33,16 @@ function mockAuth(user?: Partial<AuthUser>) {
 
 const noAuth = async (_req: Request): Promise<AuthUser | null> => null;
 
+// Open rules — allow all operations without restriction (explicit opt-in required since deny-by-default)
+const openRules = {
+  list: () => null,
+  view: () => null,
+  get: () => null,
+  create: () => null,
+  update: () => null,
+  delete: () => null,
+} as const;
+
 function makeRequest(method: string, path: string, body?: unknown): Request {
   return new Request(`http://localhost${path}`, {
     method,
@@ -45,7 +55,7 @@ function makeRequest(method: string, path: string, body?: unknown): Request {
 
 test("beforeCreate: modifies data — created record reflects changes", async () => {
   const { sqlite, db } = setupDb();
-  const { exact } = generateCrudHandlers(tasks, db, mockAuth(), undefined, {
+  const { exact } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     beforeCreate: async ({ data, auth }) => ({ ...data, ownerId: auth?.id }),
   });
   const res = await exact["/api/tasks"].POST(
@@ -59,7 +69,7 @@ test("beforeCreate: modifies data — created record reflects changes", async ()
 
 test("beforeCreate: returns void — original data passes through unchanged", async () => {
   const { sqlite, db } = setupDb();
-  const { exact } = generateCrudHandlers(tasks, db, mockAuth(), undefined, {
+  const { exact } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     beforeCreate: async () => { /* intentionally return nothing */ },
   });
   const res = await exact["/api/tasks"].POST(
@@ -73,7 +83,7 @@ test("beforeCreate: returns void — original data passes through unchanged", as
 
 test("beforeCreate: throws ApiError(403) — returns 403 and no row inserted", async () => {
   const { sqlite, db } = setupDb();
-  const { exact } = generateCrudHandlers(tasks, db, mockAuth(), undefined, {
+  const { exact } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     beforeCreate: () => { throw new ApiError("FORBIDDEN", "Nope", 403); },
   });
   const res = await exact["/api/tasks"].POST(
@@ -89,7 +99,7 @@ test("beforeCreate: throws ApiError(403) — returns 403 and no row inserted", a
 
 test("beforeCreate: throws ApiError(409) — returns 409 conflict response", async () => {
   const { sqlite, db } = setupDb();
-  const { exact } = generateCrudHandlers(tasks, db, mockAuth(), undefined, {
+  const { exact } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     beforeCreate: () => { throw new ApiError("CONFLICT", "Already exists", 409); },
   });
   const res = await exact["/api/tasks"].POST(
@@ -103,7 +113,7 @@ test("beforeCreate: throws ApiError(409) — returns 409 conflict response", asy
 
 test("beforeCreate: throws generic Error — returns 500 with HOOK_ERROR code", async () => {
   const { sqlite, db } = setupDb();
-  const { exact } = generateCrudHandlers(tasks, db, mockAuth(), undefined, {
+  const { exact } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     beforeCreate: () => { throw new Error("Something went wrong"); },
   });
   const res = await exact["/api/tasks"].POST(
@@ -117,7 +127,7 @@ test("beforeCreate: throws generic Error — returns 500 with HOOK_ERROR code", 
 
 test("beforeCreate: async hook works (returns a Promise)", async () => {
   const { sqlite, db } = setupDb();
-  const { exact } = generateCrudHandlers(tasks, db, mockAuth(), undefined, {
+  const { exact } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     beforeCreate: async ({ data }) => {
       await new Promise((resolve) => setTimeout(resolve, 1));
       return { ...data, priority: "high" };
@@ -137,7 +147,7 @@ test("beforeCreate: async hook works (returns a Promise)", async () => {
 test("afterCreate: receives created record", async () => {
   const { sqlite, db } = setupDb();
   let captured: Record<string, unknown> | null = null;
-  const { exact } = generateCrudHandlers(tasks, db, mockAuth(), undefined, {
+  const { exact } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     afterCreate: async ({ record }) => { captured = record; },
   });
   const res = await exact["/api/tasks"].POST(
@@ -151,7 +161,7 @@ test("afterCreate: receives created record", async () => {
 
 test("afterCreate: error in hook does not affect 201 response", async () => {
   const { sqlite, db } = setupDb();
-  const { exact } = generateCrudHandlers(tasks, db, mockAuth(), undefined, {
+  const { exact } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     afterCreate: async () => { throw new Error("side-effect failed"); },
   });
   const res = await exact["/api/tasks"].POST(
@@ -166,7 +176,7 @@ test("afterCreate: error in hook does not affect 201 response", async () => {
 test("beforeUpdate: modifies data — updated record reflects changes", async () => {
   const { sqlite, db } = setupDb();
   sqlite.run("INSERT INTO tasks (id, title, priority) VALUES ('t1', 'Old', 'normal')");
-  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), undefined, {
+  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     beforeUpdate: async ({ data }) => ({ ...data, priority: "high" }),
   });
   const res = await pattern["/api/tasks/:id"].PATCH(
@@ -182,7 +192,7 @@ test("beforeUpdate: receives existing record in context", async () => {
   const { sqlite, db } = setupDb();
   sqlite.run("INSERT INTO tasks (id, title, priority) VALUES ('t1', 'Original', 'normal')");
   let capturedExisting: Record<string, unknown> | null = null;
-  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), undefined, {
+  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     beforeUpdate: async ({ existing }) => { capturedExisting = existing; },
   });
   await pattern["/api/tasks/:id"].PATCH(
@@ -196,7 +206,7 @@ test("beforeUpdate: receives existing record in context", async () => {
 test("beforeUpdate: throws ApiError(403) — returns 403, no update applied", async () => {
   const { sqlite, db } = setupDb();
   sqlite.run("INSERT INTO tasks (id, title) VALUES ('t1', 'Locked')");
-  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), undefined, {
+  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     beforeUpdate: () => { throw new ApiError("FORBIDDEN", "Cannot edit", 403); },
   });
   const res = await pattern["/api/tasks/:id"].PATCH(
@@ -211,7 +221,7 @@ test("beforeUpdate: throws ApiError(403) — returns 403, no update applied", as
 test("beforeUpdate: returns 404 without running hook when record does not exist", async () => {
   const { sqlite, db } = setupDb();
   let hookCalled = false;
-  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), undefined, {
+  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     beforeUpdate: async () => { hookCalled = true; },
   });
   const res = await pattern["/api/tasks/:id"].PATCH(
@@ -225,7 +235,7 @@ test("beforeUpdate: returns 404 without running hook when record does not exist"
 test("beforeUpdate: throws generic Error — returns 500 with HOOK_ERROR", async () => {
   const { sqlite, db } = setupDb();
   sqlite.run("INSERT INTO tasks (id, title) VALUES ('t1', 'Title')");
-  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), undefined, {
+  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     beforeUpdate: () => { throw new Error("unexpected"); },
   });
   const res = await pattern["/api/tasks/:id"].PATCH(
@@ -243,7 +253,7 @@ test("afterUpdate: receives updated record", async () => {
   const { sqlite, db } = setupDb();
   sqlite.run("INSERT INTO tasks (id, title) VALUES ('t1', 'Before')");
   let captured: Record<string, unknown> | null = null;
-  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), undefined, {
+  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     afterUpdate: async ({ record }) => { captured = record; },
   });
   await pattern["/api/tasks/:id"].PATCH(
@@ -256,7 +266,7 @@ test("afterUpdate: receives updated record", async () => {
 test("afterUpdate: error does not affect 200 response", async () => {
   const { sqlite, db } = setupDb();
   sqlite.run("INSERT INTO tasks (id, title) VALUES ('t1', 'Title')");
-  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), undefined, {
+  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     afterUpdate: async () => { throw new Error("notify failed"); },
   });
   const res = await pattern["/api/tasks/:id"].PATCH(
@@ -271,7 +281,7 @@ test("afterUpdate: error does not affect 200 response", async () => {
 test("beforeDelete: throws ApiError(403) — returns 403, record not deleted", async () => {
   const { sqlite, db } = setupDb();
   sqlite.run("INSERT INTO tasks (id, title, priority) VALUES ('t1', 'Critical', 'critical')");
-  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), undefined, {
+  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     beforeDelete: ({ record }) => {
       if (record.priority === "critical") {
         throw new ApiError("FORBIDDEN", "Cannot delete critical tasks", 403);
@@ -292,7 +302,7 @@ test("beforeDelete: throws ApiError(403) — returns 403, record not deleted", a
 test("beforeDelete: throws generic Error — returns 500 with HOOK_ERROR", async () => {
   const { sqlite, db } = setupDb();
   sqlite.run("INSERT INTO tasks (id, title) VALUES ('t1', 'Task')");
-  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), undefined, {
+  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     beforeDelete: () => { throw new Error("db lookup failed"); },
   });
   const res = await pattern["/api/tasks/:id"].DELETE(
@@ -308,7 +318,7 @@ test("beforeDelete: allows deletion when no error thrown", async () => {
   const { sqlite, db } = setupDb();
   sqlite.run("INSERT INTO tasks (id, title) VALUES ('t1', 'Task')");
   let called = false;
-  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), undefined, {
+  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     beforeDelete: async () => { called = true; },
   });
   const res = await pattern["/api/tasks/:id"].DELETE(
@@ -327,7 +337,7 @@ test("afterDelete: receives deleted record", async () => {
   const { sqlite, db } = setupDb();
   sqlite.run("INSERT INTO tasks (id, title) VALUES ('t1', 'Gone')");
   let captured: Record<string, unknown> | null = null;
-  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), undefined, {
+  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     afterDelete: async ({ record }) => { captured = record; },
   });
   const res = await pattern["/api/tasks/:id"].DELETE(
@@ -341,7 +351,7 @@ test("afterDelete: receives deleted record", async () => {
 test("afterDelete: error does not affect 200 response", async () => {
   const { sqlite, db } = setupDb();
   sqlite.run("INSERT INTO tasks (id, title) VALUES ('t1', 'Task')");
-  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), undefined, {
+  const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     afterDelete: async () => { throw new Error("cleanup failed"); },
   });
   const res = await pattern["/api/tasks/:id"].DELETE(
@@ -355,7 +365,7 @@ test("afterDelete: error does not affect 200 response", async () => {
 
 test("no hooks defined — CRUD works normally", async () => {
   const { sqlite, db } = setupDb();
-  const { exact, pattern } = generateCrudHandlers(tasks, db, noAuth);
+  const { exact, pattern } = generateCrudHandlers(tasks, db, noAuth, openRules);
 
   // Create
   const createRes = await exact["/api/tasks"].POST(
