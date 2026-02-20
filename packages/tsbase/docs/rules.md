@@ -16,9 +16,9 @@ export const rules = defineRules({
   posts: {
     list: () => true,            // anyone can list
     get: () => true,             // anyone can read
-    create: (ctx) => authenticated(ctx), // logged-in users only
-    update: (ctx) => authenticated(ctx),
-    delete: (ctx) => ctx.auth?.role === "admin", // admins only
+    create: ({ auth }) => authenticated(auth), // logged-in users only
+    update: ({ auth }) => authenticated(auth),
+    delete: ({ auth }) => auth?.role === "admin", // admins only
   },
 });
 ```
@@ -43,14 +43,20 @@ Each table supports these operations:
 
 If no rule is defined for an operation, it defaults to **deny** (403 Forbidden). TSBase logs a warning at startup for any operation that has no rule defined, so gaps are easy to spot before deploying. To explicitly allow public access to a table, use the `allowAll` helper.
 
-## Rule context
+## Rule argument
 
-Every rule function receives a `RuleContext`:
+Every rule function receives a `RuleArg` with everything needed to make an access decision:
 
 ```ts
-type RuleContext = {
-  auth: AuthUser | null; // null if not logged in
-  id?: string;           // record ID (for get/update/delete)
+type RuleArg = {
+  auth: AuthUser | null;                  // null if not logged in
+  id?: string;                            // record ID (get/update/delete)
+  record?: Record<string, unknown>;       // existing record (update/delete)
+  body: Record<string, unknown>;          // request body (create/update), {} otherwise
+  headers: Record<string, string>;        // lowercased header keys
+  query: Record<string, string>;          // URL search params
+  method: string;                         // GET, POST, PATCH, DELETE, SUBSCRIBE
+  db: AnyDb;                              // for cross-table queries
 };
 
 type AuthUser = {
@@ -86,7 +92,7 @@ import { authenticated } from "tsbase";
 
 const rules = defineRules({
   posts: {
-    create: (ctx) => authenticated(ctx),
+    create: ({ auth }) => authenticated(auth),
   },
 });
 ```
@@ -100,7 +106,7 @@ import { admin } from "tsbase";
 
 const rules = defineRules({
   posts: {
-    delete: (ctx) => admin(ctx),
+    delete: ({ auth }) => admin(auth),
   },
 });
 ```
@@ -115,8 +121,8 @@ import { posts } from "./schema";
 
 const rules = defineRules({
   posts: {
-    update: (ctx) => ownerOnly(posts.authorId, ctx),
-    delete: (ctx) => ownerOnly(posts.authorId, ctx),
+    update: ({ auth }) => ownerOnly(posts.authorId, auth),
+    delete: ({ auth }) => ownerOnly(posts.authorId, auth),
   },
 });
 ```
@@ -133,11 +139,108 @@ import { posts } from "./schema";
 
 const rules = defineRules({
   posts: {
-    update: (ctx) => adminOrOwner(posts.authorId, ctx),
-    delete: (ctx) => adminOrOwner(posts.authorId, ctx),
+    update: ({ auth }) => adminOrOwner(posts.authorId, auth),
+    delete: ({ auth }) => adminOrOwner(posts.authorId, auth),
   },
 });
 ```
+
+### `isSet`
+
+Check if a field was submitted in the request body. Useful to prevent clients from setting protected fields:
+
+```ts
+import { isSet } from "tsbase";
+
+const rules = defineRules({
+  posts: {
+    create: ({ auth, body }) => {
+      if (isSet(body, "role")) return false; // prevent role escalation
+      return !!auth;
+    },
+  },
+});
+```
+
+### `isChanged`
+
+Check if a field was submitted AND differs from the existing record value. Returns `false` if the field is not in the body. Returns `true` if there is no existing record to compare against.
+
+```ts
+import { isChanged } from "tsbase";
+
+const rules = defineRules({
+  posts: {
+    update: ({ auth, body, record }) => {
+      if (isChanged(body, record, "authorId")) return false; // can't reassign ownership
+      return !!auth;
+    },
+  },
+});
+```
+
+### `fieldLength`
+
+Return the length of an array field on an existing record. Returns 0 if the record is missing or the field is not an array.
+
+```ts
+import { fieldLength } from "tsbase";
+
+const rules = defineRules({
+  posts: {
+    update: ({ body, record }) => {
+      if (fieldLength(record, "tags") >= 10) return false; // max 10 tags
+      return true;
+    },
+  },
+});
+```
+
+### `collection`
+
+Cross-table query helper for use in rules. Lets you check a related table before granting access:
+
+```ts
+import { collection } from "tsbase";
+import { memberships } from "./schema";
+import { eq } from "drizzle-orm";
+
+const rules = defineRules({
+  projects: {
+    list: async ({ auth, db }) => {
+      if (!auth) return false;
+      const rows = await collection(db, memberships, eq(memberships.userId, auth.id));
+      return rows.length > 0;
+    },
+  },
+});
+```
+
+### Date helpers
+
+Convenient `Date` values for time-based rules:
+
+```ts
+import { now, todayStart, todayEnd, monthStart, yearStart } from "tsbase";
+
+// Allow creating records only during business hours
+const rules = defineRules({
+  orders: {
+    create: () => {
+      const hour = now().getHours();
+      return hour >= 9 && hour < 17;
+    },
+  },
+});
+```
+
+| Helper | Returns |
+|---|---|
+| `now()` | Current `Date` |
+| `todayStart()` | Today at 00:00:00.000 |
+| `todayEnd()` | Today at 23:59:59.999 |
+| `monthStart()` | First day of this month at 00:00:00.000 |
+| `yearStart()` | January 1 of this year at 00:00:00.000 |
 
 ## Custom rules
 
@@ -146,10 +249,16 @@ Write any logic you need. Rules can be async:
 ```ts
 const rules = defineRules({
   posts: {
-    create: (ctx) => {
-      if (!ctx.auth) return false;
+    create: ({ auth, body }) => {
+      if (!auth) return false;
+      if (isSet(body, "role")) return false; // prevent role field injection
       // Only verified users can create posts
-      return ctx.auth.emailVerified === 1;
+      return auth.emailVerified === 1;
+    },
+    update: ({ auth, body, record }) => {
+      // Can't reassign the author
+      if (isChanged(body, record, "authorId")) return false;
+      return ownerOnly(posts.authorId, auth);
     },
   },
 });

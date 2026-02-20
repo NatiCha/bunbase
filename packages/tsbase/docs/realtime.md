@@ -101,10 +101,10 @@ import { tasks } from "./schema";
 
 export const rules = defineRules({
   tasks: {
-    list: (ctx) => ownerOnly(tasks.ownerId, ctx), // only the owner sees their tasks
-    create: (ctx) => authenticated(ctx),
-    update: (ctx) => ownerOnly(tasks.ownerId, ctx),
-    delete: (ctx) => ownerOnly(tasks.ownerId, ctx),
+    list: ({ auth }) => ownerOnly(tasks.ownerId, auth), // only the owner sees their tasks
+    create: ({ auth }) => authenticated(auth),
+    update: ({ auth }) => ownerOnly(tasks.ownerId, auth),
+    delete: ({ auth }) => ownerOnly(tasks.ownerId, auth),
   },
 });
 ```

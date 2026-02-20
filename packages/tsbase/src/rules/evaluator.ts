@@ -1,5 +1,5 @@
 import type { SQL } from "drizzle-orm";
-import type { RuleFunction, RuleResult, RuleContext } from "./types.ts";
+import type { RuleFunction, RuleResult, RuleArg } from "./types.ts";
 
 export interface EvaluatedRule {
   allowed: boolean;
@@ -8,14 +8,14 @@ export interface EvaluatedRule {
 
 export async function evaluateRule(
   rule: RuleFunction | undefined,
-  ctx: RuleContext,
+  arg: RuleArg,
 ): Promise<EvaluatedRule> {
   if (!rule) {
     // No rule defined = deny by default
     return { allowed: false };
   }
 
-  const result: RuleResult = await rule(ctx);
+  const result: RuleResult = await rule(arg);
 
   // null = no restriction
   if (result === null) {
@@ -31,10 +31,10 @@ export async function evaluateRule(
   return { allowed: true, whereClause: result };
 }
 
-export function isAuthenticated(ctx: RuleContext): boolean {
-  return ctx.auth !== null;
+export function isAuthenticated(arg: RuleArg): boolean {
+  return arg.auth !== null;
 }
 
-export function isAdmin(ctx: RuleContext): boolean {
-  return ctx.auth?.role === "admin";
+export function isAdmin(arg: RuleArg): boolean {
+  return arg.auth?.role === "admin";
 }

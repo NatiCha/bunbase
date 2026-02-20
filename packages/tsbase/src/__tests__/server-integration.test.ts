@@ -9,6 +9,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer } from "../core/server.ts";
+import { defineRules, isSet, isChanged } from "../index.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 
 // ─── shared server setup ─────────────────────────────────────────────────────
@@ -280,4 +281,166 @@ test("POST /api/posts with matching CSRF token reaches handler", async () => {
   });
   // Handled by REST handler (not rejected by CSRF middleware)
   expect(res.status).not.toBe(403);
+});
+
+// ─── RuleArg body/record integration tests ───────────────────────────────────
+
+const widgetsTable = sqliteTable("widgets", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  ownerId: text("owner_id").notNull(),
+  status: text("status").notNull().default("draft"),
+});
+
+let rulesServer: ReturnType<typeof Bun.serve>;
+let rulesBase: string;
+let rulesAdapter: any;
+let rulesCsrf: string;
+
+beforeAll(async () => {
+  const dbPath = join(root, "db-rules.sqlite");
+  rulesCsrf = "rules-intg-csrf";
+
+  const tsbaseRules = createServer({
+    schema: { widgets: widgetsTable },
+    rules: defineRules({
+      widgets: {
+        list: () => null,
+        view: () => null,
+        get: () => null,
+        // create: deny if body contains a "status" field (forbidden field)
+        create: ({ body }) => !isSet(body, "status"),
+        // update: deny if ownerId is being changed
+        update: ({ body, record }) => !isChanged(body, record, "ownerId"),
+        delete: () => null,
+      },
+    }),
+    config: makeResolvedConfig({
+      development: true,
+      database: { driver: "sqlite", url: dbPath },
+      dbPath,
+      storage: {
+        driver: "local" as const,
+        localPath: join(root, "uploads-rules"),
+        maxFileSize: 10 * 1024 * 1024,
+      },
+      migrationsPath: join(root, "drizzle-rules"),
+    }),
+  });
+
+  await tsbaseRules.adapter.rawExecute(
+    "CREATE TABLE IF NOT EXISTS widgets (id TEXT PRIMARY KEY, title TEXT NOT NULL, owner_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft')",
+  );
+
+  rulesAdapter = tsbaseRules.adapter;
+  rulesServer = tsbaseRules.listen(0);
+  rulesBase = rulesServer.url.toString().replace(/\/$/, "");
+});
+
+afterAll(() => {
+  rulesServer?.stop();
+  rulesAdapter?.close();
+});
+
+test("create rule rejects body that contains a forbidden field (isSet)", async () => {
+  const res = await fetch(`${rulesBase}/api/widgets`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      cookie: `csrf_token=${rulesCsrf}`,
+      "x-csrf-token": rulesCsrf,
+    },
+    body: JSON.stringify({ id: "w1", title: "Bad Widget", ownerId: "u1", status: "published" }),
+  });
+  expect(res.status).toBe(403);
+});
+
+test("create rule allows body without the forbidden field (isSet)", async () => {
+  const res = await fetch(`${rulesBase}/api/widgets`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      cookie: `csrf_token=${rulesCsrf}`,
+      "x-csrf-token": rulesCsrf,
+    },
+    body: JSON.stringify({ id: "w2", title: "Good Widget", ownerId: "u1" }),
+  });
+  expect(res.status).toBe(201);
+});
+
+test("update rule rejects when ownerId field is changed (isChanged)", async () => {
+  // First create a widget
+  await fetch(`${rulesBase}/api/widgets`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      cookie: `csrf_token=${rulesCsrf}`,
+      "x-csrf-token": rulesCsrf,
+    },
+    body: JSON.stringify({ id: "w3", title: "Widget", ownerId: "u1" }),
+  });
+
+  // Now try to change the ownerId
+  const res = await fetch(`${rulesBase}/api/widgets/w3`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      cookie: `csrf_token=${rulesCsrf}`,
+      "x-csrf-token": rulesCsrf,
+    },
+    body: JSON.stringify({ ownerId: "u2" }),
+  });
+  expect(res.status).toBe(403);
+});
+
+test("update rule allows when ownerId field is not changed (isChanged)", async () => {
+  // Create a widget to update
+  await fetch(`${rulesBase}/api/widgets`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      cookie: `csrf_token=${rulesCsrf}`,
+      "x-csrf-token": rulesCsrf,
+    },
+    body: JSON.stringify({ id: "w4", title: "Widget", ownerId: "u1" }),
+  });
+
+  // Update title only (ownerId unchanged)
+  const res = await fetch(`${rulesBase}/api/widgets/w4`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      cookie: `csrf_token=${rulesCsrf}`,
+      "x-csrf-token": rulesCsrf,
+    },
+    body: JSON.stringify({ title: "Updated Title" }),
+  });
+  expect(res.status).toBe(200);
+  const body = await res.json() as any;
+  expect(body.title).toBe("Updated Title");
+});
+
+test("rule receives existing record value (record field in RuleArg)", async () => {
+  // Create a widget
+  await fetch(`${rulesBase}/api/widgets`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      cookie: `csrf_token=${rulesCsrf}`,
+      "x-csrf-token": rulesCsrf,
+    },
+    body: JSON.stringify({ id: "w5", title: "Original", ownerId: "u1" }),
+  });
+
+  // Update with same ownerId value — should succeed (not changed)
+  const res = await fetch(`${rulesBase}/api/widgets/w5`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      cookie: `csrf_token=${rulesCsrf}`,
+      "x-csrf-token": rulesCsrf,
+    },
+    body: JSON.stringify({ ownerId: "u1", title: "New Title" }),
+  });
+  expect(res.status).toBe(200);
 });

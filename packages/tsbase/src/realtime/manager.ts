@@ -70,7 +70,14 @@ export class RealtimeManager {
 
     try {
       const tableRules = this.rules?.[tableName];
-      const ruleResult = await evaluateRule(tableRules?.list, { auth: ws.data.auth });
+      const ruleResult = await evaluateRule(tableRules?.list, {
+        auth: ws.data.auth,
+        body: {},
+        headers: {},
+        query: {},
+        method: "SUBSCRIBE",
+        db: this.db,
+      });
       if (!ruleResult.allowed) {
         this.sendTo(ws, { type: "error", message: `Access denied to table: ${tableName}` });
         return;

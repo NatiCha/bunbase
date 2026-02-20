@@ -10,6 +10,7 @@ import {
 import { buildWithClause } from "./relations.ts";
 import { evaluateRule } from "../rules/evaluator.ts";
 import type { TableRules } from "../rules/types.ts";
+import type { RuleArg } from "../rules/types.ts";
 import type { TableHooks } from "../hooks/types.ts";
 import type { AnyDb } from "../core/db-types.ts";
 import type { AuthUser } from "../api/types.ts";
@@ -47,6 +48,38 @@ function stripSensitiveFields(
   return result;
 }
 
+// Build a RuleArg from a request, auth, and optional extras.
+function buildRuleArg(
+  req: Request,
+  auth: AuthUser | null,
+  extras: {
+    id?: string;
+    body?: Record<string, unknown>;
+    record?: Record<string, unknown>;
+    db: AnyDb;
+  },
+): RuleArg {
+  const url = new URL(req.url);
+  const headers: Record<string, string> = {};
+  req.headers.forEach((value, key) => {
+    headers[key.toLowerCase()] = value;
+  });
+  const query: Record<string, string> = {};
+  url.searchParams.forEach((value, key) => {
+    query[key] = value;
+  });
+  return {
+    auth,
+    id: extras.id,
+    body: extras.body ?? {},
+    record: extras.record,
+    headers,
+    query,
+    method: req.method,
+    db: extras.db,
+  };
+}
+
 // Given a db._.relations config, resolve which expand keys are allowed for the
 // current user given the full rules map. Returns a filtered withClause
 // containing only the expand fields whose target table's list rule permits access.
@@ -74,7 +107,14 @@ async function resolveAllowedWithClause(
 
     if (allRules) {
       const relatedRules = allRules[targetTableName];
-      const result = await evaluateRule(relatedRules?.list, { auth });
+      const result = await evaluateRule(relatedRules?.list, {
+        auth,
+        body: {},
+        headers: {},
+        query: {},
+        method: "GET",
+        db,
+      });
       // Deny if the rule explicitly denies, OR if it returns a SQL whereClause:
       // filtered list rules can't be applied to nested expand queries, so we treat
       // any row-level filter on the related table as a denial for expand.
@@ -114,7 +154,10 @@ export function generateCrudHandlers(
   // ── GET /api/{table} — list ──────────────────────────────────────────
   async function handleList(req: Request): Promise<Response> {
     const auth = await extractAuth(req);
-    const ruleResult = await evaluateRule(tableRules?.list, { auth });
+    const ruleResult = await evaluateRule(
+      tableRules?.list,
+      buildRuleArg(req, auth, { db }),
+    );
     if (!ruleResult.allowed) {
       return errorResponse("FORBIDDEN", "Access denied", 403);
     }
@@ -214,16 +257,21 @@ export function generateCrudHandlers(
   // ── POST /api/{table} — create ───────────────────────────────────────
   async function handleCreate(req: Request): Promise<Response> {
     const auth = await extractAuth(req);
-    const ruleResult = await evaluateRule(tableRules?.create, { auth });
-    if (!ruleResult.allowed) {
-      return errorResponse("FORBIDDEN", "Access denied", 403);
-    }
 
+    // Parse body BEFORE rule eval so rules can inspect it
     let body: Record<string, unknown>;
     try {
       body = (await req.json()) as Record<string, unknown>;
     } catch {
       return errorResponse("BAD_REQUEST", "Invalid JSON body", 400);
+    }
+
+    const ruleResult = await evaluateRule(
+      tableRules?.create,
+      buildRuleArg(req, auth, { body, db }),
+    );
+    if (!ruleResult.allowed) {
+      return errorResponse("FORBIDDEN", "Access denied", 403);
     }
 
     let insertData: Record<string, unknown> = {};
@@ -296,7 +344,7 @@ export function generateCrudHandlers(
 
     const auth = await extractAuth(req);
     const readRule = tableRules?.view ?? tableRules?.get;
-    const ruleResult = await evaluateRule(readRule, { auth, id });
+    const ruleResult = await evaluateRule(readRule, buildRuleArg(req, auth, { id, db }));
     if (!ruleResult.allowed) {
       return errorResponse("FORBIDDEN", "Access denied", 403);
     }
@@ -349,9 +397,30 @@ export function generateCrudHandlers(
     if (!id) return errorResponse("BAD_REQUEST", "Missing id", 400);
 
     const auth = await extractAuth(req);
-    const ruleResult = await evaluateRule(tableRules?.update, { auth, id });
+
+    // Parse body before rule eval so rules can inspect it
+    let body: Record<string, unknown>;
+    try {
+      body = (await req.json()) as Record<string, unknown>;
+    } catch {
+      return errorResponse("BAD_REQUEST", "Invalid JSON body", 400);
+    }
+
+    // Fetch existing record for rule context (may be undefined if not found)
+    const existingRows = await (db as any).select().from(table).where(eq(idColumn, id));
+    const existingRecord: Record<string, unknown> | undefined = existingRows[0] ?? undefined;
+
+    const ruleResult = await evaluateRule(
+      tableRules?.update,
+      buildRuleArg(req, auth, { id, body, record: existingRecord, db }),
+    );
     if (!ruleResult.allowed) {
       return errorResponse("FORBIDDEN", "Access denied", 403);
+    }
+
+    // Existence check AFTER rule denial (avoids leaking existence via 403 vs 404)
+    if (existingRecord === undefined) {
+      return Response.json(null, { status: 404 });
     }
 
     if (ruleResult.whereClause) {
@@ -364,13 +433,6 @@ export function generateCrudHandlers(
       }
     }
 
-    let body: Record<string, unknown>;
-    try {
-      body = (await req.json()) as Record<string, unknown>;
-    } catch {
-      return errorResponse("BAD_REQUEST", "Invalid JSON body", 400);
-    }
-
     let filtered: Record<string, unknown> = {};
     for (const [key, col] of Object.entries(columns)) {
       const colName = (col as Column).name;
@@ -381,13 +443,10 @@ export function generateCrudHandlers(
       }
     }
 
-    // beforeUpdate hook — pre-fetch existing record; 404 early if missing
+    // beforeUpdate hook — share already-fetched existing record (no duplicate fetch)
     if (tableHooks?.beforeUpdate) {
-      const existingRows = await (db as any).select().from(table).where(eq(idColumn, id));
-      if (existingRows.length === 0) return Response.json(null, { status: 404 });
-      const existing = existingRows[0];
       try {
-        const result = await tableHooks.beforeUpdate({ id, data: filtered, existing, auth, tableName });
+        const result = await tableHooks.beforeUpdate({ id, data: filtered, existing: existingRecord, auth, tableName });
         if (result !== undefined && result !== null) {
           filtered = result as Record<string, unknown>;
         }
@@ -424,9 +483,22 @@ export function generateCrudHandlers(
     if (!id) return errorResponse("BAD_REQUEST", "Missing id", 400);
 
     const auth = await extractAuth(req);
-    const ruleResult = await evaluateRule(tableRules?.delete, { auth, id });
+
+    // Fetch existing record for rule context (may be undefined if not found)
+    const existingRows = await (db as any).select().from(table).where(eq(idColumn, id));
+    const existingRecord: Record<string, unknown> | undefined = existingRows[0] ?? undefined;
+
+    const ruleResult = await evaluateRule(
+      tableRules?.delete,
+      buildRuleArg(req, auth, { id, record: existingRecord, db }),
+    );
     if (!ruleResult.allowed) {
       return errorResponse("FORBIDDEN", "Access denied", 403);
+    }
+
+    // Existence check AFTER rule denial (avoids leaking existence via 403 vs 404)
+    if (existingRecord === undefined) {
+      return Response.json({ deleted: false });
     }
 
     if (ruleResult.whereClause) {
@@ -439,13 +511,10 @@ export function generateCrudHandlers(
       }
     }
 
-    const rows = await (db as any).select().from(table).where(eq(idColumn, id));
-    if (rows.length === 0) return Response.json({ deleted: false });
-
-    // beforeDelete hook
+    // beforeDelete hook — share already-fetched record (no duplicate fetch)
     if (tableHooks?.beforeDelete) {
       try {
-        await tableHooks.beforeDelete({ id, record: rows[0], auth, tableName });
+        await tableHooks.beforeDelete({ id, record: existingRecord, auth, tableName });
       } catch (err) {
         if (err instanceof ApiError) {
           return errorResponse(err.code, err.message, err.status);
@@ -460,13 +529,13 @@ export function generateCrudHandlers(
     // afterDelete hook (errors are logged, never affect response)
     if (tableHooks?.afterDelete) {
       try {
-        await tableHooks.afterDelete({ id, record: rows[0], auth, tableName });
+        await tableHooks.afterDelete({ id, record: existingRecord, auth, tableName });
       } catch (err) {
         console.error(`[TSBase] afterDelete hook error for "${tableName}":`, err);
       }
     }
 
-    broadcast?.(tableName, "DELETE", rows[0]);
+    broadcast?.(tableName, "DELETE", existingRecord);
 
     return Response.json({ deleted: true });
   }

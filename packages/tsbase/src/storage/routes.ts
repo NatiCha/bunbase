@@ -23,6 +23,18 @@ function sanitizeFilename(name: string): string {
     .slice(0, 255);
 }
 
+// Extract lowercased headers and query params from a request
+function extractHeadersAndQuery(req: Request): {
+  headers: Record<string, string>;
+  query: Record<string, string>;
+} {
+  const headers: Record<string, string> = {};
+  req.headers.forEach((v, k) => { headers[k.toLowerCase()] = v; });
+  const query: Record<string, string> = {};
+  new URL(req.url).searchParams.forEach((v, k) => { query[k] = v; });
+  return { headers, query };
+}
+
 interface FileRouteDeps {
   db: AnyDb;
   adapter: DatabaseAdapter;
@@ -60,6 +72,7 @@ export function createFileRoutes(deps: FileRouteDeps) {
     collection: string,
     recordId: string,
     auth: Awaited<ReturnType<typeof extractAuth>>,
+    req: Request,
   ): Promise<Response | null> => {
     const table = collectionTables.get(collection);
     if (!table) {
@@ -76,10 +89,16 @@ export function createFileRoutes(deps: FileRouteDeps) {
       );
     }
 
+    const { headers, query } = extractHeadersAndQuery(req);
     const readRule = rules?.[collection]?.view ?? rules?.[collection]?.get;
     const ruleResult = await evaluateRule(readRule, {
       auth,
       id: recordId,
+      body: {},
+      headers,
+      query,
+      method: req.method,
+      db,
     });
     if (!ruleResult.allowed) {
       return jsonError("FORBIDDEN", "Access denied", 403);
@@ -127,8 +146,14 @@ export function createFileRoutes(deps: FileRouteDeps) {
           return jsonError("NOT_FOUND", "Collection not found", 404);
         }
 
+        const { headers, query } = extractHeadersAndQuery(req);
         const createRuleResult = await evaluateRule(rules?.[collection]?.create, {
           auth: user,
+          body: {},
+          headers,
+          query,
+          method: "POST",
+          db,
         });
         if (!createRuleResult.allowed) {
           return jsonError("FORBIDDEN", "Access denied", 403);
@@ -239,6 +264,7 @@ export function createFileRoutes(deps: FileRouteDeps) {
           fileRecord.collection,
           fileRecord.recordId,
           user,
+          req,
         );
         if (accessError) {
           return accessError;
@@ -284,11 +310,17 @@ export function createFileRoutes(deps: FileRouteDeps) {
           return jsonError("NOT_FOUND", "File not found", 404);
         }
 
+        const { headers, query } = extractHeadersAndQuery(req);
         const deleteRuleResult = await evaluateRule(
           rules?.[fileRecord.collection]?.delete,
           {
             auth: user,
             id: fileRecord.recordId,
+            body: {},
+            headers,
+            query,
+            method: "DELETE",
+            db,
           },
         );
         if (!deleteRuleResult.allowed) {
