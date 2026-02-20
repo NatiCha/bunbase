@@ -1,15 +1,5 @@
 import type { Database } from "bun:sqlite";
 import type { DatabaseAdapter } from "../adapter.ts";
-import { getColumns, getTableName } from "drizzle-orm";
-import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
-
-function sqliteColumnType(column: SQLiteColumn): string {
-  const type = column.columnType;
-  if (type.includes("Integer")) return "INTEGER";
-  if (type.includes("Real")) return "REAL";
-  if (type.includes("Blob")) return "BLOB";
-  return "TEXT";
-}
 
 export class SqliteAdapter implements DatabaseAdapter {
   readonly dialect = "sqlite" as const;
@@ -80,68 +70,6 @@ export class SqliteAdapter implements DatabaseAdapter {
     this.sqlite.run("CREATE INDEX IF NOT EXISTS idx_oauth_accounts_user ON _oauth_accounts(user_id)");
     this.sqlite.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_accounts_provider ON _oauth_accounts(provider, provider_account_id)");
     this.sqlite.run("CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON _request_logs(timestamp)");
-  }
-
-  async createUserTables(schema: Record<string, unknown>): Promise<void> {
-    for (const table of Object.values(schema)) {
-      if (typeof table !== "object" || table === null) continue;
-
-      let tableName: string;
-      try {
-        tableName = getTableName(table as any);
-      } catch {
-        continue;
-      }
-
-      if (tableName.startsWith("_")) continue;
-
-      const columns = getColumns(table as any);
-      const colDefs: string[] = [];
-
-      for (const [, col] of Object.entries(columns)) {
-        const c = col as SQLiteColumn;
-        const colName = c.name;
-        const colType = sqliteColumnType(c);
-        let def = `"${colName}" ${colType}`;
-
-        if (c.primary) def += " PRIMARY KEY";
-        if (c.notNull) def += " NOT NULL";
-        if (c.isUnique) def += " UNIQUE";
-        if (c.hasDefault && c.default !== undefined) {
-          const defaultVal = c.default;
-          if (typeof defaultVal === "string") {
-            def += ` DEFAULT '${defaultVal}'`;
-          } else if (typeof defaultVal === "number" || typeof defaultVal === "boolean") {
-            def += ` DEFAULT ${defaultVal}`;
-          }
-        }
-
-        colDefs.push(def);
-      }
-
-      const createSql = `CREATE TABLE IF NOT EXISTS "${tableName}" (${colDefs.join(", ")})`;
-      this.sqlite.run(createSql);
-    }
-  }
-
-  async injectTimestampColumns(tableNames: string[]): Promise<void> {
-    for (const table of tableNames) {
-      try {
-        this.sqlite.run(
-          `ALTER TABLE "${table}" ADD COLUMN created_at TEXT NOT NULL DEFAULT (datetime('now'))`,
-        );
-      } catch {
-        // Column already exists — SQLite lacks IF NOT EXISTS for columns
-      }
-
-      try {
-        this.sqlite.run(
-          `ALTER TABLE "${table}" ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
-        );
-      } catch {
-        // Column already exists
-      }
-    }
   }
 
   async rawQuery<T = Record<string, unknown>>(

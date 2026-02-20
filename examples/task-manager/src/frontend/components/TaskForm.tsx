@@ -17,16 +17,9 @@ import {
   DialogTitle,
   DialogDescription,
 } from "./ui/dialog.tsx";
+import type * as schema from "../../schema";
 
-interface Task {
-  id: string;
-  title: string;
-  description: string | null;
-  status: string;
-  priority: string;
-  project_id: string;
-  assignee_id: string | null;
-}
+type Task = typeof schema.tasks.$inferSelect;
 
 interface TaskFormProps {
   open: boolean;

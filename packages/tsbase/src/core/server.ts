@@ -1,37 +1,43 @@
 import type { TSBaseConfig } from "./config.ts";
 import { resolveConfig, type ResolvedConfig } from "./config.ts";
 import { createDatabase, runUserMigrations } from "./database.ts";
-import { validateUsersTable, getUserTableNames } from "./bootstrap.ts";
+import { validateUsersTable } from "./bootstrap.ts";
 import { getInternalSchema } from "./internal-schema.ts";
 import type { InternalSchema } from "./internal-schema.ts";
 import type { AnyDb } from "./db-types.ts";
 import type { DatabaseAdapter } from "./adapter.ts";
-import { createAppRouter } from "../trpc/router.ts";
-import { createContextFactory, type AuthUser } from "../trpc/context.ts";
-import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { addCorsHeaders, handleCorsPreflightOrNull } from "../cors.ts";
 import { createAuthRoutes } from "../auth/routes.ts";
 import { createEmailRoutes } from "../auth/email.ts";
 import { createOAuthRoutes } from "../auth/oauth/routes.ts";
 import { extractAuth as extractAuthFromReq } from "../auth/middleware.ts";
 import { validateCsrf, isCsrfExempt } from "../auth/csrf.ts";
-import { generateAllCrudRouters } from "../crud/generator.ts";
+import { generateAllCrudHandlers } from "../crud/handler.ts";
 import { createFileRoutes, createStorageDriver } from "../storage/routes.ts";
 import { handleAdminApi, pushRequestLog } from "../admin/routes.ts";
 import { hashPassword } from "../auth/passwords.ts";
-import type { AnyTRPCRouter } from "@trpc/server";
+import type { AuthUser } from "../api/types.ts";
 import type { TableRules } from "../rules/types.ts";
 import adminUI from "../../admin-ui/index.html";
+
+export type RouteMap = Record<
+  string,
+  Record<string, (req: Request) => Response | Promise<Response>>
+>;
+
+export interface ExtendContext {
+  db: AnyDb;
+  extractAuth: (req: Request) => Promise<AuthUser | null>;
+}
 
 export interface CreateServerOptions {
   schema: Record<string, unknown>;
   rules?: Record<string, unknown>;
   config?: TSBaseConfig;
-  extend?: AnyTRPCRouter;
+  extend?: (ctx: ExtendContext) => RouteMap;
 }
 
 export interface TSBaseServer {
-  appRouter: ReturnType<typeof createAppRouter>;
   db: AnyDb;
   adapter: DatabaseAdapter;
   config: ResolvedConfig;
@@ -46,8 +52,6 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
   const internalSchema = getInternalSchema(dialect);
 
   // Bootstrap internal tables (DDL via adapter)
-  // This is synchronous in the constructor path — we use a sync wrapper
-  // that works because SQLite is sync and Postgres bootstrap is awaited at listen() time
   let bootstrapped = false;
   const bootstrapPromise = (async () => {
     await adapter.bootstrapInternalTables();
@@ -55,17 +59,8 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
     // Migrate user-defined tables from Drizzle migrations
     await runUserMigrations(db, config);
 
-    // Create user tables if they don't exist (dev convenience)
-    await adapter.createUserTables(options.schema);
-
     // Validate users table if provided
     const usersTable = validateUsersTable(options.schema);
-
-    // Get user-defined table names and inject timestamps
-    const tableNames = getUserTableNames(options.schema);
-    if (tableNames.length > 0) {
-      await adapter.injectTimestampColumns(tableNames);
-    }
 
     // Seed default admin if users table exists and no admin user exists
     if (usersTable) {
@@ -76,34 +71,40 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
     return usersTable;
   })();
 
-  // For SQLite (sync), the promise resolves immediately in the microtask queue
-  // For Postgres, listen() will await it
   let usersTable: any = null;
 
-  // Validate users table synchronously for SQLite compat
   try {
     usersTable = validateUsersTable(options.schema);
   } catch {
     // Will be caught again during bootstrap
   }
 
-  // Generate CRUD routers from schema with rules
-  const crudRouters = generateAllCrudRouters(
-    options.schema,
-    db,
-    tableRules,
-  );
-
-  // Create app router
-  const appRouter = createAppRouter(crudRouters, options.extend);
-
-  // Auth extractor
+  // Auth extractor with admin impersonation support
   const extractAuth = async (req: Request): Promise<AuthUser | null> => {
-    return extractAuthFromReq(req, db, internalSchema, usersTable);
+    const realUser = await extractAuthFromReq(req, db, internalSchema, usersTable);
+
+    // Admin impersonation — only honoured when caller is a verified admin
+    const impersonateId = req.headers.get("x-impersonate-user");
+    if (impersonateId && realUser?.role === "admin") {
+      const targetUser = await adapter.rawQueryOne<Record<string, unknown>>(
+        "SELECT * FROM users WHERE id = $id",
+        { $id: impersonateId },
+      );
+      if (targetUser) {
+        return targetUser as AuthUser;
+      }
+    }
+
+    return realUser;
   };
 
-  // Create tRPC context factory
-  const createContext = createContextFactory({ db, extractAuth });
+  // Generate CRUD REST handlers from schema with rules
+  const { exact: crudExact, pattern: crudPattern } = generateAllCrudHandlers(
+    options.schema,
+    db,
+    extractAuth,
+    tableRules,
+  );
 
   // Build auth route handlers
   const authRoutes = createAuthRoutes({
@@ -138,16 +139,37 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
   const adminStorage = createStorageDriver(config);
 
   // Merge all HTTP routes into a lookup map
-  const httpRoutes: Record<
-    string,
-    Record<string, (req: Request) => Response | Promise<Response>>
-  > = {};
-  for (const routeSet of [authRoutes, emailRoutes, oauthRoutes, fileRoutes]) {
+  const httpRoutes: RouteMap = {};
+
+  for (const routeSet of [authRoutes, emailRoutes, oauthRoutes, fileRoutes, crudExact]) {
     for (const [path, handlers] of Object.entries(routeSet)) {
       httpRoutes[path] = handlers as Record<
         string,
         (req: Request) => Response | Promise<Response>
       >;
+    }
+  }
+
+  // Merge extend routes (if provided)
+  if (options.extend) {
+    const extendRoutes = options.extend({ db, extractAuth });
+    for (const [path, handlers] of Object.entries(extendRoutes)) {
+      if (!path.startsWith("/api/")) {
+        throw new Error(
+          `TSBase: extend routes must be under /api/. Got: "${path}". This ensures CSRF protection is applied automatically.`,
+        );
+      }
+      if (httpRoutes[path]) {
+        throw new Error(
+          `TSBase: Cannot merge extend routes due to path collision: ${path}`,
+        );
+      }
+      if (crudPattern[path]) {
+        throw new Error(
+          `TSBase: Cannot merge extend routes due to path collision with CRUD item route: ${path}`,
+        );
+      }
+      httpRoutes[path] = handlers;
     }
   }
 
@@ -157,10 +179,9 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
     handlers: Record<string, (req: Request) => Response | Promise<Response>>;
   }> = [];
 
-  // Convert pattern routes from file routes
+  // Convert Express-style :param routes from httpRoutes to regex patterns
   for (const [path, handlers] of Object.entries(httpRoutes)) {
     if (path.includes(":")) {
-      // Convert Express-style params to regex
       const regex = new RegExp(
         "^" + path.replace(/:[a-zA-Z]+/g, "([^/]+)") + "$",
       );
@@ -173,6 +194,14 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
       });
       delete httpRoutes[path];
     }
+  }
+
+  // Add CRUD item routes (/api/{table}/:id) to patternRoutes
+  for (const [path, handlers] of Object.entries(crudPattern)) {
+    const regex = new RegExp(
+      "^" + path.replace(/:[a-zA-Z]+/g, "([^/]+)") + "$",
+    );
+    patternRoutes.push({ pattern: regex, handlers });
   }
 
   function listen(port?: number) {
@@ -207,7 +236,7 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
         const url = new URL(req.url);
         const pathname = url.pathname;
 
-        // Admin API — must be before tRPC
+        // Admin API — must be before CRUD/user routes
         if (pathname.startsWith("/_admin/api/")) {
           const response = await handleAdminApi(
             req,
@@ -233,13 +262,30 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
           return addCorsHeaders(response, req, config);
         }
 
-        // SPA catch-all for /_admin/* (hash routing handles client-side nav)
+        // SPA catch-all for /_admin/*
         if (pathname.startsWith("/_admin")) {
-          // Redirect to /_admin which is handled by Bun's static routes
           return new Response(null, {
             status: 302,
             headers: { Location: "/_admin" },
           });
+        }
+
+        // CSRF check for API mutations
+        if (
+          pathname.startsWith("/api/") &&
+          ["POST", "PATCH", "DELETE"].includes(req.method) &&
+          !isCsrfExempt(pathname)
+        ) {
+          if (!validateCsrf(req)) {
+            return addCorsHeaders(
+              Response.json(
+                { error: { code: "FORBIDDEN", message: "Invalid CSRF token" } },
+                { status: 403 },
+              ),
+              req,
+              config,
+            );
+          }
         }
 
         // Exact match HTTP routes
@@ -258,7 +304,7 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
           );
         }
 
-        // Pattern match HTTP routes (file routes with params)
+        // Pattern match HTTP routes (file routes + CRUD item routes with params)
         for (const { pattern, handlers } of patternRoutes) {
           if (pattern.test(pathname)) {
             const handler = handlers[req.method];
@@ -273,58 +319,6 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
               config,
             );
           }
-        }
-
-        // CSRF check for tRPC mutations
-        if (
-          pathname.startsWith("/trpc") &&
-          req.method === "POST" &&
-          !isCsrfExempt(pathname)
-        ) {
-          if (!validateCsrf(req)) {
-            return addCorsHeaders(
-              Response.json(
-                {
-                  error: {
-                    code: "FORBIDDEN",
-                    message: "Invalid CSRF token",
-                  },
-                },
-                { status: 403 },
-              ),
-              req,
-              config,
-            );
-          }
-        }
-
-        // tRPC handler
-        if (pathname.startsWith("/trpc")) {
-          const response = await fetchRequestHandler({
-            req,
-            router: appRouter,
-            endpoint: "/trpc",
-            createContext: async ({ req: trpcReq }) => {
-              const realUser = await extractAuthFromReq(trpcReq, db, internalSchema, usersTable);
-
-              // Admin impersonation — only honoured when caller is a verified admin
-              const impersonateId = trpcReq.headers.get("x-impersonate-user");
-              if (impersonateId && realUser?.role === "admin") {
-                // Look up target user via adapter (dynamic query)
-                const targetUser = await adapter.rawQueryOne<Record<string, unknown>>(
-                  "SELECT * FROM users WHERE id = $id",
-                  { $id: impersonateId },
-                );
-                if (targetUser) {
-                  return { db, user: targetUser as AuthUser };
-                }
-              }
-
-              return createContext({ req: trpcReq });
-            },
-          });
-          await logRequest(db, internalSchema, req, pathname, start, response, null);
-          return addCorsHeaders(response, req, config);
         }
 
         const notFound = new Response("Not Found", { status: 404 });
@@ -350,7 +344,7 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
     return server;
   }
 
-  return { appRouter, db, adapter, config, listen };
+  return { db, adapter, config, listen };
 }
 
 const DEFAULT_ADMIN_EMAIL = "admin@example.com";

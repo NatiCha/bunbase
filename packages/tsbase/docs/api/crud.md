@@ -2,7 +2,7 @@
 title: CRUD API
 ---
 
-TSBase auto-generates five tRPC endpoints for every table in your schema: `list`, `get`, `create`, `update`, and `delete`. All endpoints are available under `/trpc/<table>.<operation>`.
+TSBase auto-generates five REST endpoints for every table in your schema: `list`, `get`, `create`, `update`, and `delete`.
 
 ## Endpoints
 
@@ -11,55 +11,49 @@ Using the `posts` table as an example:
 ### List records
 
 ```
-GET /trpc/posts.list?input=<encoded-json>
+GET /api/posts
 ```
 
-Query parameters are JSON-encoded in the `input` param. For simple requests with no filters:
+Query parameters:
+
+| Parameter | Type | Description |
+|---|---|---|
+| `filter` | `string` (JSON) | Filter conditions (see Filtering below) |
+| `cursor` | `string` | Cursor for pagination |
+| `limit` | `number` | Results per page (1–100, default 20) |
+| `sort` | `string` | Column name to sort by |
+| `order` | `"asc" \| "desc"` | Sort direction (default `"asc"`) |
 
 ```bash
-curl 'http://localhost:3000/trpc/posts.list'
+curl 'http://localhost:3000/api/posts'
 ```
 
 With filters and pagination:
 
 ```bash
-curl 'http://localhost:3000/trpc/posts.list?input=%7B%22filter%22%3A%7B%22published%22%3A1%7D%2C%22limit%22%3A10%7D'
+curl 'http://localhost:3000/api/posts?filter={"published":1}&limit=10'
 ```
 
 **Response:**
 
 ```json
 {
-  "result": {
-    "data": {
-      "data": [
-        { "id": "...", "title": "Hello", "body": "...", "authorId": "..." }
-      ],
-      "nextCursor": "eyJpZCI6Ii4uLiJ9",
-      "hasMore": true
-    }
-  }
+  "data": [
+    { "id": "...", "title": "Hello", "body": "...", "authorId": "..." }
+  ],
+  "nextCursor": "eyJpZCI6Ii4uLiJ9",
+  "hasMore": true
 }
 ```
-
-**Input parameters:**
-
-| Field | Type | Description |
-|---|---|---|
-| `filter` | `object` | Filter conditions (see Filtering below) |
-| `cursor` | `string` | Cursor for pagination |
-| `limit` | `number` | Results per page (1–100, default 20) |
-| `sort` | `string` | Column name to sort by |
-| `order` | `"asc" \| "desc"` | Sort direction (default `"asc"`) |
 
 ### Get a record
 
 ```
-GET /trpc/posts.get?input={"id":"<post-id>"}
+GET /api/posts/:id
 ```
 
 ```bash
-curl 'http://localhost:3000/trpc/posts.get?input=%7B%22id%22%3A%22abc123%22%7D'
+curl 'http://localhost:3000/api/posts/abc123'
 ```
 
 Returns the record or `null` if not found.
@@ -67,11 +61,11 @@ Returns the record or `null` if not found.
 ### Create a record
 
 ```
-POST /trpc/posts.create
+POST /api/posts
 ```
 
 ```bash
-curl -X POST 'http://localhost:3000/trpc/posts.create' \
+curl -X POST 'http://localhost:3000/api/posts' \
   -H "Content-Type: application/json" \
   -H "X-CSRF-Token: <token>" \
   -b cookies.txt \
@@ -81,47 +75,47 @@ curl -X POST 'http://localhost:3000/trpc/posts.create' \
 - `id` is auto-generated (UUIDv7) if not provided
 - `created_at` and `updated_at` are set automatically
 
+Returns the created record with status `201`.
+
 ### Update a record
 
 ```
-POST /trpc/posts.update
+PATCH /api/posts/:id
 ```
 
 ```bash
-curl -X POST 'http://localhost:3000/trpc/posts.update' \
+curl -X PATCH 'http://localhost:3000/api/posts/post-id' \
   -H "Content-Type: application/json" \
   -H "X-CSRF-Token: <token>" \
   -b cookies.txt \
-  -d '{"id": "post-id", "data": {"title": "Updated Title"}}'
+  -d '{"title": "Updated Title"}'
 ```
 
-- Only include fields you want to change in `data`
+- Only include fields you want to change
 - `updated_at` is set automatically
 
 ### Delete a record
 
 ```
-POST /trpc/posts.delete
+DELETE /api/posts/:id
 ```
 
 ```bash
-curl -X POST 'http://localhost:3000/trpc/posts.delete' \
-  -H "Content-Type: application/json" \
+curl -X DELETE 'http://localhost:3000/api/posts/post-id' \
   -H "X-CSRF-Token: <token>" \
-  -b cookies.txt \
-  -d '{"id": "post-id"}'
+  -b cookies.txt
 ```
 
 Returns `{ "deleted": true }` or `{ "deleted": false }` if the record was not found.
 
 ## Filtering
 
-The `filter` parameter supports direct value matching and operator-based filtering.
+The `filter` query parameter accepts a JSON object with direct value matching or operator-based conditions.
 
 ### Direct match
 
 ```json
-{ "filter": { "authorId": "user-123" } }
+{ "authorId": "user-123" }
 ```
 
 ### Operators
@@ -145,11 +139,9 @@ Multiple filters are combined with AND:
 
 ```json
 {
-  "filter": {
-    "authorId": "user-123",
-    "published": { "eq": 1 },
-    "title": { "contains": "tutorial" }
-  }
+  "authorId": "user-123",
+  "published": { "eq": 1 },
+  "title": { "contains": "tutorial" }
 }
 ```
 
@@ -159,32 +151,32 @@ TSBase uses cursor-based pagination for efficient traversal of large datasets.
 
 ### Basic pagination
 
-```json
-{ "limit": 10 }
+```
+GET /api/posts?limit=10
 ```
 
 ### Using cursors
 
 The `list` response includes `nextCursor` and `hasMore`. Pass `nextCursor` back to get the next page:
 
-```json
-{ "cursor": "eyJpZCI6Ii4uLiJ9", "limit": 10 }
+```
+GET /api/posts?cursor=eyJpZCI6Ii4uLiJ9&limit=10
 ```
 
 ### Sorting with pagination
 
 When sorting by a field, the cursor tracks both the sort value and the ID for stable ordering:
 
-```json
-{ "sort": "title", "order": "asc", "limit": 10 }
+```
+GET /api/posts?sort=title&order=asc&limit=10
 ```
 
 ## CSRF protection
 
-All mutation endpoints (`create`, `update`, `delete`) require a CSRF token. After login, a `csrf_token` cookie is set. Include it as the `X-CSRF-Token` header:
+All mutation endpoints (`POST`, `PATCH`, `DELETE`) require a CSRF token. After login, a `csrf_token` cookie is set. Include it as the `X-CSRF-Token` header:
 
 ```bash
-curl -X POST 'http://localhost:3000/trpc/posts.create' \
+curl -X POST 'http://localhost:3000/api/posts' \
   -H "X-CSRF-Token: <csrf-token-from-cookie>" \
   -b cookies.txt \
   -d '...'

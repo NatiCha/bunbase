@@ -50,7 +50,6 @@ beforeAll(async () => {
     }),
   });
 
-  // Use adapter.rawExecute for DDL and data seeding (replacing tsbase.sqlite)
   await tsbase.adapter.rawExecute(
     "CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT, role TEXT NOT NULL DEFAULT 'user')",
   );
@@ -100,7 +99,7 @@ test("GET /health returns 200 OK", async () => {
 // ─── CORS preflight ──────────────────────────────────────────────────────────
 
 test("OPTIONS preflight returns 204 with CORS headers", async () => {
-  const res = await fetch(`${base}/trpc/posts.list`, {
+  const res = await fetch(`${base}/api/posts`, {
     method: "OPTIONS",
     headers: { Origin: "http://localhost:5173" },
   });
@@ -186,32 +185,30 @@ test("PATCH /files/:id returns 405 Method Not Allowed", async () => {
   expect(res.status).toBe(405);
 });
 
-// ─── CSRF enforcement on tRPC POST ───────────────────────────────────────────
+// ─── CSRF enforcement on /api/* mutations ────────────────────────────────────
 
-test("POST /trpc/posts.create without CSRF token returns 403", async () => {
-  const res = await fetch(`${base}/trpc/posts.create`, {
+test("POST /api/posts without CSRF token returns 403", async () => {
+  const res = await fetch(`${base}/api/posts`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       cookie: `tsbase_session=${adminSession}`,
     },
-    body: JSON.stringify({ "0": { json: { title: "Bad" } } }),
+    body: JSON.stringify({ title: "Bad" }),
   });
   expect(res.status).toBe(403);
   const body = await res.json() as { error: { code: string } };
   expect(body.error.code).toBe("FORBIDDEN");
 });
 
-// ─── tRPC handler ────────────────────────────────────────────────────────────
+// ─── REST CRUD handler ────────────────────────────────────────────────────────
 
-test("GET /trpc/posts.list is handled by the tRPC router (not 404)", async () => {
-  const res = await fetch(
-    `${base}/trpc/posts.list?batch=1&input=${encodeURIComponent(JSON.stringify({ "0": { json: {} } }))}`,
-    { headers: { cookie: `tsbase_session=${adminSession}` } },
-  );
-  // tRPC processed the request — any non-404 status is acceptable
+test("GET /api/posts is handled by the REST router (not 404)", async () => {
+  const res = await fetch(`${base}/api/posts`, {
+    headers: { cookie: `tsbase_session=${adminSession}` },
+  });
+  // REST processed the request — any non-404 status is acceptable
   expect(res.status).not.toBe(404);
-  // Response should be JSON (tRPC envelope)
   const ct = res.headers.get("Content-Type") ?? "";
   expect(ct).toContain("application/json");
 });
@@ -229,60 +226,53 @@ test("GET /unknown-path returns 404 with CORS headers", async () => {
   );
 });
 
-// ─── Admin impersonation via tRPC ────────────────────────────────────────────
+// ─── Admin impersonation via REST API ────────────────────────────────────────
 
-test("GET /trpc with x-impersonate-user header uses target user context", async () => {
+test("GET /api/posts with x-impersonate-user header uses target user context", async () => {
   // Insert a regular user to impersonate
   await tsbase.adapter.rawExecute(
     "INSERT OR IGNORE INTO users (id, email, role) VALUES ($id, $email, $role)",
     { $id: "regular-1", $email: "regular@example.com", $role: "user" },
   );
 
-  const res = await fetch(
-    `${base}/trpc/posts.list?batch=1&input=${encodeURIComponent(JSON.stringify({ "0": { json: {} } }))}`,
-    {
-      headers: {
-        cookie: `tsbase_session=${adminSession}`,
-        "x-impersonate-user": "regular-1",
-      },
+  const res = await fetch(`${base}/api/posts`, {
+    headers: {
+      cookie: `tsbase_session=${adminSession}`,
+      "x-impersonate-user": "regular-1",
     },
-  );
-  // tRPC context was created with the impersonated user — request succeeds
+  });
+  // Request succeeds with impersonated user context
   expect(res.status).not.toBe(403);
   expect(res.status).not.toBe(404);
   const ct = res.headers.get("Content-Type") ?? "";
   expect(ct).toContain("application/json");
 });
 
-test("GET /trpc with x-impersonate-user pointing to nonexistent user falls through to real context", async () => {
-  const res = await fetch(
-    `${base}/trpc/posts.list?batch=1&input=${encodeURIComponent(JSON.stringify({ "0": { json: {} } }))}`,
-    {
-      headers: {
-        cookie: `tsbase_session=${adminSession}`,
-        "x-impersonate-user": "ghost-user-does-not-exist",
-      },
+test("GET /api/posts with x-impersonate-user pointing to nonexistent user falls through to real context", async () => {
+  const res = await fetch(`${base}/api/posts`, {
+    headers: {
+      cookie: `tsbase_session=${adminSession}`,
+      "x-impersonate-user": "ghost-user-does-not-exist",
     },
-  );
+  });
   // Falls back to real admin context — request still succeeds
   expect(res.status).not.toBe(403);
   expect(res.status).not.toBe(404);
 });
 
-// ─── CSRF-exempt tRPC POST goes through to handler ──────────────────────────
+// ─── CSRF token allows /api/* mutations ──────────────────────────────────────
 
-test("POST /trpc with matching CSRF token reaches tRPC handler", async () => {
-  // Generate a CSRF token and pass it in both cookie and header
+test("POST /api/posts with matching CSRF token reaches handler", async () => {
   const csrfToken = "integration-test-csrf-token";
-  const res = await fetch(`${base}/trpc/posts.list`, {
+  const res = await fetch(`${base}/api/posts`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       cookie: `tsbase_session=${adminSession}; csrf_token=${csrfToken}`,
       "x-csrf-token": csrfToken,
     },
-    body: JSON.stringify({ "0": { json: {} } }),
+    body: JSON.stringify({ id: Bun.randomUUIDv7(), title: "Test Post" }),
   });
-  // tRPC handled it (not rejected by CSRF middleware)
+  // Handled by REST handler (not rejected by CSRF middleware)
   expect(res.status).not.toBe(403);
 });

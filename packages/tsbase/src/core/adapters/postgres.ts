@@ -1,28 +1,4 @@
 import type { DatabaseAdapter } from "../adapter.ts";
-import { getColumns, getTableName } from "drizzle-orm";
-import type { Column } from "drizzle-orm";
-
-/**
- * Map Drizzle column types to Postgres DDL types.
- * Handles both PgColumn and SQLiteColumn columnType strings.
- */
-function pgColumnType(column: Column): string {
-  const type = (column as any).columnType as string;
-  // Postgres-native types
-  if (type.includes("PgText") || type.includes("SQLiteText")) return "TEXT";
-  if (type.includes("PgInteger") || type.includes("SQLiteInteger")) return "INTEGER";
-  if (type.includes("PgBigInt")) return "BIGINT";
-  if (type.includes("PgBoolean")) return "BOOLEAN";
-  if (type.includes("PgReal") || type.includes("SQLiteReal")) return "REAL";
-  if (type.includes("PgTimestamp")) return "TIMESTAMP";
-  if (type.includes("PgUUID")) return "UUID";
-  if (type.includes("PgJsonb")) return "JSONB";
-  if (type.includes("PgJson")) return "JSON";
-  if (type.includes("PgVarchar")) return "VARCHAR";
-  if (type.includes("PgNumeric")) return "NUMERIC";
-  if (type.includes("Blob")) return "BYTEA";
-  return "TEXT";
-}
 
 export class PostgresAdapter implements DatabaseAdapter {
   readonly dialect = "postgres" as const;
@@ -137,60 +113,6 @@ export class PostgresAdapter implements DatabaseAdapter {
     await this.sql`CREATE INDEX IF NOT EXISTS idx_oauth_accounts_user ON _oauth_accounts(user_id)`;
     await this.sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_accounts_provider ON _oauth_accounts(provider, provider_account_id)`;
     await this.sql`CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON _request_logs(timestamp)`;
-  }
-
-  async createUserTables(schema: Record<string, unknown>): Promise<void> {
-    for (const table of Object.values(schema)) {
-      if (typeof table !== "object" || table === null) continue;
-
-      let tableName: string;
-      try {
-        tableName = getTableName(table as any);
-      } catch {
-        continue;
-      }
-
-      if (tableName.startsWith("_")) continue;
-
-      const columns = getColumns(table as any);
-      const colDefs: string[] = [];
-
-      for (const [, col] of Object.entries(columns)) {
-        const c = col as Column;
-        const colName = (c as any).name as string;
-        const colType = pgColumnType(c);
-        let def = `"${colName}" ${colType}`;
-
-        if ((c as any).primary) def += " PRIMARY KEY";
-        if ((c as any).notNull) def += " NOT NULL";
-        if ((c as any).isUnique) def += " UNIQUE";
-        if ((c as any).hasDefault && (c as any).default !== undefined) {
-          const defaultVal = (c as any).default;
-          if (typeof defaultVal === "string") {
-            def += ` DEFAULT '${defaultVal}'`;
-          } else if (typeof defaultVal === "number" || typeof defaultVal === "boolean") {
-            def += ` DEFAULT ${defaultVal}`;
-          }
-        }
-
-        colDefs.push(def);
-      }
-
-      const createSql = `CREATE TABLE IF NOT EXISTS "${tableName}" (${colDefs.join(", ")})`;
-      await this.sql.unsafe(createSql);
-    }
-  }
-
-  async injectTimestampColumns(tableNames: string[]): Promise<void> {
-    for (const table of tableNames) {
-      // Postgres supports ADD COLUMN IF NOT EXISTS
-      await this.sql.unsafe(
-        `ALTER TABLE "${table}" ADD COLUMN IF NOT EXISTS created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)`,
-      );
-      await this.sql.unsafe(
-        `ALTER TABLE "${table}" ADD COLUMN IF NOT EXISTS updated_at TEXT NOT NULL DEFAULT (NOW()::TEXT)`,
-      );
-    }
   }
 
   async rawQuery<T = Record<string, unknown>>(

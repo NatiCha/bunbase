@@ -13,12 +13,6 @@ export interface DatabaseAdapter {
   /** Create internal tables (_sessions, _files, etc.) and indexes */
   bootstrapInternalTables(): Promise<void>;
 
-  /** Create user-defined tables from Drizzle schema */
-  createUserTables(schema: Record<string, unknown>): Promise<void>;
-
-  /** Add created_at and updated_at columns to user tables */
-  injectTimestampColumns(tableNames: string[]): Promise<void>;
-
   /** Execute a dynamic query that returns rows (for admin panel) */
   rawQuery<T = Record<string, unknown>>(
     sql: string,

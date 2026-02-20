@@ -36,83 +36,73 @@ function SortIcon({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
 
 function apiJsExample(table: string): string {
   return `// List records
-const res = await fetch('/trpc/${table}.list?input=%7B%22json%22%3A%7B%7D%7D', {
-  credentials: 'include',
-});
-const { result } = await res.json();
-// result.data = array of records
+const res = await fetch('/api/${table}', { credentials: 'include' });
+const { data } = await res.json();
+// data = array of records
 
 // Get single record
 const id = 'record-id-here';
-const params = encodeURIComponent(JSON.stringify({ json: { id } }));
-const single = await fetch(\`/trpc/${table}.get?input=\${params}\`, {
+const single = await fetch(\`/api/${table}/\${id}\`, {
   credentials: 'include',
 }).then(r => r.json());
 
 // Create record
-const created = await fetch('/trpc/${table}.create', {
+const created = await fetch('/api/${table}', {
   method: 'POST',
   credentials: 'include',
   headers: {
     'Content-Type': 'application/json',
     'x-csrf-token': '<csrf-token>',
   },
-  body: JSON.stringify({ json: { /* fields */ } }),
+  body: JSON.stringify({ /* fields */ }),
 }).then(r => r.json());
 
 // Update record
-const updated = await fetch('/trpc/${table}.update', {
-  method: 'POST',
+const updated = await fetch(\`/api/${table}/\${id}\`, {
+  method: 'PATCH',
   credentials: 'include',
   headers: {
     'Content-Type': 'application/json',
     'x-csrf-token': '<csrf-token>',
   },
-  body: JSON.stringify({ json: { id, data: { /* fields */ } } }),
+  body: JSON.stringify({ /* fields to update */ }),
 }).then(r => r.json());
 
 // Delete record
-await fetch('/trpc/${table}.delete', {
-  method: 'POST',
+await fetch(\`/api/${table}/\${id}\`, {
+  method: 'DELETE',
   credentials: 'include',
-  headers: {
-    'Content-Type': 'application/json',
-    'x-csrf-token': '<csrf-token>',
-  },
-  body: JSON.stringify({ json: { id } }),
+  headers: { 'x-csrf-token': '<csrf-token>' },
 }).then(r => r.json());`;
 }
 
 function apiCurlExample(table: string): string {
   return `# List records
-curl -s -b 'session=<token>' \\
-  '/trpc/${table}.list?input=%7B%22json%22%3A%7B%7D%7D'
+curl -s -b 'tsbase_session=<token>' \\
+  '/api/${table}'
 
 # Get single record
-ID="record-id-here"
-curl -s -b 'session=<token>' \\
-  "/trpc/${table}.get?input=$(python3 -c "import urllib.parse,json; print(urllib.parse.quote(json.dumps({'json':{'id':'$ID'}})))")"
+curl -s -b 'tsbase_session=<token>' \\
+  '/api/${table}/record-id-here'
 
 # Create record
-curl -s -b 'session=<token>' \\
+curl -s -b 'tsbase_session=<token>' \\
   -H 'Content-Type: application/json' \\
   -H 'x-csrf-token: <csrf-token>' \\
-  -X POST '/trpc/${table}.create' \\
-  -d '{"json":{"field":"value"}}'
+  -X POST '/api/${table}' \\
+  -d '{"field":"value"}'
 
 # Update record
-curl -s -b 'session=<token>' \\
+curl -s -b 'tsbase_session=<token>' \\
   -H 'Content-Type: application/json' \\
   -H 'x-csrf-token: <csrf-token>' \\
-  -X POST '/trpc/${table}.update' \\
-  -d '{"json":{"id":"record-id","data":{"field":"new-value"}}}'
+  -X PATCH '/api/${table}/record-id' \\
+  -d '{"field":"new-value"}'
 
 # Delete record
-curl -s -b 'session=<token>' \\
-  -H 'Content-Type: application/json' \\
+curl -s -b 'tsbase_session=<token>' \\
   -H 'x-csrf-token: <csrf-token>' \\
-  -X POST '/trpc/${table}.delete' \\
-  -d '{"json":{"id":"record-id"}}'`;
+  -X DELETE '/api/${table}/record-id'`;
 }
 
 function ApiPreviewPanel({

@@ -32,7 +32,7 @@ export function printSummary({
     lines.push(`  ${BOLD}CRUD Routes (auto-generated):${RESET}`);
     for (const table of tables) {
       lines.push(
-        `    ${DIM}/trpc/${table}.list  /trpc/${table}.get  /trpc/${table}.create  /trpc/${table}.update  /trpc/${table}.delete${RESET}`,
+        `    ${DIM}GET /api/${table}  POST /api/${table}  GET /api/${table}/:id  PATCH /api/${table}/:id  DELETE /api/${table}/:id${RESET}`,
       );
     }
   }

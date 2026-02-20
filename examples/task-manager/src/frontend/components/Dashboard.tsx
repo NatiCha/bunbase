@@ -1,6 +1,5 @@
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useTRPC } from "../lib/client.ts";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card.tsx";
 import { Badge } from "./ui/badge.tsx";
 import { CheckCircle, Clock, ListTodo, BarChart3 } from "lucide-react";
@@ -12,7 +11,7 @@ interface Stats {
   done: number;
 }
 
-interface Task {
+interface MyTask {
   id: string;
   title: string;
   status: string;
@@ -20,16 +19,31 @@ interface Task {
   project_id: string;
 }
 
+function getCsrfToken(): string {
+  if (typeof document === "undefined") return "";
+  const match = document.cookie
+    .split(";")
+    .find((c) => c.trim().startsWith("csrf_token="));
+  return match?.split("=")[1]?.trim() ?? "";
+}
+
 export function Dashboard() {
-  const trpc = useTRPC();
+  const { data: stats, isLoading: statsLoading } = useQuery<Stats>({
+    queryKey: ["tsbase", "custom", "stats"],
+    queryFn: async () => {
+      const res = await fetch("/api/stats", { credentials: "include" });
+      return res.json();
+    },
+  });
 
-  const { data: stats, isLoading: statsLoading } = useQuery<Stats>(
-    trpc.stats.queryOptions() as any,
-  );
-
-  const { data: myTasks = [], isLoading: tasksLoading } = useQuery<Task[]>(
-    trpc.myTasks.queryOptions() as any,
-  );
+  const { data: myTasks = [], isLoading: tasksLoading } = useQuery<MyTask[]>({
+    queryKey: ["tsbase", "custom", "my-tasks"],
+    queryFn: async () => {
+      const res = await fetch("/api/my-tasks", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
 
   const loading = statsLoading || tasksLoading;
 

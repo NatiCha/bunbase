@@ -75,12 +75,11 @@ export async function runUserMigrations(
   config: ResolvedConfig,
 ): Promise<void> {
   if (!existsSync(config.migrationsPath)) {
-    const message = `TSBase: migrations folder not found at "${config.migrationsPath}"`;
     if (config.development) {
-      console.warn(`${message}. Continuing in development mode.`);
+      console.warn(`TSBase: migrations folder not found at "${config.migrationsPath}". Skipping migrations in development mode.`);
       return;
     }
-    throw new Error(message);
+    throw new Error(`TSBase: migrations folder not found at "${config.migrationsPath}". Run "bun db:generate" to create migrations before deploying.`);
   }
 
   try {

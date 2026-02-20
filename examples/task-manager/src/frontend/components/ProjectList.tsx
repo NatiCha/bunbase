@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useTRPC } from "../lib/client.ts";
+import { api } from "../lib/client.ts";
 import { Button } from "./ui/button.tsx";
 import { Input } from "./ui/input.tsx";
 import { Textarea } from "./ui/textarea.tsx";
@@ -15,14 +15,9 @@ import {
   DialogDescription,
 } from "./ui/dialog.tsx";
 import { Plus, FolderOpen } from "lucide-react";
+import type * as schema from "../../schema";
 
-interface Project {
-  id: string;
-  name: string;
-  description: string | null;
-  owner_id: string;
-  created_at: string;
-}
+type Project = typeof schema.projects.$inferSelect;
 
 interface ProjectListProps {
   userId: string;
@@ -30,19 +25,18 @@ interface ProjectListProps {
 }
 
 export function ProjectList({ userId, onSelectProject }: ProjectListProps) {
-  const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
 
-  const { data, isLoading } = useQuery(trpc.projects.list.queryOptions({}));
-  const projects: Project[] = (data as any)?.data ?? [];
+  const { data, isLoading } = useQuery(api.projects.list.queryOptions());
+  const projects = data?.data ?? [];
 
   const createMutation = useMutation(
-    trpc.projects.create.mutationOptions({
+    api.projects.create.mutationOptions({
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: trpc.projects.list.queryKey() });
+        queryClient.invalidateQueries({ queryKey: api.projects.list.queryKey() });
         setName("");
         setDescription("");
         setDialogOpen(false);
@@ -55,8 +49,8 @@ export function ProjectList({ userId, onSelectProject }: ProjectListProps) {
     createMutation.mutate({
       name,
       description: description || null,
-      owner_id: userId,
-    } as any);
+      ownerId: userId,
+    });
   };
 
   if (isLoading) {

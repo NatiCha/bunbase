@@ -49,7 +49,7 @@ const sectionDescriptions: Record<Exclude<NavSection, "collections">, string> = 
   auth: "Manage users, sessions, and OAuth providers.",
   logs: "Inspect request logs, statuses, and durations.",
   storage: "Browse uploaded files and metadata.",
-  api: "Test generated tRPC procedures against your tables.",
+  api: "Test generated REST API endpoints against your tables.",
   settings: "Configure instance-level options and defaults.",
 };
 

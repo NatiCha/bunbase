@@ -20,30 +20,36 @@ export interface Template {
 // ─── Schema helpers ───────────────────────────────────────────────────────────
 
 const SQLITE_USERS_TABLE = `export const users = sqliteTable("users", {
-  id: text("id").primaryKey(),
+  id: text("id").primaryKey().$defaultFn(() => Bun.randomUUIDv7()),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   role: text("role").notNull().default("user"),
   name: text("name"),
   avatarUrl: text("avatar_url"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()).$onUpdateFn(() => new Date().toISOString()),
 });`;
 
 const PG_USERS_TABLE = `export const users = pgTable("users", {
-  id: text("id").primaryKey(),
+  id: text("id").primaryKey().$defaultFn(() => Bun.randomUUIDv7()),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   role: text("role").notNull().default("user"),
   name: text("name"),
   avatarUrl: text("avatar_url"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()).$onUpdateFn(() => new Date().toISOString()),
 });`;
 
 const MYSQL_USERS_TABLE = `export const users = mysqlTable("users", {
-  id: text("id").primaryKey(),
+  id: text("id").primaryKey().$defaultFn(() => Bun.randomUUIDv7()),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   role: text("role").notNull().default("user"),
   name: text("name"),
   avatarUrl: text("avatar_url"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()).$onUpdateFn(() => new Date().toISOString()),
 });`;
 
 function schemaImport(driver: DatabaseDriver): string {
@@ -73,6 +79,7 @@ function buildDrizzleConfig(driver: DatabaseDriver): string {
 export default defineConfig({
   dialect: "postgresql",
   schema: "./src/schema.ts",
+  tablesFilter: ["!_*"],
   dbCredentials: {
     url: process.env.DATABASE_URL!,
   },
@@ -85,6 +92,7 @@ export default defineConfig({
 export default defineConfig({
   dialect: "mysql",
   schema: "./src/schema.ts",
+  tablesFilter: ["!_*"],
   dbCredentials: {
     url: process.env.DATABASE_URL!,
   },
@@ -96,6 +104,7 @@ export default defineConfig({
 export default defineConfig({
   dialect: "sqlite",
   schema: "./src/schema.ts",
+  tablesFilter: ["!_*"],
   dbCredentials: {
     url: "./data/db.sqlite",
   },
@@ -180,20 +189,24 @@ function taskManagerSchema(driver: DatabaseDriver): string {
 ${usersTableStr(driver)}
 
 export const projects = ${tbl}("projects", {
-  id: text("id").primaryKey(),
+  id: text("id").primaryKey().$defaultFn(() => Bun.randomUUIDv7()),
   name: text("name").notNull(),
   description: text("description"),
   ownerId: text("owner_id").notNull(),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()).$onUpdateFn(() => new Date().toISOString()),
 });
 
 export const tasks = ${tbl}("tasks", {
-  id: text("id").primaryKey(),
+  id: text("id").primaryKey().$defaultFn(() => Bun.randomUUIDv7()),
   title: text("title").notNull(),
   description: text("description"),
   status: text("status").notNull().default("todo"),
   priority: text("priority").notNull().default("medium"),
   projectId: text("project_id").notNull(),
   assigneeId: text("assignee_id"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()).$onUpdateFn(() => new Date().toISOString()),
 });
 `;
 }
@@ -205,26 +218,32 @@ function blogSchema(driver: DatabaseDriver): string {
 ${usersTableStr(driver)}
 
 export const categories = ${tbl}("categories", {
-  id: text("id").primaryKey(),
+  id: text("id").primaryKey().$defaultFn(() => Bun.randomUUIDv7()),
   name: text("name").notNull().unique(),
   slug: text("slug").notNull().unique(),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()).$onUpdateFn(() => new Date().toISOString()),
 });
 
 export const posts = ${tbl}("posts", {
-  id: text("id").primaryKey(),
+  id: text("id").primaryKey().$defaultFn(() => Bun.randomUUIDv7()),
   title: text("title").notNull(),
   slug: text("slug").notNull().unique(),
   body: text("body"),
   status: text("status").notNull().default("draft"),
   authorId: text("author_id").notNull(),
   categoryId: text("category_id"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()).$onUpdateFn(() => new Date().toISOString()),
 });
 
 export const comments = ${tbl}("comments", {
-  id: text("id").primaryKey(),
+  id: text("id").primaryKey().$defaultFn(() => Bun.randomUUIDv7()),
   body: text("body").notNull(),
   postId: text("post_id").notNull(),
   authorId: text("author_id").notNull(),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()).$onUpdateFn(() => new Date().toISOString()),
 });
 `;
 }
@@ -236,25 +255,31 @@ function saasSchema(driver: DatabaseDriver): string {
 ${usersTableStr(driver)}
 
 export const organizations = ${tbl}("organizations", {
-  id: text("id").primaryKey(),
+  id: text("id").primaryKey().$defaultFn(() => Bun.randomUUIDv7()),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   ownerId: text("owner_id").notNull(),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()).$onUpdateFn(() => new Date().toISOString()),
 });
 
 export const members = ${tbl}("members", {
-  id: text("id").primaryKey(),
+  id: text("id").primaryKey().$defaultFn(() => Bun.randomUUIDv7()),
   organizationId: text("organization_id").notNull(),
   userId: text("user_id").notNull(),
   role: text("role").notNull().default("member"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()).$onUpdateFn(() => new Date().toISOString()),
 });
 
 export const invoices = ${tbl}("invoices", {
-  id: text("id").primaryKey(),
+  id: text("id").primaryKey().$defaultFn(() => Bun.randomUUIDv7()),
   organizationId: text("organization_id").notNull(),
   amount: text("amount").notNull(),
   status: text("status").notNull().default("pending"),
   description: text("description"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()).$onUpdateFn(() => new Date().toISOString()),
 });
 `;
 }
@@ -266,33 +291,41 @@ function inventorySchema(driver: DatabaseDriver): string {
 ${usersTableStr(driver)}
 
 export const categories = ${tbl}("categories", {
-  id: text("id").primaryKey(),
+  id: text("id").primaryKey().$defaultFn(() => Bun.randomUUIDv7()),
   name: text("name").notNull().unique(),
   description: text("description"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()).$onUpdateFn(() => new Date().toISOString()),
 });
 
 export const products = ${tbl}("products", {
-  id: text("id").primaryKey(),
+  id: text("id").primaryKey().$defaultFn(() => Bun.randomUUIDv7()),
   name: text("name").notNull(),
   description: text("description"),
   price: text("price").notNull(),
   sku: text("sku").unique(),
   categoryId: text("category_id"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()).$onUpdateFn(() => new Date().toISOString()),
 });
 
 export const orders = ${tbl}("orders", {
-  id: text("id").primaryKey(),
+  id: text("id").primaryKey().$defaultFn(() => Bun.randomUUIDv7()),
   status: text("status").notNull().default("pending"),
   customerId: text("customer_id").notNull(),
   total: text("total").notNull(),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()).$onUpdateFn(() => new Date().toISOString()),
 });
 
 export const orderItems = ${tbl}("order_items", {
-  id: text("id").primaryKey(),
+  id: text("id").primaryKey().$defaultFn(() => Bun.randomUUIDv7()),
   orderId: text("order_id").notNull(),
   productId: text("product_id").notNull(),
   quantity: text("quantity").notNull(),
   price: text("price").notNull(),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()).$onUpdateFn(() => new Date().toISOString()),
 });
 `;
 }

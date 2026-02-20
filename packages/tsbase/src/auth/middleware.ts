@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { parseCookies } from "./cookies.ts";
 import { getSession } from "./sessions.ts";
-import type { AuthUser } from "../trpc/context.ts";
+import type { AuthUser } from "../api/types.ts";
 import type { AnyDb } from "../core/db-types.ts";
 import type { InternalSchema } from "../core/internal-schema.ts";
 

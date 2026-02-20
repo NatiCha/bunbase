@@ -4,7 +4,7 @@ import { makeResolvedConfig } from "./test-helpers.ts";
 
 test("development CORS echoes origin for credentialed requests", () => {
   const config = makeResolvedConfig({ development: true });
-  const req = new Request("http://localhost/trpc/posts.list", {
+  const req = new Request("http://localhost/api/posts", {
     method: "OPTIONS",
     headers: {
       Origin: "http://localhost:5173",
@@ -26,7 +26,7 @@ test("disallowed production origin is rejected in preflight", () => {
     development: false,
     cors: { origins: ["https://example.com"] },
   });
-  const req = new Request("http://localhost/trpc/posts.list", {
+  const req = new Request("http://localhost/api/posts", {
     method: "OPTIONS",
     headers: {
       Origin: "https://evil.example",

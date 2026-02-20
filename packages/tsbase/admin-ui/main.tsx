@@ -89,7 +89,7 @@ const SECTION_DESCRIPTIONS: Record<NavSection, string> = {
   auth: "Manage users, sessions, and OAuth providers.",
   logs: "Live request stream and API diagnostics.",
   storage: "Browse uploaded files and metadata.",
-  api: "Test tRPC endpoints directly.",
+  api: "Test REST API endpoints directly.",
   settings: "Read-only TSBase instance configuration.",
 };
 

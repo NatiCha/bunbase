@@ -14,7 +14,7 @@ Bun.serve({
 
     // Proxy API routes to TSBase
     if (
-      url.pathname.startsWith("/trpc") ||
+      url.pathname.startsWith("/api") ||
       url.pathname.startsWith("/auth") ||
       url.pathname.startsWith("/files") ||
       url.pathname === "/health"

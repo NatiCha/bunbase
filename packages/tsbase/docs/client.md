@@ -2,7 +2,7 @@
 title: Client SDK
 ---
 
-TSBase includes a frontend SDK that provides a type-safe tRPC client alongside auth and file helpers.
+TSBase includes a frontend SDK that provides a type-safe REST client alongside auth and file helpers.
 
 ## Installation
 
@@ -16,22 +16,22 @@ import { createTSBaseClient } from "tsbase/client";
 
 ```ts
 import { createTSBaseClient } from "tsbase/client";
-import type { AppRouter } from "../server/src/index"; // your server's router type
+import type * as schema from "../server/src/schema"; // your Drizzle schema
 
-const client = createTSBaseClient<AppRouter>({
+const client = createTSBaseClient<typeof schema>({
   url: "http://localhost:3000",
 });
 ```
 
-The client has three namespaces: `trpc`, `auth`, and `files`.
+The client has three namespaces: `api`, `auth`, and `files`.
 
-## `trpc` — CRUD operations
+## `api` — CRUD operations
 
-The `trpc` namespace is a standard tRPC client, typed to your schema. Every table gets `list`, `get`, `create`, `update`, and `delete` procedures.
+The `api` namespace is typed directly from your Drizzle schema. Every table gets `list`, `get`, `create`, `update`, and `delete` methods.
 
 ```ts
 // List posts
-const { data, nextCursor, hasMore } = await client.trpc.posts.list.query({
+const { data, nextCursor, hasMore } = await client.api.posts.list({
   filter: { published: 1 },
   limit: 10,
   sort: "title",
@@ -39,26 +39,25 @@ const { data, nextCursor, hasMore } = await client.trpc.posts.list.query({
 });
 
 // Get a single post
-const post = await client.trpc.posts.get.query({ id: "post-id" });
+const post = await client.api.posts.get("post-id");
 
 // Create a post
-const newPost = await client.trpc.posts.create.mutate({
+const newPost = await client.api.posts.create({
   title: "Hello World",
   body: "My first post",
   authorId: "user-id",
 });
 
 // Update a post
-const updated = await client.trpc.posts.update.mutate({
-  id: "post-id",
-  data: { title: "Updated Title" },
+const updated = await client.api.posts.update("post-id", {
+  title: "Updated Title",
 });
 
 // Delete a post
-const result = await client.trpc.posts.delete.mutate({ id: "post-id" });
+const result = await client.api.posts.delete("post-id");
 ```
 
-CSRF tokens are handled automatically — the client reads the `csrf_token` cookie and sends it as the `X-CSRF-Token` header on every request. Cookies are sent with `credentials: "include"`.
+CSRF tokens are handled automatically — the client reads the `csrf_token` cookie and sends it as the `X-CSRF-Token` header on every mutation request. Cookies are sent with `credentials: "include"`.
 
 ### Pagination
 
@@ -66,7 +65,7 @@ CSRF tokens are handled automatically — the client reads the `csrf_token` cook
 let cursor: string | undefined;
 
 do {
-  const page = await client.trpc.posts.list.query({
+  const page = await client.api.posts.list({
     cursor,
     limit: 20,
   });

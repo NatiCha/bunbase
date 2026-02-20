@@ -2,38 +2,41 @@
 title: Extending
 ---
 
-Add custom tRPC routes to your TSBase server using the `extend` option.
+Add custom REST routes to your TSBase server using the `extend` option.
 
 ## Adding custom routes
 
-Create a tRPC router and pass it to `createServer`. Since TSBase uses tRPC under the hood, you build your custom router with `@trpc/server` directly:
+Pass a function to `extend` that receives `{ db, extractAuth }` and returns a route map. Each key is a path (must be under `/api/`) and the value is an object mapping HTTP methods to handlers.
 
 ```ts
 // src/custom-routes.ts
-import { initTRPC, TRPCError } from "@trpc/server";
-import type { Context } from "tsbase";
-import { z } from "zod/v4";
+import type { ExtendContext, RouteMap } from "tsbase";
+import { requireAuth } from "tsbase";
 
-const t = initTRPC.context<Context>().create();
+export function customRoutes({ db, extractAuth }: ExtendContext): RouteMap {
+  return {
+    "/api/stats": {
+      GET: async (_req) => {
+        const stats = await db.select(/* ... */);
+        return Response.json(stats);
+      },
+    },
 
-export const customRouter = t.router({
-  hello: t.procedure
-    .input(z.object({ name: z.string() }))
-    .query(({ input }) => {
-      return `Hello, ${input.name}!`;
-    }),
-
-  secretData: t.procedure
-    .use(({ ctx, next }) => {
-      if (!ctx.auth) {
-        throw new TRPCError({ code: "UNAUTHORIZED" });
-      }
-      return next({ ctx: { ...ctx, auth: ctx.auth } });
-    })
-    .query(({ ctx }) => {
-      return { userId: ctx.auth.id, secret: "42" };
-    }),
-});
+    "/api/my-tasks": {
+      GET: async (req) => {
+        const auth = await extractAuth(req);
+        if (!auth) {
+          return Response.json(
+            { error: { code: "UNAUTHORIZED", message: "Not authenticated" } },
+            { status: 401 },
+          );
+        }
+        const tasks = await db.select(/* ... */).where(/* auth.id */);
+        return Response.json(tasks);
+      },
+    },
+  };
+}
 ```
 
 ```ts
@@ -41,64 +44,84 @@ export const customRouter = t.router({
 import { createServer } from "tsbase";
 import * as schema from "./schema";
 import { rules } from "./rules";
-import { customRouter } from "./custom-routes";
+import { customRoutes } from "./custom-routes";
 
 const tsbase = createServer({
   schema,
   rules,
-  extend: customRouter,
+  extend: customRoutes,
 });
 
 tsbase.listen();
 ```
 
-Your custom routes are now available at `/trpc/hello` and `/trpc/secretData`.
+Your custom routes are now available at `/api/stats` and `/api/my-tasks`.
+
+## Constraints
+
+- All extend routes **must** be under `/api/`. TSBase throws a startup error for any route outside this prefix. This ensures CSRF protection is automatically applied to all mutation methods (`POST`, `PATCH`, `DELETE`).
+- Path collisions with generated CRUD routes throw a startup error.
 
 ## Context
 
-Procedures receive a context object:
+The `extend` function receives:
 
 ```ts
-interface Context {
-  db: SQLiteBunDatabase; // Drizzle database instance
-  auth: AuthUser | null; // Current user (null if not logged in)
-  req: Request;          // Original HTTP request
+interface ExtendContext {
+  db: AnyDb;                                         // Drizzle database instance
+  extractAuth: (req: Request) => Promise<AuthUser | null>; // Current user resolver
 }
 ```
 
 ## Accessing the database
 
-Use `ctx.db` (the Drizzle instance) to run queries in your procedures:
+Use `db` (the Drizzle instance) to run queries in your handlers:
 
 ```ts
 import { eq } from "drizzle-orm";
 import { posts } from "./schema";
 
-// Inside a procedure:
-.query(({ ctx }) => {
-  return ctx.db
+GET: async (req) => {
+  const auth = await extractAuth(req);
+  const myPosts = db
     .select()
     .from(posts)
-    .where(eq(posts.authorId, ctx.auth!.id))
+    .where(eq(posts.authorId, auth!.id))
     .all();
-});
+  return Response.json(myPosts);
+},
 ```
 
 ## Name collisions
 
-Custom route names must not collide with auto-generated CRUD router names (your table names). If a collision is detected, TSBase throws an error at startup:
+Custom route paths must not collide with auto-generated CRUD routes. If a collision is detected, TSBase throws at startup:
 
 ```
-TSBase: Cannot merge extend router due to key collision(s): posts
+TSBase: Cannot merge extend routes due to path collision: /api/posts
 ```
 
 ## Calling custom routes from the client
 
-Custom routes are part of the same tRPC router, so they work with the client SDK:
+Use `fetch` directly, or wrap them in your own typed client helpers:
 
 ```ts
-const greeting = await client.trpc.hello.query({ name: "World" });
-const data = await client.trpc.secretData.query();
+const res = await fetch("/api/stats", { credentials: "include" });
+const stats = await res.json();
+```
+
+For mutations, include the CSRF token:
+
+```ts
+const csrfToken = document.cookie.match(/csrf_token=([^;]+)/)?.[1] ?? "";
+const res = await fetch("/api/my-tasks", {
+  method: "POST",
+  credentials: "include",
+  headers: {
+    "Content-Type": "application/json",
+    "X-CSRF-Token": csrfToken,
+  },
+  body: JSON.stringify({ title: "New Task" }),
+});
 ```
 
 ## Next steps

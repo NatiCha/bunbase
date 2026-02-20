@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useTRPC } from "../lib/client.ts";
+import { api } from "../lib/client.ts";
 import { Button } from "./ui/button.tsx";
 import { Card, CardContent } from "./ui/card.tsx";
 import {
@@ -13,22 +13,10 @@ import {
 import { TaskCard } from "./TaskCard.tsx";
 import { TaskForm } from "./TaskForm.tsx";
 import { ArrowLeft, Plus, ListTodo } from "lucide-react";
+import type * as schema from "../../schema";
 
-interface Task {
-  id: string;
-  title: string;
-  description: string | null;
-  status: string;
-  priority: string;
-  project_id: string;
-  assignee_id: string | null;
-}
-
-interface Project {
-  id: string;
-  name: string;
-  description: string | null;
-}
+type Task = typeof schema.tasks.$inferSelect;
+type Project = typeof schema.projects.$inferSelect;
 
 interface ProjectDetailProps {
   projectId: string;
@@ -37,7 +25,6 @@ interface ProjectDetailProps {
 }
 
 export function ProjectDetail({ projectId, userId, onBack }: ProjectDetailProps) {
-  const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [formOpen, setFormOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -45,29 +32,29 @@ export function ProjectDetail({ projectId, userId, onBack }: ProjectDetailProps)
   const [priorityFilter, setPriorityFilter] = useState("all");
 
   const { data: project, isLoading: projectLoading } = useQuery(
-    trpc.projects.get.queryOptions({ id: projectId }),
+    api.projects.get.queryOptions(projectId),
   );
 
-  const tasksQueryKey = trpc.tasks.list.queryKey();
+  const tasksQueryKey = api.tasks.list.queryKey({ filter: { projectId } });
   const { data: tasksData, isLoading: tasksLoading } = useQuery(
-    trpc.tasks.list.queryOptions({ filter: { project_id: projectId } } as any),
+    api.tasks.list.queryOptions({ filter: { projectId } }),
   );
-  const tasks: Task[] = (tasksData as any)?.data ?? [];
+  const tasks = tasksData?.data ?? [];
 
   const invalidateTasks = () => {
     queryClient.invalidateQueries({ queryKey: tasksQueryKey });
   };
 
   const createMutation = useMutation(
-    trpc.tasks.create.mutationOptions({ onSuccess: invalidateTasks }),
+    api.tasks.create.mutationOptions({ onSuccess: invalidateTasks }),
   );
 
   const updateMutation = useMutation(
-    trpc.tasks.update.mutationOptions({ onSuccess: invalidateTasks }),
+    api.tasks.update.mutationOptions({ onSuccess: invalidateTasks }),
   );
 
   const deleteMutation = useMutation(
-    trpc.tasks.delete.mutationOptions({ onSuccess: invalidateTasks }),
+    api.tasks.delete.mutationOptions({ onSuccess: invalidateTasks }),
   );
 
   const handleCreateOrUpdate = async (data: {
@@ -77,19 +64,19 @@ export function ProjectDetail({ projectId, userId, onBack }: ProjectDetailProps)
     priority: string;
   }) => {
     if (editingTask) {
-      updateMutation.mutate({ id: editingTask.id, ...data } as any);
+      updateMutation.mutate({ id: editingTask.id, data });
     } else {
       createMutation.mutate({
         ...data,
-        project_id: projectId,
-        assignee_id: userId,
-      } as any);
+        projectId,
+        assigneeId: userId,
+      });
     }
     setEditingTask(null);
   };
 
   const handleDelete = (id: string) => {
-    deleteMutation.mutate({ id } as any);
+    deleteMutation.mutate({ id });
   };
 
   const handleEdit = (task: Task) => {
@@ -121,9 +108,9 @@ export function ProjectDetail({ projectId, userId, onBack }: ProjectDetailProps)
           Back
         </Button>
         <div>
-          <h2 className="text-2xl font-semibold">{(project as any).name}</h2>
-          {(project as any).description && (
-            <p className="text-muted-foreground">{(project as any).description}</p>
+          <h2 className="text-2xl font-semibold">{project.name}</h2>
+          {project.description && (
+            <p className="text-muted-foreground">{project.description}</p>
           )}
         </div>
       </div>

@@ -47,7 +47,6 @@ plugins = ["bun-plugin-tailwind"]
   ".gitignore": `node_modules
 dist
 data/
-drizzle/
 .env
 .env.local
 .DS_Store
@@ -147,16 +146,18 @@ export async function init({ projectName, nonInteractive }: InitOptions) {
     scripts: {
       dev: "bun --hot src/index.ts",
       start: "NODE_ENV=production bun src/index.ts",
+      "db:push": "bunx --bun drizzle-kit push --force",
+      "db:generate": "bunx drizzle-kit generate",
       studio: "bunx drizzle-kit studio",
     },
     dependencies: {
       tsbase: resolveTsbaseVersion(projectDir),
-      "drizzle-orm": "latest",
+      "drizzle-orm": "beta",
     },
     devDependencies: {
       "@types/bun": "latest",
       "bun-plugin-tailwind": "latest",
-      "drizzle-kit": "latest",
+      "drizzle-kit": "beta",
     },
   };
 
@@ -178,6 +179,15 @@ export async function init({ projectName, nonInteractive }: InitOptions) {
     installSpinner.stop("Failed to install dependencies");
     clack.log.error(`Run \x1b[1mcd ${projectName} && bun install\x1b[0m manually.`);
     process.exit(1);
+  }
+
+  const migrateSpinner = clack.spinner();
+  migrateSpinner.start("Generating initial migration");
+  try {
+    await Bun.$`cd ${projectDir} && bunx drizzle-kit generate --name init`.quiet();
+    migrateSpinner.stop("Initial migration created");
+  } catch {
+    migrateSpinner.stop("Could not generate migration (run db:generate manually)");
   }
 
   const port = 3000;
@@ -280,5 +290,3 @@ async function waitForServer(
 
   return false;
 }
-
-

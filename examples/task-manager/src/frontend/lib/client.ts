@@ -1,7 +1,7 @@
 import { createTSBaseReact } from "tsbase/react";
-import type { AppRouter } from "../../server.ts";
+import type * as schema from "../../schema";
 
-export const { TSBaseProvider, useTRPC, useAuth } =
-  createTSBaseReact<AppRouter>({
+export const { TSBaseProvider, api, useAuth } =
+  createTSBaseReact<typeof schema>({
     url: window.location.origin,
   });

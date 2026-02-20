@@ -1,25 +1,4 @@
 import type { DatabaseAdapter } from "../adapter.ts";
-import { getColumns, getTableName } from "drizzle-orm";
-import type { Column } from "drizzle-orm";
-
-/**
- * Map Drizzle column types to MySQL DDL types.
- * Handles MySqlColumn, PgColumn, and SQLiteColumn columnType strings.
- */
-function mysqlColumnType(column: Column): string {
-  const type = (column as any).columnType as string;
-  if (type.includes("MySqlText") || type.includes("PgText") || type.includes("SQLiteText")) return "TEXT";
-  if (type.includes("MySqlInt") || type.includes("PgInteger") || type.includes("SQLiteInteger")) return "INTEGER";
-  if (type.includes("MySqlBigInt") || type.includes("PgBigInt")) return "BIGINT";
-  if (type.includes("MySqlBoolean") || type.includes("PgBoolean")) return "TINYINT(1)";
-  if (type.includes("MySqlReal") || type.includes("PgReal") || type.includes("SQLiteReal")) return "DOUBLE";
-  if (type.includes("MySqlTimestamp") || type.includes("PgTimestamp")) return "DATETIME";
-  if (type.includes("MySqlVarChar") || type.includes("PgVarchar")) return "VARCHAR(255)";
-  if (type.includes("MySqlDecimal") || type.includes("PgNumeric")) return "DECIMAL(10,2)";
-  if (type.includes("MySqlJson") || type.includes("PgJsonb") || type.includes("PgJson")) return "JSON";
-  if (type.includes("Blob")) return "LONGBLOB";
-  return "TEXT";
-}
 
 export class MysqlAdapter implements DatabaseAdapter {
   readonly dialect = "mysql" as const;
@@ -145,85 +124,6 @@ export class MysqlAdapter implements DatabaseAdapter {
         await this.sql.unsafe(stmt);
       } catch {
         // Index already exists
-      }
-    }
-  }
-
-  async createUserTables(schema: Record<string, unknown>): Promise<void> {
-    for (const table of Object.values(schema)) {
-      if (typeof table !== "object" || table === null) continue;
-
-      let tableName: string;
-      try {
-        tableName = getTableName(table as any);
-      } catch {
-        continue;
-      }
-
-      if (tableName.startsWith("_")) continue;
-
-      const columns = getColumns(table as any);
-      const colDefs: string[] = [];
-      let primaryKeyCol: string | null = null;
-      const uniqueCols: string[] = [];
-
-      for (const [, col] of Object.entries(columns)) {
-        const c = col as Column;
-        const colName = (c as any).name as string;
-        const colType = mysqlColumnType(c);
-        let def = `\`${colName}\` ${colType}`;
-
-        if ((c as any).notNull || (c as any).primary) def += " NOT NULL";
-        // Don't add inline UNIQUE — TEXT columns require a key length prefix,
-        // so we collect them and emit table-level UNIQUE KEY constraints below
-        if ((c as any).hasDefault && (c as any).default !== undefined) {
-          const defaultVal = (c as any).default;
-          if (typeof defaultVal === "string") {
-            // MySQL 8.0.13+: TEXT columns require expression syntax DEFAULT ('value')
-            def += ` DEFAULT ('${defaultVal}')`;
-          } else if (typeof defaultVal === "number" || typeof defaultVal === "boolean") {
-            def += ` DEFAULT ${defaultVal}`;
-          }
-        }
-
-        colDefs.push(def);
-
-        if ((c as any).primary) {
-          primaryKeyCol = colName;
-        }
-        if ((c as any).isUnique && !(c as any).primary) {
-          uniqueCols.push(colName);
-        }
-      }
-
-      if (primaryKeyCol) {
-        colDefs.push(`PRIMARY KEY (\`${primaryKeyCol}\`(191))`);
-      }
-      for (const col of uniqueCols) {
-        colDefs.push(`UNIQUE KEY \`uq_${tableName}_${col}\` (\`${col}\`(191))`);
-      }
-
-      const createSql = `CREATE TABLE IF NOT EXISTS \`${tableName}\` (${colDefs.join(", ")})`;
-      await this.sql.unsafe(createSql);
-    }
-  }
-
-  async injectTimestampColumns(tableNames: string[]): Promise<void> {
-    for (const table of tableNames) {
-      // MySQL lacks ADD COLUMN IF NOT EXISTS — use try/catch like SQLite
-      try {
-        await this.sql.unsafe(
-          `ALTER TABLE \`${table}\` ADD COLUMN \`created_at\` TEXT NOT NULL DEFAULT (NOW())`,
-        );
-      } catch {
-        // Column already exists
-      }
-      try {
-        await this.sql.unsafe(
-          `ALTER TABLE \`${table}\` ADD COLUMN \`updated_at\` TEXT NOT NULL DEFAULT (NOW())`,
-        );
-      } catch {
-        // Column already exists
       }
     }
   }

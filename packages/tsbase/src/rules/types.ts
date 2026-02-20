@@ -1,5 +1,5 @@
 import type { SQL } from "drizzle-orm";
-import type { AuthUser } from "../trpc/context.ts";
+import type { AuthUser } from "../api/types.ts";
 
 export type RuleContext = {
   auth: AuthUser | null;

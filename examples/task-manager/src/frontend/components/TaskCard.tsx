@@ -2,16 +2,9 @@ import React from "react";
 import { Badge } from "./ui/badge.tsx";
 import { Button } from "./ui/button.tsx";
 import { Pencil, Trash2 } from "lucide-react";
+import type * as schema from "../../schema";
 
-interface Task {
-  id: string;
-  title: string;
-  description: string | null;
-  status: string;
-  priority: string;
-  project_id: string;
-  assignee_id: string | null;
-}
+type Task = typeof schema.tasks.$inferSelect;
 
 interface TaskCardProps {
   task: Task;

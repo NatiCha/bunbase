@@ -1,4 +1,3 @@
-import { S3Client } from "bun";
 import type { StorageDriver } from "./local.ts";
 
 interface S3Config {
@@ -9,32 +8,126 @@ interface S3Config {
   endpoint?: string;
 }
 
+const enc = new TextEncoder();
+
+function buildUrl(config: S3Config, key: string): string {
+  const k = key.replace(/^\//, "");
+  if (config.endpoint) {
+    return `${config.endpoint.replace(/\/$/, "")}/${config.bucket}/${k}`;
+  }
+  const region = config.region ?? "us-east-1";
+  return `https://${config.bucket}.s3.${region}.amazonaws.com/${k}`;
+}
+
+function toHex(data: ArrayBuffer | Uint8Array): string {
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function sha256(data: Uint8Array | string): Promise<string> {
+  const input = typeof data === "string" ? enc.encode(data) : data;
+  return toHex(await crypto.subtle.digest("SHA-256", input));
+}
+
+async function hmac(key: Uint8Array, msg: string): Promise<Uint8Array> {
+  const k = await crypto.subtle.importKey(
+    "raw",
+    key,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  return new Uint8Array(await crypto.subtle.sign("HMAC", k, enc.encode(msg)));
+}
+
+async function sigv4Headers(
+  method: string,
+  url: URL,
+  body: Uint8Array,
+  config: S3Config,
+): Promise<Record<string, string>> {
+  const region = config.region ?? "us-east-1";
+  const now = new Date();
+  // yyyymmddTHHMMSSZ
+  const amzDate = now
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}/, "");
+  const dateStr = amzDate.slice(0, 8);
+
+  const payloadHash = await sha256(body);
+  const signedHeaderNames = "host;x-amz-content-sha256;x-amz-date";
+
+  const canonicalRequest = [
+    method,
+    url.pathname,
+    url.search ? url.search.slice(1) : "",
+    `host:${url.hostname}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}`,
+    "",
+    signedHeaderNames,
+    payloadHash,
+  ].join("\n");
+
+  const credentialScope = `${dateStr}/${region}/s3/aws4_request`;
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    await sha256(canonicalRequest),
+  ].join("\n");
+
+  // Derive signing key
+  let signingKey = await hmac(enc.encode("AWS4" + config.secretAccessKey), dateStr);
+  signingKey = await hmac(signingKey, region);
+  signingKey = await hmac(signingKey, "s3");
+  signingKey = await hmac(signingKey, "aws4_request");
+
+  const signature = toHex(await hmac(signingKey, stringToSign));
+
+  return {
+    host: url.hostname,
+    "x-amz-date": amzDate,
+    "x-amz-content-sha256": payloadHash,
+    authorization: `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaderNames}, Signature=${signature}`,
+  };
+}
+
 export function createS3Storage(config: S3Config): StorageDriver {
-  const client = new S3Client({
-    accessKeyId: config.accessKeyId,
-    secretAccessKey: config.secretAccessKey,
-    bucket: config.bucket,
-    region: config.region,
-    endpoint: config.endpoint,
-  });
+  async function s3Fetch(
+    method: string,
+    key: string,
+    body: Uint8Array = new Uint8Array(),
+  ): Promise<Response> {
+    const url = new URL(buildUrl(config, key));
+    const headers = await sigv4Headers(method, url, body, config);
+    return fetch(url.toString(), {
+      method,
+      headers,
+      body: body.length ? body : undefined,
+    });
+  }
 
   return {
     async write(path, data) {
-      await client.write(path, data);
+      const res = await s3Fetch("PUT", path, data);
+      if (!res.ok) throw new Error("S3 write failed");
     },
 
     async read(path) {
-      const file = client.file(path);
-      if (!(await file.exists())) return null;
-      return file.bytes();
+      const res = await s3Fetch("GET", path);
+      if (!res.ok) return null;
+      return new Uint8Array(await res.arrayBuffer());
     },
 
     async delete(path) {
-      await client.delete(path);
+      await s3Fetch("DELETE", path);
     },
 
     async exists(path) {
-      return client.exists(path);
+      const res = await s3Fetch("HEAD", path);
+      return res.ok;
     },
   };
 }

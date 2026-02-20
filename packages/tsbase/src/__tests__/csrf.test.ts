@@ -77,7 +77,7 @@ test("isCsrfExempt returns true for OAuth callback paths", () => {
 test("isCsrfExempt returns false for protected paths", () => {
   expect(isCsrfExempt("/auth/logout")).toBe(false);
   expect(isCsrfExempt("/auth/me")).toBe(false);
-  expect(isCsrfExempt("/trpc/posts.list")).toBe(false);
+  expect(isCsrfExempt("/api/posts")).toBe(false);
 });
 
 // setCsrfCookie
