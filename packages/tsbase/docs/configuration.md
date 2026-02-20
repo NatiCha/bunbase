@@ -162,5 +162,5 @@ Bun automatically loads `.env` files — no dotenv needed.
 
 ## Next steps
 
-- [Extending](/extending/) — add custom tRPC routes
+- [Extending](/extending/) — add custom REST routes
 - [Deployment](/deployment/) — production checklist

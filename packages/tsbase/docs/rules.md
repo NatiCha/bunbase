@@ -157,5 +157,6 @@ const rules = defineRules({
 
 ## Next steps
 
+- [Hooks](/hooks/) — run code before or after CRUD operations (rules run first, then hooks)
 - [CRUD API](/api/crud/) — see how rules interact with the generated endpoints
 - [Configuration](/configuration/) — configure auth, storage, and more

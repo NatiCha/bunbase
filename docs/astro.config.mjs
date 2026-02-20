@@ -16,6 +16,8 @@ export default defineConfig({
             { label: 'Schema', slug: 'schema' },
             { label: 'Configuration', slug: 'configuration' },
             { label: 'Rules', slug: 'rules' },
+            { label: 'Hooks', slug: 'hooks' },
+            { label: 'Jobs', slug: 'jobs' },
             { label: 'Client SDK', slug: 'client' },
             { label: 'Extending', slug: 'extending' },
             { label: 'Deployment', slug: 'deployment' },

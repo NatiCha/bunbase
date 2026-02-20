@@ -47,11 +47,11 @@ With zero additional code, you have:
 | `POST /auth/login` | Log in, get a session cookie |
 | `POST /auth/logout` | Log out |
 | `GET /auth/me` | Get current user |
-| `/trpc/posts.list` | List posts (with filtering & pagination) |
-| `/trpc/posts.get` | Get a single post |
-| `/trpc/posts.create` | Create a post |
-| `/trpc/posts.update` | Update a post |
-| `/trpc/posts.delete` | Delete a post |
+| `GET /api/posts` | List posts (with filtering & pagination) |
+| `GET /api/posts/:id` | Get a single post |
+| `POST /api/posts` | Create a post |
+| `PATCH /api/posts/:id` | Update a post |
+| `DELETE /api/posts/:id` | Delete a post |
 | `GET /health` | Health check |
 
 ## Try it out
@@ -68,7 +68,7 @@ curl -X POST http://localhost:3000/auth/register \
 Create a post (using the session cookie):
 
 ```bash
-curl -X POST 'http://localhost:3000/trpc/posts.create' \
+curl -X POST 'http://localhost:3000/api/posts' \
   -H "Content-Type: application/json" \
   -b cookies.txt \
   -H "X-CSRF-Token: $(grep csrf_token cookies.txt | awk '{print $NF}')" \
@@ -78,7 +78,7 @@ curl -X POST 'http://localhost:3000/trpc/posts.create' \
 List posts:
 
 ```bash
-curl 'http://localhost:3000/trpc/posts.list'
+curl 'http://localhost:3000/api/posts'
 ```
 
 ## Next steps
