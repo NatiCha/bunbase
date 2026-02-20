@@ -4,7 +4,7 @@ A full-stack task management app built on TSBase. Demonstrates auth, CRUD, acces
 
 ## Stack
 
-- **Backend** — TSBase (Bun + Drizzle ORM + tRPC)
+- **Backend** — TSBase (Bun + Drizzle ORM + REST API)
 - **Frontend** — React 19 + Tailwind CSS v4
 - **Database** — SQLite (local file at `./data/db.sqlite`)
 

@@ -43,3 +43,5 @@ product/
 # Astro build output
 docs/dist/
 docs/.astro/
+
+archive/
