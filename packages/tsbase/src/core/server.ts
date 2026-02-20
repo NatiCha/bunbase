@@ -18,6 +18,9 @@ import { handleAdminApi, pushRequestLog } from "../admin/routes.ts";
 import { hashPassword } from "../auth/passwords.ts";
 import type { AuthUser } from "../api/types.ts";
 import type { TableRules } from "../rules/types.ts";
+import type { TableHooks } from "../hooks/types.ts";
+import type { JobDefinition } from "../jobs/types.ts";
+import { JobScheduler } from "../jobs/scheduler.ts";
 import adminUI from "../../admin-ui/index.html";
 
 export type RouteMap = Record<
@@ -33,6 +36,8 @@ export interface ExtendContext {
 export interface CreateServerOptions {
   schema: Record<string, unknown>;
   rules?: Record<string, unknown>;
+  hooks?: Record<string, unknown>;
+  jobs?: JobDefinition[];
   config?: TSBaseConfig;
   extend?: (ctx: ExtendContext) => RouteMap;
 }
@@ -47,6 +52,20 @@ export interface TSBaseServer {
 export function createServer(options: CreateServerOptions): TSBaseServer {
   const tableRules =
     options.rules as Record<string, TableRules> | undefined;
+  const tableHooks =
+    options.hooks as Record<string, TableHooks> | undefined;
+
+  // Validate job names synchronously so misconfiguration is a deterministic startup error
+  if (options.jobs && options.jobs.length > 0) {
+    const seen = new Set<string>();
+    for (const job of options.jobs) {
+      if (seen.has(job.name)) {
+        throw new Error(`[TSBase] Duplicate job name: "${job.name}"`);
+      }
+      seen.add(job.name);
+    }
+  }
+
   const config = resolveConfig(options.config);
   const { db, dialect, adapter } = createDatabase(config);
   const internalSchema = getInternalSchema(dialect);
@@ -98,12 +117,13 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
     return realUser;
   };
 
-  // Generate CRUD REST handlers from schema with rules
+  // Generate CRUD REST handlers from schema with rules and hooks
   const { exact: crudExact, pattern: crudPattern } = generateAllCrudHandlers(
     options.schema,
     db,
     extractAuth,
     tableRules,
+    tableHooks,
   );
 
   // Build auth route handlers
@@ -208,6 +228,20 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
     const envPort = Number(process.env.PORT);
     const resolvedPort =
       port !== undefined ? port : Number.isFinite(envPort) && envPort > 0 ? envPort : 3000;
+
+    // Job scheduler — starts once bootstrap completes
+    let scheduler: JobScheduler | null = null;
+    if (options.jobs && options.jobs.length > 0) {
+      scheduler = new JobScheduler(db);
+      (async () => {
+        try {
+          await bootstrapPromise;
+          scheduler!.start(options.jobs!);
+        } catch (err) {
+          console.error("[TSBase] Failed to start job scheduler:", err);
+        }
+      })();
+    }
 
     const server = Bun.serve({
       port: resolvedPort,
@@ -330,10 +364,19 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
     console.log(`TSBase running at ${server.url}`);
     console.log(`Admin UI: ${server.url}_admin`);
 
+    // Wrap server.stop() so callers who hold the Bun server reference also stop the scheduler
+    if (scheduler) {
+      const originalStop = server.stop.bind(server);
+      (server as any).stop = (closeActiveConnections?: boolean) => {
+        scheduler!.stop();
+        return originalStop(closeActiveConnections);
+      };
+    }
+
     // Graceful shutdown
     const shutdown = () => {
       console.log("Shutting down...");
-      server.stop();
+      server.stop(); // scheduler.stop() is now called inside the wrapped stop()
       adapter.close();
       process.exit(0);
     };

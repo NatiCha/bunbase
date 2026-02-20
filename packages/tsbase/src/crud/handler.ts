@@ -9,9 +9,10 @@ import {
 } from "./pagination.ts";
 import { evaluateRule } from "../rules/evaluator.ts";
 import type { TableRules } from "../rules/types.ts";
+import type { TableHooks } from "../hooks/types.ts";
 import type { AnyDb } from "../core/db-types.ts";
 import type { AuthUser } from "../api/types.ts";
-import { errorResponse } from "../api/helpers.ts";
+import { errorResponse, ApiError } from "../api/helpers.ts";
 
 export type RouteMap = Record<
   string,
@@ -25,6 +26,7 @@ export function generateCrudHandlers(
   db: AnyDb,
   extractAuth: ExtractAuth,
   tableRules?: TableRules,
+  tableHooks?: TableHooks,
 ): { exact: RouteMap; pattern: RouteMap } {
   const tableName = getTableName(table);
   const columns = getColumns(table);
@@ -108,7 +110,7 @@ export function generateCrudHandlers(
       return errorResponse("BAD_REQUEST", "Invalid JSON body", 400);
     }
 
-    const insertData: Record<string, unknown> = {};
+    let insertData: Record<string, unknown> = {};
     for (const [key, col] of Object.entries(columns)) {
       const colName = (col as Column).name;
       if (key in body) {
@@ -118,15 +120,29 @@ export function generateCrudHandlers(
       }
     }
 
+    // beforeCreate hook
+    if (tableHooks?.beforeCreate) {
+      try {
+        const result = await tableHooks.beforeCreate({ data: insertData, auth, tableName });
+        if (result !== undefined && result !== null) {
+          insertData = result as Record<string, unknown>;
+        }
+      } catch (err) {
+        if (err instanceof ApiError) {
+          return errorResponse(err.code, err.message, err.status);
+        }
+        console.error(`[TSBase] beforeCreate hook error for "${tableName}":`, err);
+        return errorResponse("HOOK_ERROR", "An error occurred in beforeCreate hook", 500);
+      }
+    }
+
+    let createdRecord: Record<string, unknown> | null = null;
     try {
       const returning = await (db as any)
         .insert(table)
         .values(insertData)
         .returning();
-      if (!returning[0]) {
-        return errorResponse("INTERNAL_SERVER_ERROR", "Record was created but could not be retrieved", 500);
-      }
-      return Response.json(returning[0], { status: 201 });
+      createdRecord = returning[0] ?? null;
     } catch {
       // MySQL doesn't support RETURNING — fall back to select by id
       const insertedId = insertData["id"] ?? insertData[idColumn.name];
@@ -135,13 +151,24 @@ export function generateCrudHandlers(
           .select()
           .from(table)
           .where(eq(idColumn, insertedId));
-        if (!rows[0]) {
-          return errorResponse("INTERNAL_SERVER_ERROR", "Record was created but could not be retrieved", 500);
-        }
-        return Response.json(rows[0], { status: 201 });
+        createdRecord = rows[0] ?? null;
       }
+    }
+
+    if (!createdRecord) {
       return errorResponse("INTERNAL_SERVER_ERROR", "Record was created but could not be retrieved", 500);
     }
+
+    // afterCreate hook (errors are logged, never affect response)
+    if (tableHooks?.afterCreate) {
+      try {
+        await tableHooks.afterCreate({ record: createdRecord, auth, tableName });
+      } catch (err) {
+        console.error(`[TSBase] afterCreate hook error for "${tableName}":`, err);
+      }
+    }
+
+    return Response.json(createdRecord, { status: 201 });
   }
 
   // ── GET /api/{table}/:id — get ───────────────────────────────────────
@@ -194,7 +221,7 @@ export function generateCrudHandlers(
       return errorResponse("BAD_REQUEST", "Invalid JSON body", 400);
     }
 
-    const filtered: Record<string, unknown> = {};
+    let filtered: Record<string, unknown> = {};
     for (const [key, col] of Object.entries(columns)) {
       const colName = (col as Column).name;
       if (key in body) {
@@ -204,9 +231,38 @@ export function generateCrudHandlers(
       }
     }
 
+    // beforeUpdate hook — pre-fetch existing record; 404 early if missing
+    if (tableHooks?.beforeUpdate) {
+      const existingRows = await (db as any).select().from(table).where(eq(idColumn, id));
+      if (existingRows.length === 0) return Response.json(null, { status: 404 });
+      const existing = existingRows[0];
+      try {
+        const result = await tableHooks.beforeUpdate({ id, data: filtered, existing, auth, tableName });
+        if (result !== undefined && result !== null) {
+          filtered = result as Record<string, unknown>;
+        }
+      } catch (err) {
+        if (err instanceof ApiError) {
+          return errorResponse(err.code, err.message, err.status);
+        }
+        console.error(`[TSBase] beforeUpdate hook error for "${tableName}":`, err);
+        return errorResponse("HOOK_ERROR", "An error occurred in beforeUpdate hook", 500);
+      }
+    }
+
     await (db as any).update(table).set(filtered).where(eq(idColumn, id));
     const rows = await (db as any).select().from(table).where(eq(idColumn, id));
     if (rows.length === 0) return Response.json(null, { status: 404 });
+
+    // afterUpdate hook (errors are logged, never affect response)
+    if (tableHooks?.afterUpdate) {
+      try {
+        await tableHooks.afterUpdate({ id, record: rows[0], auth, tableName });
+      } catch (err) {
+        console.error(`[TSBase] afterUpdate hook error for "${tableName}":`, err);
+      }
+    }
+
     return Response.json(rows[0]);
   }
 
@@ -234,7 +290,30 @@ export function generateCrudHandlers(
     const rows = await (db as any).select().from(table).where(eq(idColumn, id));
     if (rows.length === 0) return Response.json({ deleted: false });
 
+    // beforeDelete hook
+    if (tableHooks?.beforeDelete) {
+      try {
+        await tableHooks.beforeDelete({ id, record: rows[0], auth, tableName });
+      } catch (err) {
+        if (err instanceof ApiError) {
+          return errorResponse(err.code, err.message, err.status);
+        }
+        console.error(`[TSBase] beforeDelete hook error for "${tableName}":`, err);
+        return errorResponse("HOOK_ERROR", "An error occurred in beforeDelete hook", 500);
+      }
+    }
+
     await (db as any).delete(table).where(eq(idColumn, id));
+
+    // afterDelete hook (errors are logged, never affect response)
+    if (tableHooks?.afterDelete) {
+      try {
+        await tableHooks.afterDelete({ id, record: rows[0], auth, tableName });
+      } catch (err) {
+        console.error(`[TSBase] afterDelete hook error for "${tableName}":`, err);
+      }
+    }
+
     return Response.json({ deleted: true });
   }
 
@@ -261,6 +340,7 @@ export function generateAllCrudHandlers(
   db: AnyDb,
   extractAuth: ExtractAuth,
   rules?: Record<string, TableRules>,
+  hooks?: Record<string, TableHooks>,
 ): { exact: RouteMap; pattern: RouteMap } {
   const exact: RouteMap = {};
   const pattern: RouteMap = {};
@@ -282,6 +362,7 @@ export function generateAllCrudHandlers(
       db,
       extractAuth,
       rules?.[tableName],
+      hooks?.[tableName],
     );
 
     Object.assign(exact, handlers.exact);
