@@ -28,11 +28,11 @@ interface TableQueryClient<TSelect, TInsert> {
     queryKey: (params?: ListParams) => readonly unknown[];
   };
   get: {
-    queryOptions: (id: string) => {
+    queryOptions: (id: string, opts?: { expand?: string[] }) => {
       queryKey: readonly unknown[];
       queryFn: () => Promise<TSelect | null>;
     };
-    queryKey: (id: string) => readonly unknown[];
+    queryKey: (id: string, opts?: { expand?: string[] }) => readonly unknown[];
   };
   create: {
     mutationOptions: (opts?: {
@@ -98,14 +98,14 @@ export function createTSBaseReact<S extends Record<string, unknown>>(
           },
         },
         get: {
-          queryOptions(id: string) {
+          queryOptions(id: string, opts?: { expand?: string[] }) {
             return {
-              queryKey: ["tsbase", tableName, "get", id] as const,
-              queryFn: () => tableClient.get(id),
+              queryKey: ["tsbase", tableName, "get", id, opts ?? {}] as const,
+              queryFn: () => tableClient.get(id, opts),
             };
           },
-          queryKey(id: string) {
-            return ["tsbase", tableName, "get", id] as const;
+          queryKey(id: string, opts?: { expand?: string[] }) {
+            return ["tsbase", tableName, "get", id, opts ?? {}] as const;
           },
         },
         create: {

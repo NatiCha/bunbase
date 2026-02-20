@@ -13,17 +13,17 @@ export interface DatabaseResult {
   adapter: DatabaseAdapter;
 }
 
-export function createDatabase(config: ResolvedConfig): DatabaseResult {
+export function createDatabase(config: ResolvedConfig, schema?: Record<string, unknown>, relations?: unknown): DatabaseResult {
   if (config.database.driver === "postgres") {
-    return createPostgresDatabase(config);
+    return createPostgresDatabase(config, schema, relations);
   }
   if (config.database.driver === "mysql") {
-    return createMysqlDatabase(config);
+    return createMysqlDatabase(config, schema, relations);
   }
-  return createSqliteDatabase(config);
+  return createSqliteDatabase(config, schema, relations);
 }
 
-function createSqliteDatabase(config: ResolvedConfig): DatabaseResult {
+function createSqliteDatabase(config: ResolvedConfig, schema?: Record<string, unknown>, relations?: unknown): DatabaseResult {
   const { Database } = require("bun:sqlite") as typeof import("bun:sqlite");
   const { drizzle } = require("drizzle-orm/bun-sqlite") as typeof import("drizzle-orm/bun-sqlite");
 
@@ -42,29 +42,29 @@ function createSqliteDatabase(config: ResolvedConfig): DatabaseResult {
   sqlite.run("PRAGMA synchronous = NORMAL");
   sqlite.run("PRAGMA foreign_keys = ON");
 
-  const db = drizzle({ client: sqlite });
+  const db = drizzle({ client: sqlite, schema: schema as any, relations: relations as any });
   const adapter = new SqliteAdapter(sqlite);
 
   return { db, dialect: "sqlite", adapter };
 }
 
-function createPostgresDatabase(config: ResolvedConfig): DatabaseResult {
+function createPostgresDatabase(config: ResolvedConfig, schema?: Record<string, unknown>, relations?: unknown): DatabaseResult {
   const { SQL } = require("bun") as typeof import("bun");
   const { drizzle } = require("drizzle-orm/bun-sql") as typeof import("drizzle-orm/bun-sql");
 
   const client = new SQL(config.database.url);
-  const db = drizzle({ client });
+  const db = drizzle({ client, schema: schema as any, relations: relations as any });
   const adapter = new PostgresAdapter(config.database.url);
 
   return { db, dialect: "postgres", adapter };
 }
 
-function createMysqlDatabase(config: ResolvedConfig): DatabaseResult {
+function createMysqlDatabase(config: ResolvedConfig, schema?: Record<string, unknown>, relations?: unknown): DatabaseResult {
   const { SQL } = require("bun") as typeof import("bun");
   const { drizzle } = require("drizzle-orm/bun-sql/mysql") as typeof import("drizzle-orm/bun-sql/mysql");
 
   const client = new SQL(config.database.url);
-  const db = drizzle({ client });
+  const db = drizzle({ client, schema: schema as any, relations: relations as any });
   const adapter = new MysqlAdapter(config.database.url);
 
   return { db, dialect: "mysql", adapter };

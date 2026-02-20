@@ -59,6 +59,25 @@ const result = await client.api.posts.delete("post-id");
 
 CSRF tokens are handled automatically — the client reads the `csrf_token` cookie and sends it as the `X-CSRF-Token` header on every mutation request. Cookies are sent with `credentials: "include"`.
 
+### Relation expand
+
+When your server is configured with `defineRelations`, you can expand related records inline:
+
+```ts
+// Expand a single relation on list
+const { data } = await client.api.posts.list({
+  expand: ["author"],
+});
+// Each post now has an `author` object embedded
+
+// Expand on get
+const post = await client.api.posts.get("post-id", {
+  expand: ["author", "tags"],
+});
+```
+
+Relations must be defined in your server schema using `defineRelations`. See the [Schema](/schema/) guide for setup.
+
 ### Pagination
 
 ```ts
@@ -167,7 +186,7 @@ Subscribe to table changes and join channels. See the [Realtime](/realtime/) gui
 ```ts
 // Stream live table changes
 const unsub = client.realtime.subscribe("posts", (event) => {
-  console.log(event.event, event.id, event.record);
+  console.log(event.action, event.id, event.record);
 });
 unsub(); // stop receiving events
 

@@ -247,7 +247,7 @@ test("auth client receives INSERT, UPDATE, DELETE events for own tasks", async (
 
   // INSERT
   const insertPromise = helper.next(
-    (m) => m.type === "table:change" && (m as any).event === "INSERT" && (m as any).id === "ta-e2e-1",
+    (m) => m.type === "table:change" && (m as any).action === "INSERT" && (m as any).id === "ta-e2e-1",
   );
   const createRes = await fetch(`${base}/api/tasks`, {
     method: "POST",
@@ -256,12 +256,12 @@ test("auth client receives INSERT, UPDATE, DELETE events for own tasks", async (
   });
   expect(createRes.status).toBe(201);
   const insertMsg = await insertPromise;
-  expect(insertMsg.event).toBe("INSERT");
+  expect(insertMsg.action).toBe("INSERT");
   expect((insertMsg.record as any).title).toBe("My Task");
 
   // UPDATE
   const updatePromise = helper.next(
-    (m) => m.type === "table:change" && (m as any).event === "UPDATE" && (m as any).id === "ta-e2e-1",
+    (m) => m.type === "table:change" && (m as any).action === "UPDATE" && (m as any).id === "ta-e2e-1",
   );
   await fetch(`${base}/api/tasks/ta-e2e-1`, {
     method: "PATCH",
@@ -269,22 +269,22 @@ test("auth client receives INSERT, UPDATE, DELETE events for own tasks", async (
     body: JSON.stringify({ title: "Updated Task" }),
   });
   const updateMsg = await updatePromise;
-  expect(updateMsg.event).toBe("UPDATE");
+  expect(updateMsg.action).toBe("UPDATE");
   expect((updateMsg.record as any).title).toBe("Updated Task");
 
   // DELETE
   const deletePromise = helper.next(
-    (m) => m.type === "table:change" && (m as any).event === "DELETE" && (m as any).id === "ta-e2e-1",
+    (m) => m.type === "table:change" && (m as any).action === "DELETE" && (m as any).id === "ta-e2e-1",
   );
   await fetch(`${base}/api/tasks/ta-e2e-1`, {
     method: "DELETE",
     headers: csrfHeadersWithSession(userASession),
   });
   const deleteMsg = await deletePromise;
-  expect(deleteMsg.event).toBe("DELETE");
+  expect(deleteMsg.action).toBe("DELETE");
   expect(deleteMsg.id).toBe("ta-e2e-1");
-  // Filtered DELETE sends id only (no record field)
-  expect(deleteMsg.record).toBeUndefined();
+  // Filtered DELETE now includes the record
+  expect(typeof deleteMsg.record).toBe("object");
 
   ws.close();
   await waitForClose(ws);
@@ -356,9 +356,10 @@ test("filtered subscriber receives synthetic DELETE when visible row becomes inv
   });
 
   const msg = await deletePromise;
-  expect(msg.event).toBe("DELETE");
+  expect(msg.action).toBe("DELETE");
   expect(msg.id).toBe("ta-vis-1");
-  expect(msg.record).toBeUndefined(); // synthetic DELETE — id only
+  // Synthetic DELETE (visible→invisible): record is omitted to avoid leaking hidden data
+  expect(msg.record).toBeUndefined();
 
   ws.close();
   await waitForClose(ws);
@@ -392,7 +393,7 @@ test("filtered subscriber receives UPDATE when invisible row becomes visible", a
   });
 
   const msg = await updatePromise;
-  expect(msg.event).toBe("UPDATE");
+  expect(msg.action).toBe("UPDATE");
   expect(msg.id).toBe("tb-invis-1");
   expect((msg.record as any).ownerId).toBe(userAId);
 
@@ -469,9 +470,10 @@ test("filtered subscriber receives DELETE id-only when previously visible task d
   });
 
   const msg = await delPromise;
-  expect(msg.event).toBe("DELETE");
+  expect(msg.action).toBe("DELETE");
   expect(msg.id).toBe("ta-del-1");
-  expect(msg.record).toBeUndefined();
+  // Filtered DELETE now includes the record
+  expect(typeof msg.record).toBe("object");
 
   ws.close();
   await waitForClose(ws);

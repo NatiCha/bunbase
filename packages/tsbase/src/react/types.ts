@@ -19,5 +19,5 @@ export interface UseAuthReturn {
   register: (data: Record<string, unknown> & { email: string; password: string }) => Promise<AuthUser>;
   logout: () => Promise<void>;
   refetch: () => void;
-  oauthUrl: (provider: "google" | "github" | "discord") => string;
+  oauthUrl: (provider: string) => string;
 }

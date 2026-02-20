@@ -101,6 +101,67 @@ const tsbase = createServer({ schema });
 
 Every exported Drizzle table (except those with names starting with `_`) gets a CRUD router generated automatically.
 
+## Relations (for `?expand=`)
+
+To support the `?expand=relation` query parameter on CRUD endpoints, define relations using `defineRelations` and pass them as a separate `relations` option:
+
+```ts
+// src/schema.ts
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  role: text("role").notNull().default("user"),
+  name: text("name"),
+});
+
+export const posts = sqliteTable("posts", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  authorId: text("author_id"),
+});
+```
+
+```ts
+// src/relations.ts
+import { defineRelations } from "tsbase";
+import * as schema from "./schema";
+
+export const relations = defineRelations(schema, (r) => ({
+  posts: {
+    author: r.one.users({
+      from: r.posts.authorId,
+      to: r.users.id,
+    }),
+  },
+}));
+```
+
+```ts
+// src/index.ts
+import { createServer } from "tsbase";
+import * as schema from "./schema";
+import { relations } from "./relations";
+
+const tsbase = createServer({
+  schema,
+  relations, // enables ?expand= on CRUD endpoints
+});
+
+tsbase.listen();
+```
+
+With this in place, clients can request related data inline:
+
+```
+GET /api/posts?expand=author
+GET /api/posts/post-id?expand=author
+```
+
+The `defineRelations` callback receives a relation builder `r` where `r.one` and `r.many` define to-one and to-many associations between tables.
+
 ## Next steps
 
 - [Rules](/rules/) — control who can access each table

@@ -1,3 +1,4 @@
+import pkg from "../../package.json";
 import type { TSBaseConfig } from "./config.ts";
 import { resolveConfig, type ResolvedConfig } from "./config.ts";
 import { createDatabase, runUserMigrations } from "./database.ts";
@@ -39,6 +40,7 @@ export interface ExtendContext {
 
 export interface CreateServerOptions {
   schema: Record<string, unknown>;
+  relations?: unknown;
   rules?: Record<string, unknown>;
   hooks?: Record<string, unknown>;
   authHooks?: AuthHooks;
@@ -73,7 +75,7 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
   }
 
   const config = resolveConfig(options.config);
-  const { db, dialect, adapter } = createDatabase(config);
+  const { db, dialect, adapter } = createDatabase(config, options.schema, options.relations);
   const internalSchema = getInternalSchema(dialect);
 
   // Bootstrap internal tables (DDL via adapter)
@@ -132,13 +134,13 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
   // Realtime manager + broadcast shim (only when realtime is enabled)
   let realtimeManager: RealtimeManager | undefined;
   let realtimePresence: PresenceTracker | undefined;
-  let broadcastFn: ((t: string, e: "INSERT" | "UPDATE" | "DELETE", r: Record<string, unknown>) => void) | undefined;
+  let broadcastFn: ((t: string, a: "INSERT" | "UPDATE" | "DELETE", r: Record<string, unknown>) => void) | undefined;
 
   if (config.realtime.enabled) {
     realtimeManager = new RealtimeManager(db, options.schema, tableRules);
     realtimePresence = new PresenceTracker();
-    broadcastFn = (t, e, r) => {
-      realtimeManager!.broadcastTableChange(t, e, r).catch((err) => {
+    broadcastFn = (t, a, r) => {
+      realtimeManager!.broadcastTableChange(t, a, r).catch((err) => {
         console.error("[TSBase] Realtime broadcast error:", err);
       });
     };
@@ -314,7 +316,7 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
       port: resolvedPort,
 
       routes: {
-        "/health": new Response("OK"),
+        "/health": Response.json({ status: "ok", version: pkg.version }),
         "/_admin": adminUI,
         "/_admin/": adminUI,
       },

@@ -96,7 +96,7 @@ export function useAuth(): UseAuthReturn {
     queryClient.invalidateQueries({ queryKey: ["tsbase", "auth", "me"] });
   };
 
-  const oauthUrl = (provider: "google" | "github" | "discord") => {
+  const oauthUrl = (provider: string) => {
     return `${baseUrl}/auth/oauth/${provider}`;
   };
 

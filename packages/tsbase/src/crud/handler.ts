@@ -7,6 +7,7 @@ import {
   buildOrderBy,
   buildNextCursor,
 } from "./pagination.ts";
+import { buildWithClause } from "./relations.ts";
 import { evaluateRule } from "../rules/evaluator.ts";
 import type { TableRules } from "../rules/types.ts";
 import type { TableHooks } from "../hooks/types.ts";
@@ -22,6 +23,69 @@ export type RouteMap = Record<
 
 type ExtractAuth = (req: Request) => Promise<AuthUser | null>;
 
+// Strip the auth-internal passwordHash field from any record returned by the API.
+// This field is managed by TSBase's auth system and must never appear in responses,
+// regardless of table rules. Recurses into nested objects and arrays (many-relations).
+function stripSensitiveFields(
+  row: Record<string, unknown>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(row)) {
+    if (key === "passwordHash") continue;
+    if (Array.isArray(val)) {
+      result[key] = val.map((item) =>
+        item !== null && typeof item === "object"
+          ? stripSensitiveFields(item as Record<string, unknown>)
+          : item,
+      );
+    } else if (val !== null && typeof val === "object") {
+      result[key] = stripSensitiveFields(val as Record<string, unknown>);
+    } else {
+      result[key] = val;
+    }
+  }
+  return result;
+}
+
+// Given a db._.relations config, resolve which expand keys are allowed for the
+// current user given the full rules map. Returns a filtered withClause
+// containing only the expand fields whose target table's list rule permits access.
+// Unknown keys (not in drizzle metadata) are always dropped to prevent runtime errors.
+// Keys whose target table list rule returns a SQL whereClause are also dropped —
+// filtered rules cannot be applied to nested expand queries.
+async function resolveAllowedWithClause(
+  withClause: Record<string, true>,
+  schemaKey: string,
+  db: AnyDb,
+  allRules: Record<string, TableRules> | undefined,
+  auth: AuthUser | null,
+): Promise<Record<string, true>> {
+  const dbRelations = (db as any)._?.relations as
+    | Record<string, { relations: Record<string, { targetTableName?: string }> }>
+    | undefined;
+
+  const allowed: Record<string, true> = {};
+  for (const expandKey of Object.keys(withClause)) {
+    const relConfig = dbRelations?.[schemaKey]?.relations?.[expandKey];
+    const targetTableName = relConfig?.targetTableName;
+    // Drop expand keys not found in drizzle relation metadata —
+    // unknown/nested keys (e.g. "owner.foo") would cause a runtime 500.
+    if (!targetTableName) continue;
+
+    if (allRules) {
+      const relatedRules = allRules[targetTableName];
+      const result = await evaluateRule(relatedRules?.list, { auth });
+      // Deny if the rule explicitly denies, OR if it returns a SQL whereClause:
+      // filtered list rules can't be applied to nested expand queries, so we treat
+      // any row-level filter on the related table as a denial for expand.
+      if (!result.allowed || result.whereClause) continue;
+    }
+
+    allowed[expandKey] = true;
+  }
+  return allowed;
+}
+
 export function generateCrudHandlers(
   table: Table,
   db: AnyDb,
@@ -29,9 +93,13 @@ export function generateCrudHandlers(
   tableRules?: TableRules,
   tableHooks?: TableHooks,
   broadcast?: BroadcastFn,
+  schemaKey?: string,
+  allRules?: Record<string, TableRules>,
 ): { exact: RouteMap; pattern: RouteMap } {
   const tableName = getTableName(table);
   const columns = getColumns(table);
+  // schemaKey is the JS property name used for db.query[schemaKey]; defaults to SQL table name
+  const resolvedSchemaKey = schemaKey ?? tableName;
 
   const idColumn = columns["id"] as Column | undefined;
   if (!idColumn) {
@@ -86,6 +154,11 @@ export function generateCrudHandlers(
 
     const orderBy = buildOrderBy(idColumn, sortColumn, order);
 
+    const expandParam = url.searchParams.get("expand");
+    const expandFields = expandParam ? expandParam.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+    const withClause = buildWithClause(expandFields);
+
+    // Step 1: Fetch paginated rows using standard SQL (handles all WHERE/ORDER/LIMIT conditions)
     const rows = await (db as any)
       .select()
       .from(table)
@@ -93,8 +166,49 @@ export function generateCrudHandlers(
       .orderBy(...orderBy)
       .limit(limit);
 
-    const nextCursor = buildNextCursor(rows, limit, sortField);
-    return Response.json({ data: rows, nextCursor, hasMore: nextCursor !== null });
+    const nextCursor = buildNextCursor(rows as Record<string, unknown>[], limit, sortField);
+
+    // Step 2: If expand requested, enrich the page rows with relational data
+    if (withClause) {
+      if (!(db as any).query?.[resolvedSchemaKey]) {
+        return errorResponse(
+          "BAD_REQUEST",
+          `expand is not supported for table "${tableName}" — ensure defineRelations() is passed to createServer()`,
+          400,
+        );
+      }
+      // Check each expanded relation's target table against that table's list rule.
+      // If denied, the expand key is silently dropped (no data leak).
+      const allowedWith = await resolveAllowedWithClause(
+        withClause,
+        resolvedSchemaKey,
+        db,
+        allRules,
+        auth,
+      );
+      const pageIds = (rows as Record<string, unknown>[]).map((r) => String(r["id"]));
+      if (pageIds.length > 0 && Object.keys(allowedWith).length > 0) {
+        const expandedRows = await (db as any).query[resolvedSchemaKey].findMany({
+          where: { OR: pageIds.map((id) => ({ id })) },
+          with: allowedWith,
+        });
+        const expandedById = new Map<string, unknown>();
+        for (const row of expandedRows) {
+          expandedById.set(
+            String((row as Record<string, unknown>)["id"]),
+            stripSensitiveFields(row as Record<string, unknown>),
+          );
+        }
+        const enriched = pageIds.map((id) => expandedById.get(id)).filter(Boolean);
+        return Response.json({ data: enriched, nextCursor, hasMore: nextCursor !== null });
+      }
+    }
+
+    return Response.json({
+      data: (rows as Record<string, unknown>[]).map(stripSensitiveFields),
+      nextCursor,
+      hasMore: nextCursor !== null,
+    });
   }
 
   // ── POST /api/{table} — create ───────────────────────────────────────
@@ -172,7 +286,7 @@ export function generateCrudHandlers(
 
     broadcast?.(tableName, "INSERT", createdRecord);
 
-    return Response.json(createdRecord, { status: 201 });
+    return Response.json(stripSensitiveFields(createdRecord), { status: 201 });
   }
 
   // ── GET /api/{table}/:id — get ───────────────────────────────────────
@@ -191,10 +305,42 @@ export function generateCrudHandlers(
     if (ruleResult.whereClause) conditions.push(ruleResult.whereClause);
     const where = conditions.length > 1 ? and(...conditions) : conditions[0];
 
-    const rows = await (db as any).select().from(table).where(where);
-    const row = rows[0];
-    if (!row) return Response.json(null, { status: 404 });
-    return Response.json(row);
+    const url = new URL(req.url);
+    const expandParam = url.searchParams.get("expand");
+    const expandFields = expandParam ? expandParam.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+    const withClause = buildWithClause(expandFields);
+
+    // Verify record exists and is accessible (handles rule whereClause correctly)
+    const checkRows = await (db as any).select().from(table).where(where);
+    if (!checkRows[0]) return Response.json(null, { status: 404 });
+
+    if (withClause) {
+      if (!(db as any).query?.[resolvedSchemaKey]) {
+        return errorResponse(
+          "BAD_REQUEST",
+          `expand is not supported for table "${tableName}" — ensure defineRelations() is passed to createServer()`,
+          400,
+        );
+      }
+      // Check each expanded relation's target table against that table's list rule.
+      const allowedWith = await resolveAllowedWithClause(
+        withClause,
+        resolvedSchemaKey,
+        db,
+        allRules,
+        auth,
+      );
+      // RQB where only accepts plain object filters, not SQL expressions
+      // Access already verified by the select above (step 1).
+      const row = await (db as any).query[resolvedSchemaKey].findFirst({
+        where: { id },
+        with: allowedWith,
+      });
+      if (!row) return Response.json(null, { status: 404 });
+      return Response.json(stripSensitiveFields(row as Record<string, unknown>));
+    }
+
+    return Response.json(stripSensitiveFields(checkRows[0] as Record<string, unknown>));
   }
 
   // ── PATCH /api/{table}/:id — update ─────────────────────────────────
@@ -269,7 +415,7 @@ export function generateCrudHandlers(
 
     broadcast?.(tableName, "UPDATE", rows[0]);
 
-    return Response.json(rows[0]);
+    return Response.json(stripSensitiveFields(rows[0] as Record<string, unknown>));
   }
 
   // ── DELETE /api/{table}/:id — delete ────────────────────────────────
@@ -354,17 +500,16 @@ export function generateAllCrudHandlers(
   const exact: RouteMap = {};
   const pattern: RouteMap = {};
 
-  for (const [, table] of Object.entries(schema)) {
+  for (const [schemaKey, table] of Object.entries(schema)) {
     if (typeof table !== "object" || table === null) continue;
 
     let tableName: string;
     try {
       tableName = getTableName(table as any);
+      if (!tableName || tableName.startsWith("_")) continue;
     } catch {
       continue;
     }
-
-    if (tableName.startsWith("_")) continue;
 
     const handlers = generateCrudHandlers(
       table as Table,
@@ -373,6 +518,8 @@ export function generateAllCrudHandlers(
       rules?.[tableName],
       hooks?.[tableName],
       broadcast,
+      schemaKey,
+      rules,
     );
 
     Object.assign(exact, handlers.exact);

@@ -20,3 +20,14 @@ export interface OAuthUserInfo {
   name?: string;
   avatar?: string;
 }
+
+export interface CustomOAuthProviderConfig {
+  clientId: string;
+  clientSecret: string;
+  authorizationUrl: string;
+  tokenUrl: string;
+  userInfoUrl: string;
+  scopes?: string[];
+  /** Normalize the provider's raw userInfo response into OAuthUserInfo. */
+  mapUserInfo?: (raw: unknown) => OAuthUserInfo;
+}

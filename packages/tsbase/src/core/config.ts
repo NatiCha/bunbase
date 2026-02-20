@@ -4,6 +4,9 @@ export interface OAuthProviderConfig {
   scopes?: string[];
 }
 
+// Re-exported for consumers who need the full custom provider config type
+export type { CustomOAuthProviderConfig } from "../auth/oauth/types.ts";
+
 export interface DatabaseConfig {
   driver: "sqlite" | "postgres" | "mysql";
   url?: string; // connection string, e.g. "postgres://..." or "./data/db.sqlite"
@@ -28,6 +31,8 @@ export interface TSBaseConfig {
       google?: OAuthProviderConfig;
       github?: OAuthProviderConfig;
       discord?: OAuthProviderConfig;
+      /** Custom OAuth providers keyed by a unique provider name. */
+      providers?: Record<string, import("../auth/oauth/types.ts").CustomOAuthProviderConfig>;
     };
   };
   storage?: {
@@ -84,6 +89,7 @@ export interface ResolvedConfig {
       google?: OAuthProviderConfig;
       github?: OAuthProviderConfig;
       discord?: OAuthProviderConfig;
+      providers?: Record<string, import("../auth/oauth/types.ts").CustomOAuthProviderConfig>;
     };
   };
   storage: {
@@ -186,7 +192,8 @@ export function resolveConfig(config?: TSBaseConfig): ResolvedConfig {
       resolved.auth.oauth &&
       (resolved.auth.oauth.google ||
         resolved.auth.oauth.github ||
-        resolved.auth.oauth.discord) &&
+        resolved.auth.oauth.discord ||
+        (resolved.auth.oauth.providers && Object.keys(resolved.auth.oauth.providers).length > 0)) &&
       !resolved.auth.oauth.redirectUrl
     ) {
       throw new Error(

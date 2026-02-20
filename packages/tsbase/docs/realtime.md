@@ -52,9 +52,9 @@ Subscribe to live INSERT, UPDATE, and DELETE events on any table. Access control
 
 ```ts
 const unsub = client.realtime.subscribe("posts", (event) => {
-  console.log(event.event);  // "INSERT" | "UPDATE" | "DELETE"
-  console.log(event.id);     // record ID (always present)
-  console.log(event.record); // full record (present on INSERT, UPDATE, and unfiltered DELETE)
+  console.log(event.action);  // "INSERT" | "UPDATE" | "DELETE"
+  console.log(event.id);      // record ID (always present)
+  console.log(event.record);  // full record (present on INSERT, UPDATE, and DELETE)
 });
 
 // Later — stop receiving events and clean up
@@ -65,12 +65,12 @@ Each event object has the shape:
 
 ```ts
 interface TableChangeEvent {
-  event: "INSERT" | "UPDATE" | "DELETE";
+  action: "INSERT" | "UPDATE" | "DELETE";
   id: string;
   record?: Record<string, unknown>;
-  // Present on INSERT and UPDATE.
-  // Present on DELETE for unfiltered subscribers (no list rule WHERE clause).
-  // Absent on DELETE for filtered subscribers — only `id` is sent.
+  // Present on INSERT, UPDATE, and DELETE.
+  // Absent on synthetic DELETE (when an UPDATE causes a record to leave
+  // the subscriber's filtered scope) — omitted to avoid leaking hidden data.
 }
 ```
 
@@ -86,11 +86,11 @@ The filtering logic handles all ownership-change scenarios:
 | INSERT — record not visible | Nothing |
 | UPDATE — record remains visible | `UPDATE` with full record |
 | UPDATE — record becomes visible (e.g. assigned to you) | `UPDATE` with full record |
-| UPDATE — record becomes invisible (e.g. reassigned away) | Synthetic `DELETE` (id only) |
-| DELETE — record was visible | `DELETE` (id only, no `record`) |
+| UPDATE — record becomes invisible (e.g. reassigned away) | Synthetic `DELETE` (id only, no `record`) |
+| DELETE — record was visible | `DELETE` with full record |
 | DELETE — record was not visible | Nothing |
 
-Unfiltered subscribers (no `list` rule, or a rule that returns `true`) receive `record` on DELETE events as well. The filtered id-only DELETE is an intentional constraint — by the time the delete fires, the record no longer exists in the database, so TSBase cannot re-query it to check visibility.
+The synthetic DELETE (visible→invisible on UPDATE) intentionally omits `record` — the post-update data is now outside the subscriber's permitted scope, so sending it would leak hidden fields. Unfiltered subscribers receive `record` on all events including DELETE.
 
 Example with an `ownerOnly` rule:
 
@@ -112,9 +112,9 @@ export const rules = defineRules({
 ```ts
 // Client — Alice only receives events for her own tasks
 const unsub = client.realtime.subscribe("tasks", (event) => {
-  if (event.event === "INSERT") addTask(event.record!);
-  if (event.event === "UPDATE") updateTask(event.id, event.record!);
-  if (event.event === "DELETE") removeTask(event.id);
+  if (event.action === "INSERT") addTask(event.record!);
+  if (event.action === "UPDATE") updateTask(event.id, event.record!);
+  if (event.action === "DELETE") removeTask(event.id);
 });
 ```
 
@@ -134,13 +134,13 @@ function TaskList() {
 
     // Subscribe to live updates
     const unsub = client.realtime.subscribe("tasks", (event) => {
-      if (event.event === "INSERT") {
+      if (event.action === "INSERT") {
         setTasks((prev) => [...prev, event.record as Task]);
-      } else if (event.event === "UPDATE") {
+      } else if (event.action === "UPDATE") {
         setTasks((prev) =>
           prev.map((t) => (t.id === event.id ? (event.record as Task) : t))
         );
-      } else if (event.event === "DELETE") {
+      } else if (event.action === "DELETE") {
         setTasks((prev) => prev.filter((t) => t.id !== event.id));
       }
     });
@@ -345,7 +345,7 @@ Session authentication is read from the `Cookie` header on the upgrade request. 
 
 | `type` | Fields |
 |---|---|
-| `table:change` | `table`, `event` (INSERT/UPDATE/DELETE), `id`, `record?` |
+| `table:change` | `table`, `action` (INSERT/UPDATE/DELETE), `id`, `record?` |
 | `broadcast` | `channel`, `event`, `payload` |
 | `presence:state` | `channel`, `users[]` |
 | `presence:join` | `channel`, `user` |
@@ -360,7 +360,7 @@ Session authentication is read from the `Cookie` header on the upgrade request. 
 → { "type": "subscribe:table", "table": "posts" }
 
 // Receive a change event
-← { "type": "table:change", "table": "posts", "event": "INSERT", "id": "abc", "record": { ... } }
+← { "type": "table:change", "table": "posts", "action": "INSERT", "id": "abc", "record": { ... } }
 
 // Join a presence channel
 → { "type": "subscribe:presence", "channel": "doc:1", "meta": { "name": "Alice" } }

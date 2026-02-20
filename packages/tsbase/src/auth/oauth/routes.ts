@@ -2,10 +2,11 @@ import { eq, and } from "drizzle-orm";
 import type { ResolvedConfig, OAuthProviderConfig } from "../../core/config.ts";
 import type { AnyDb } from "../../core/db-types.ts";
 import type { InternalSchema } from "../../core/internal-schema.ts";
-import type { OAuthProvider } from "./types.ts";
+import type { OAuthProvider, CustomOAuthProviderConfig } from "./types.ts";
 import { google } from "./google.ts";
 import { github } from "./github.ts";
 import { discord } from "./discord.ts";
+import { createGenericOAuthProvider } from "./generic.ts";
 import { createSession } from "../sessions.ts";
 import {
   appendResponseCookies,
@@ -18,8 +19,6 @@ import { ApiError } from "../../api/helpers.ts";
 
 const SESSION_COOKIE = "tsbase_session";
 const OAUTH_STATE_COOKIE = "oauth_state";
-
-const providers: Record<string, OAuthProvider> = { google, github, discord };
 
 function jsonError(code: string, message: string, status: number): Response {
   return Response.json({ error: { code, message } }, { status });
@@ -53,12 +52,29 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
 
   if (!oauthConfig) return {};
 
+  // Build the combined providers map: built-ins + custom
+  const builtinProviders: Record<string, OAuthProvider> = { google, github, discord };
+  const allProviders: Record<string, OAuthProvider> = { ...builtinProviders };
+  if (oauthConfig.providers) {
+    for (const [name, cfg] of Object.entries(oauthConfig.providers)) {
+      allProviders[name] = createGenericOAuthProvider(name, cfg as CustomOAuthProviderConfig);
+    }
+  }
+
+  // Unified credential lookup: built-in providers use their OAuthProviderConfig,
+  // custom providers embed clientId/clientSecret in CustomOAuthProviderConfig.
+  function getProviderCredentials(name: string): { clientId: string; clientSecret: string } | undefined {
+    const builtinCfg = oauthConfig![name as keyof typeof oauthConfig] as OAuthProviderConfig | undefined;
+    if (builtinCfg && "clientId" in builtinCfg) return { clientId: builtinCfg.clientId, clientSecret: builtinCfg.clientSecret };
+    const customCfg = oauthConfig!.providers?.[name];
+    if (customCfg) return { clientId: customCfg.clientId, clientSecret: customCfg.clientSecret };
+    return undefined;
+  }
+
   const routes: Record<string, unknown> = {};
 
-  for (const [providerName, provider] of Object.entries(providers)) {
-    const providerConfig = oauthConfig[providerName as keyof typeof oauthConfig] as
-      | OAuthProviderConfig
-      | undefined;
+  for (const [providerName, provider] of Object.entries(allProviders)) {
+    const providerConfig = getProviderCredentials(providerName);
     if (!providerConfig) continue;
 
     const baseCallbackUrl = isDev

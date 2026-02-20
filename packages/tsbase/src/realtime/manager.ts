@@ -8,7 +8,7 @@ import { evaluateRule } from "../rules/evaluator.ts";
 
 export type BroadcastFn = (
   tableName: string,
-  event: "INSERT" | "UPDATE" | "DELETE",
+  action: "INSERT" | "UPDATE" | "DELETE",
   record: Record<string, unknown>,
 ) => void;
 
@@ -143,7 +143,7 @@ export class RealtimeManager {
 
   async broadcastTableChange(
     tableName: string,
-    event: "INSERT" | "UPDATE" | "DELETE",
+    action: "INSERT" | "UPDATE" | "DELETE",
     record: Record<string, unknown>,
   ): Promise<void> {
     const subscribers = this.tableSubscribers.get(tableName);
@@ -155,7 +155,7 @@ export class RealtimeManager {
     for (const sub of subscribers) {
       if (!sub.filtered) {
         // No filter — send the full event to this subscriber
-        this.sendTo(sub.ws, { type: "table:change", table: tableName, event, record, id });
+        this.sendTo(sub.ws, { type: "table:change", table: tableName, action, record, id });
         continue;
       }
 
@@ -166,30 +166,32 @@ export class RealtimeManager {
       const idColumn = columns["id"] as Column | undefined;
       if (!idColumn) continue;
 
-      if (event === "INSERT") {
+      if (action === "INSERT") {
         const visible = await this.checkVisibility(table, idColumn, id, sub.whereClause);
         if (visible) {
           sub.visibleIds.add(id);
-          this.sendTo(sub.ws, { type: "table:change", table: tableName, event: "INSERT", record, id });
+          this.sendTo(sub.ws, { type: "table:change", table: tableName, action: "INSERT", record, id });
         }
         // else: never visible — skip (no leak)
-      } else if (event === "UPDATE") {
+      } else if (action === "UPDATE") {
         const visible = await this.checkVisibility(table, idColumn, id, sub.whereClause);
         if (visible) {
           sub.visibleIds.add(id);
-          this.sendTo(sub.ws, { type: "table:change", table: tableName, event: "UPDATE", record, id });
+          this.sendTo(sub.ws, { type: "table:change", table: tableName, action: "UPDATE", record, id });
         } else {
           if (sub.visibleIds.has(id)) {
-            // Was visible before, now gone from filter — synthetic DELETE
+            // Was visible before, now gone from filter — synthetic DELETE.
+            // Do NOT include the post-update record: it now belongs to a scope
+            // this subscriber cannot see, so sending it would leak hidden data.
             sub.visibleIds.delete(id);
-            this.sendTo(sub.ws, { type: "table:change", table: tableName, event: "DELETE", id });
+            this.sendTo(sub.ws, { type: "table:change", table: tableName, action: "DELETE", id });
           }
           // else: was never visible — skip (no leak)
         }
-      } else if (event === "DELETE") {
+      } else if (action === "DELETE") {
         if (sub.visibleIds.has(id)) {
           sub.visibleIds.delete(id);
-          this.sendTo(sub.ws, { type: "table:change", table: tableName, event: "DELETE", id });
+          this.sendTo(sub.ws, { type: "table:change", table: tableName, action: "DELETE", record, id });
         }
         // else: was never visible — skip (no leak)
       }

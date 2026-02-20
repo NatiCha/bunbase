@@ -23,6 +23,7 @@ Query parameters:
 | `limit` | `number` | Results per page (1–100, default 20) |
 | `sort` | `string` | Column name to sort by |
 | `order` | `"asc" \| "desc"` | Sort direction (default `"asc"`) |
+| `expand` | `string` | Comma-separated relation names to embed (see Expanding relations below) |
 
 ```bash
 curl 'http://localhost:3000/api/posts'
@@ -51,6 +52,12 @@ curl 'http://localhost:3000/api/posts?filter={"published":1}&limit=10'
 ```
 GET /api/posts/:id
 ```
+
+Query parameters:
+
+| Parameter | Type | Description |
+|---|---|---|
+| `expand` | `string` | Comma-separated relation names to embed (see Expanding relations below) |
 
 ```bash
 curl 'http://localhost:3000/api/posts/abc123'
@@ -171,6 +178,63 @@ When sorting by a field, the cursor tracks both the sort value and the ID for st
 GET /api/posts?sort=title&order=asc&limit=10
 ```
 
+## Expanding relations
+
+When you have [relations defined](/schema/#relations-for-expand), you can request related records inline using the `expand` query parameter. This avoids a second round-trip to fetch the related data.
+
+```
+GET /api/posts?expand=author
+GET /api/posts/post-id?expand=author
+```
+
+Pass multiple relation names as a comma-separated list:
+
+```
+GET /api/posts?expand=author,category
+```
+
+**Without expand** — flat record, foreign key only:
+
+```json
+{
+  "data": [
+    { "id": "post-1", "title": "Hello", "authorId": "user-abc" }
+  ]
+}
+```
+
+**With `?expand=author`** — related record embedded inline:
+
+```json
+{
+  "data": [
+    {
+      "id": "post-1",
+      "title": "Hello",
+      "authorId": "user-abc",
+      "author": { "id": "user-abc", "name": "Alice", "email": "alice@example.com" }
+    }
+  ]
+}
+```
+
+Expand works with pagination — the `nextCursor` and `hasMore` fields behave identically, and every record on the page includes the expanded relation.
+
+### Access control
+
+Expand respects the access rules of the **related table**, not just the table being queried. Specifically, the related table's `list` rule is checked for the current user:
+
+- If the related table's `list` rule **denies** access, the relation field is silently omitted from the response. The request still succeeds with `200`.
+- If the related table's `list` rule returns a **row-level filter** (a SQL `WHERE` clause), the relation is also omitted — TSBase cannot safely apply a row-level filter to an embedded object.
+
+This means a user can never use `?expand=` to read data from a table they wouldn't otherwise have access to.
+
+### Requirements
+
+Expand requires `defineRelations()` to be configured and passed to `createServer()`. Requesting `?expand=` without relations configured returns `400`. Unknown relation names are silently ignored.
+
+See [Schema → Relations](/schema/#relations-for-expand) for setup instructions.
+
 ## CSRF protection
 
 All mutation endpoints (`POST`, `PATCH`, `DELETE`) require a CSRF token. After login, a `csrf_token` cookie is set. Include it as the `X-CSRF-Token` header:
@@ -184,5 +248,6 @@ curl -X POST 'http://localhost:3000/api/posts' \
 
 ## Next steps
 
+- [Schema](/schema/) — define tables and relations
 - [Rules](/rules/) — control access per operation
 - [Client SDK](/client/) — use the type-safe client instead of curl

@@ -51,3 +51,6 @@ export type {
 export type { AnyDb, AnyTable, AnyColumn, Dialect } from "./core/db-types.ts";
 export type { DatabaseAdapter } from "./core/adapter.ts";
 export type { DatabaseConfig, ResolvedDatabaseConfig } from "./core/config.ts";
+export { createGenericOAuthProvider as defineOAuthProvider } from "./auth/oauth/generic.ts";
+export type { CustomOAuthProviderConfig, OAuthProvider, OAuthUserInfo } from "./auth/oauth/types.ts";
+export { defineRelations } from "./crud/relations.ts";

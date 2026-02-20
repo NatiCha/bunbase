@@ -12,6 +12,7 @@ export interface ListParams {
   limit?: number;
   sort?: string;
   order?: "asc" | "desc";
+  expand?: string[];
 }
 
 export interface ListResponse<T> {
@@ -22,7 +23,7 @@ export interface ListResponse<T> {
 
 export interface TableClient<TSelect, TInsert> {
   list(params?: ListParams): Promise<ListResponse<TSelect>>;
-  get(id: string): Promise<TSelect | null>;
+  get(id: string, opts?: { expand?: string[] }): Promise<TSelect | null>;
   create(data: TInsert): Promise<TSelect>;
   update(id: string, data: Partial<TInsert>): Promise<TSelect | null>;
   delete(id: string): Promise<{ deleted: boolean }>;
@@ -79,6 +80,7 @@ export function createTSBaseClient<S extends Record<string, unknown>>(
           if (params?.limit != null) url.searchParams.set("limit", String(params.limit));
           if (params?.sort) url.searchParams.set("sort", params.sort);
           if (params?.order) url.searchParams.set("order", params.order);
+          if (params?.expand) url.searchParams.set("expand", params.expand.join(","));
 
           const res = await fetch(url.toString(), { credentials: "include" });
           if (!res.ok) {
@@ -90,8 +92,10 @@ export function createTSBaseClient<S extends Record<string, unknown>>(
           return res.json();
         },
 
-        async get(id: string): Promise<unknown> {
-          const res = await fetch(`${tableUrl}/${id}`, { credentials: "include" });
+        async get(id: string, opts?: { expand?: string[] }): Promise<unknown> {
+          const url = new URL(`${tableUrl}/${id}`);
+          if (opts?.expand) url.searchParams.set("expand", opts.expand.join(","));
+          const res = await fetch(url.toString(), { credentials: "include" });
           if (res.status === 404) return null;
           if (!res.ok) {
             const err = await res.json().catch(() => ({}));
@@ -227,7 +231,7 @@ export function createTSBaseClient<S extends Record<string, unknown>>(
       return res.json();
     },
 
-    oauthUrl(provider: "google" | "github" | "discord") {
+    oauthUrl(provider: string) {
       return `${baseUrl}/auth/oauth/${provider}`;
     },
   };
@@ -268,7 +272,7 @@ export function createTSBaseClient<S extends Record<string, unknown>>(
 // ─── Realtime client ─────────────────────────────────────────────────────────
 
 export interface TableChangeEvent {
-  event: "INSERT" | "UPDATE" | "DELETE";
+  action: "INSERT" | "UPDATE" | "DELETE";
   record?: Record<string, unknown>;
   id: string;
 }
@@ -316,7 +320,7 @@ function createRealtimeClient(baseUrl: string) {
       const listeners = tableListeners.get(msg.table as string);
       if (listeners) {
         for (const cb of listeners) {
-          cb({ event: msg.event as any, record: msg.record as any, id: msg.id as string });
+          cb({ action: msg.action as any, record: msg.record as any, id: msg.id as string });
         }
       }
     } else if (type === "broadcast") {

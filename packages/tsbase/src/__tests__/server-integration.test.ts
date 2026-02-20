@@ -93,10 +93,12 @@ afterAll(() => {
 
 // ─── /health ─────────────────────────────────────────────────────────────────
 
-test("GET /health returns 200 OK", async () => {
+test("GET /health returns 200 OK with JSON", async () => {
   const res = await fetch(`${base}/health`);
   expect(res.status).toBe(200);
-  expect(await res.text()).toBe("OK");
+  const body = await res.json() as any;
+  expect(body.status).toBe("ok");
+  expect(typeof body.version).toBe("string");
 });
 
 // ─── CORS preflight ──────────────────────────────────────────────────────────
