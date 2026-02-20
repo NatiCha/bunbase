@@ -252,7 +252,41 @@ window.location.href = client.auth.oauthUrl("google");
 - Default session TTL: 30 days (configurable via `auth.tokenExpiry`)
 - Auth endpoints are rate-limited per IP
 
+## Auth event hooks
+
+TSBase supports lifecycle hooks for auth events — run custom code before or after registration, login, OAuth, password reset, and email verification.
+
+```ts
+import { defineAuthHooks, ApiError } from "tsbase";
+
+export const authHooks = defineAuthHooks({
+  beforeRegister: async ({ email, data }) => {
+    if (!email.endsWith("@company.com")) {
+      throw new ApiError("FORBIDDEN", "Registration is invite-only", 403);
+    }
+    return { ...data, tier: "free" };
+  },
+
+  afterRegister: async ({ user }) => {
+    await sendWelcomeEmail(user.email as string);
+  },
+
+  afterOAuthLogin: async ({ user, provider, isNewUser }) => {
+    if (isNewUser) await createOnboardingRecord(user.id as string);
+  },
+});
+```
+
+Pass `authHooks` to `createServer`:
+
+```ts
+const tsbase = createServer({ schema, rules, hooks, authHooks });
+```
+
+See [Hooks](/hooks/) for the full auth hook surface, context types, and error handling rules.
+
 ## Next steps
 
 - [Client SDK](/client/) — use `auth.login()`, `auth.register()` from the frontend
 - [Rules](/rules/) — use `ctx.auth` in rules to check authentication
+- [Hooks](/hooks/) — run code before/after auth events

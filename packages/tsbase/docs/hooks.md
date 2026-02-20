@@ -2,7 +2,7 @@
 title: Hooks
 ---
 
-Hooks run custom code before or after CRUD operations — modify data on the way in, trigger side effects on the way out, or abort an operation by throwing an error.
+Hooks run custom code before or after CRUD operations and auth events — modify data on the way in, trigger side effects on the way out, or abort an operation by throwing an error.
 
 ## Defining hooks
 
@@ -203,6 +203,116 @@ export const hooks = defineHooks({
 ```
 
 Tables with no hooks defined work exactly as before.
+
+## Auth hooks
+
+Use `defineAuthHooks` to hook into auth events — registration, login, OAuth, and email flows. Auth hooks are separate from CRUD hooks and are registered on the `authHooks` option.
+
+```ts
+// src/auth-hooks.ts
+import { defineAuthHooks, ApiError } from "tsbase";
+
+export const authHooks = defineAuthHooks({
+  beforeRegister: async ({ email, data }) => {
+    // Restrict signups to a specific domain
+    if (!email.endsWith("@company.com")) {
+      throw new ApiError("FORBIDDEN", "Registration is invite-only", 403);
+    }
+    // Modify the insert data (return a new object)
+    return { ...data, tier: "free" };
+  },
+
+  afterRegister: async ({ user }) => {
+    await sendWelcomeEmail(user.email as string);
+  },
+
+  afterLogin: async ({ user }) => {
+    await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id as string));
+  },
+
+  afterOAuthLogin: async ({ user, provider, isNewUser }) => {
+    if (isNewUser) {
+      await createOnboardingRecord(user.id as string);
+    }
+  },
+
+  afterPasswordReset: async ({ userId }) => {
+    await sendSecurityAlert(userId);
+  },
+
+  afterEmailVerify: async ({ userId }) => {
+    await upgradeAccountAccess(userId);
+  },
+});
+```
+
+Pass auth hooks to `createServer`:
+
+```ts
+const tsbase = createServer({ schema, rules, hooks, authHooks });
+```
+
+### Auth hook surface
+
+| Hook | Fires | Can modify | Can abort |
+|---|---|---|---|
+| `beforeRegister` | After validation, before DB insert | `data` — return new object | Yes (throw ApiError) |
+| `afterRegister` | After user created + session set | No | No (errors logged) |
+| `beforeLogin` | After validation, before credential check | No | Yes (throw ApiError) |
+| `afterLogin` | After session created | No | No (errors logged) |
+| `beforeOAuthLogin` | After provider returns user info, before DB resolution | No | Yes (throw ApiError) |
+| `afterOAuthLogin` | After user resolved/created + session set | No | No (errors logged) |
+| `beforePasswordReset` | After valid token confirmed, before password update | No | Yes (throw ApiError) |
+| `afterPasswordReset` | After password changed + sessions wiped | No | No (errors logged) |
+| `afterEmailVerify` | After email marked verified | No | No (errors logged) |
+
+### Auth hook context types
+
+```ts
+type BeforeRegisterContext = {
+  email: string;
+  data: Record<string, unknown>; // insert payload (excluding passwordHash)
+  req: Request;
+};
+
+type AfterRegisterContext = {
+  user: Record<string, unknown>; // created user (passwordHash stripped)
+  userId: string;
+};
+
+type BeforeLoginContext = {
+  email: string;
+  req: Request;
+};
+
+type AfterLoginContext = {
+  user: Record<string, unknown>; // logged-in user (passwordHash stripped)
+  userId: string;
+};
+
+type BeforeOAuthLoginContext = {
+  provider: string;              // "google" | "github" | "discord"
+  userInfo: { id: string; email: string; name?: string; avatar?: string };
+  req: Request;
+};
+
+type AfterOAuthLoginContext = {
+  user: Record<string, unknown>;
+  userId: string;
+  provider: string;
+  isNewUser: boolean;            // true if a new user row was created
+};
+
+type BeforePasswordResetContext = { userId: string };
+type AfterPasswordResetContext  = { userId: string };
+type AfterEmailVerifyContext    = { userId: string };
+```
+
+### Error handling
+
+Same rules as CRUD hooks:
+- **`before*` hooks**: throw `ApiError` to return a specific status. Any other error returns `500` with code `AUTH_HOOK_ERROR`.
+- **`after*` hooks**: errors are caught and logged. They never change the response the client receives.
 
 ## Next steps
 

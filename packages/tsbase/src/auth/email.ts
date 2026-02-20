@@ -12,6 +12,8 @@ import {
 import { setCsrfCookie } from "./csrf.ts";
 import { checkRateLimit, getClientIp } from "./rate-limit.ts";
 import { z } from "zod/v4";
+import type { AuthHooks } from "../hooks/auth-types.ts";
+import { ApiError } from "../api/helpers.ts";
 
 const SESSION_COOKIE = "tsbase_session";
 
@@ -37,10 +39,11 @@ interface EmailRouteDeps {
   internalSchema: InternalSchema;
   config: ResolvedConfig;
   usersTable: any;
+  authHooks?: AuthHooks;
 }
 
 export function createEmailRoutes(deps: EmailRouteDeps) {
-  const { db, internalSchema, config, usersTable } = deps;
+  const { db, internalSchema, config, usersTable, authHooks } = deps;
   const isDev = config.development;
   const tokens = internalSchema.verificationTokens;
 
@@ -202,6 +205,17 @@ export function createEmailRoutes(deps: EmailRouteDeps) {
           );
         }
 
+        if (authHooks?.beforePasswordReset) {
+          try {
+            await authHooks.beforePasswordReset({ userId: tokenRow.userId });
+          } catch (err) {
+            if (err instanceof ApiError) {
+              return jsonError(err.code, err.message, err.status);
+            }
+            return jsonError("AUTH_HOOK_ERROR", "An error occurred in beforePasswordReset hook", 500);
+          }
+        }
+
         // Update password
         const passwordHash = await hashPassword(password);
         await (db as any)
@@ -216,6 +230,14 @@ export function createEmailRoutes(deps: EmailRouteDeps) {
           .delete(tokens)
           .where(and(eq(tokens.userId, tokenRow.userId), eq(tokens.type, "password_reset")))
           ;
+
+        if (authHooks?.afterPasswordReset) {
+          try {
+            await authHooks.afterPasswordReset({ userId: tokenRow.userId });
+          } catch (err) {
+            console.error("[TSBase] afterPasswordReset hook error:", err);
+          }
+        }
 
         // Create new session
         const sessionId = await createSession(
@@ -303,6 +325,14 @@ export function createEmailRoutes(deps: EmailRouteDeps) {
           .delete(tokens)
           .where(eq(tokens.id, tokenRow.id))
           ;
+
+        if (authHooks?.afterEmailVerify) {
+          try {
+            await authHooks.afterEmailVerify({ userId: tokenRow.userId });
+          } catch (err) {
+            console.error("[TSBase] afterEmailVerify hook error:", err);
+          }
+        }
 
         return Response.json({ message: "Email verified successfully" });
       },

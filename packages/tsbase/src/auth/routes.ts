@@ -16,6 +16,8 @@ import { setCsrfCookie, validateCsrf } from "./csrf.ts";
 import { checkRateLimit, getClientIp } from "./rate-limit.ts";
 import { extractAuth, extractSessionId } from "./middleware.ts";
 import { z } from "zod/v4";
+import type { AuthHooks } from "../hooks/auth-types.ts";
+import { ApiError } from "../api/helpers.ts";
 
 const SESSION_COOKIE = "tsbase_session";
 const BLOCKED_SIGNUP_FIELDS = new Set([
@@ -38,6 +40,7 @@ interface AuthRouteDeps {
   internalSchema: InternalSchema;
   config: ResolvedConfig;
   usersTable: any | null;
+  authHooks?: AuthHooks;
 }
 
 function jsonError(code: string, message: string, status: number): Response {
@@ -111,7 +114,7 @@ function resolvePasswordHash(user: UsersRow): string | null {
 }
 
 export function createAuthRoutes(deps: AuthRouteDeps) {
-  const { db, internalSchema, config, usersTable } = deps;
+  const { db, internalSchema, config, usersTable, authHooks } = deps;
   const isDev = config.development;
   const { byInputField, requiredSignupColumns } = getUsersColumns(usersTable);
 
@@ -220,13 +223,30 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
           const id = Bun.randomUUIDv7();
           const passwordHash = await hashPassword(password);
 
-          const insertData: Record<string, unknown> = {
+          let insertData: Record<string, unknown> = {
             id,
             email,
             passwordHash: passwordHash,
             role: "user",
             ...signupExtrasByKey,
           };
+
+          if (authHooks?.beforeRegister) {
+            try {
+              const result = await authHooks.beforeRegister({ email, data: insertData, req });
+              if (result !== undefined && result !== null) {
+                insertData = result as Record<string, unknown>;
+              }
+            } catch (err) {
+              if (err instanceof ApiError) {
+                return jsonError(err.code, err.message, err.status);
+              }
+              return jsonError("AUTH_HOOK_ERROR", "An error occurred in beforeRegister hook", 500);
+            }
+            // Re-pin security-critical fields so hooks cannot escalate privileges
+            insertData.id = id;
+            insertData.passwordHash = passwordHash;
+          }
 
           await (db as any).insert(usersTable).values(insertData);
 
@@ -240,6 +260,17 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
 
           // Create session
           const sessionId = await createSession(db, internalSchema, id, config.auth.tokenExpiry);
+
+          if (authHooks?.afterRegister) {
+            try {
+              await authHooks.afterRegister({
+                user: createdUser ? stripSensitiveUserFields(createdUser) : { id, email, role: "user" },
+                userId: id,
+              });
+            } catch (err) {
+              console.error("[TSBase] afterRegister hook error:", err);
+            }
+          }
 
           // Set cookies
           const sessionCookie = serializeCookie(
@@ -303,6 +334,17 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
 
           const { email, password } = result.data;
 
+          if (authHooks?.beforeLogin) {
+            try {
+              await authHooks.beforeLogin({ email, req });
+            } catch (err) {
+              if (err instanceof ApiError) {
+                return jsonError(err.code, err.message, err.status);
+              }
+              return jsonError("AUTH_HOOK_ERROR", "An error occurred in beforeLogin hook", 500);
+            }
+          }
+
           const rows = await (db as any)
             .select()
             .from(usersTable)
@@ -334,6 +376,14 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
             String(user.id),
             config.auth.tokenExpiry,
           );
+
+          if (authHooks?.afterLogin) {
+            try {
+              await authHooks.afterLogin({ user: stripSensitiveUserFields(user), userId: String(user.id) });
+            } catch (err) {
+              console.error("[TSBase] afterLogin hook error:", err);
+            }
+          }
 
           const sessionCookie = serializeCookie(
             SESSION_COOKIE,

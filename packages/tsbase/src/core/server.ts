@@ -19,6 +19,7 @@ import { hashPassword } from "../auth/passwords.ts";
 import type { AuthUser } from "../api/types.ts";
 import type { TableRules } from "../rules/types.ts";
 import type { TableHooks } from "../hooks/types.ts";
+import type { AuthHooks } from "../hooks/auth-types.ts";
 import type { JobDefinition } from "../jobs/types.ts";
 import { JobScheduler } from "../jobs/scheduler.ts";
 import adminUI from "../../admin-ui/index.html";
@@ -37,6 +38,7 @@ export interface CreateServerOptions {
   schema: Record<string, unknown>;
   rules?: Record<string, unknown>;
   hooks?: Record<string, unknown>;
+  authHooks?: AuthHooks;
   jobs?: JobDefinition[];
   config?: TSBaseConfig;
   extend?: (ctx: ExtendContext) => RouteMap;
@@ -54,6 +56,7 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
     options.rules as Record<string, TableRules> | undefined;
   const tableHooks =
     options.hooks as Record<string, TableHooks> | undefined;
+  const authHooks = options.authHooks;
 
   // Validate job names synchronously so misconfiguration is a deterministic startup error
   if (options.jobs && options.jobs.length > 0) {
@@ -132,18 +135,21 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
     internalSchema,
     config,
     usersTable: usersTable as any,
+    authHooks,
   });
   const emailRoutes = createEmailRoutes({
     db,
     internalSchema,
     config,
     usersTable,
+    authHooks,
   });
   const oauthRoutes = createOAuthRoutes({
     db,
     internalSchema,
     config,
     usersTable,
+    authHooks,
   });
   const fileRoutes = createFileRoutes({
     db,

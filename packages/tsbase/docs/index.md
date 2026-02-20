@@ -9,7 +9,7 @@ A TypeScript-native backend-as-a-service built on Bun and Drizzle ORM. Define yo
 - **Auto-generated CRUD API** — list, get, create, update, delete for every table
 - **Built-in auth** — email/password registration, login, sessions, OAuth (Google, GitHub, Discord)
 - **Access rules** — per-table, per-operation control with SQL WHERE clause injection
-- **Lifecycle hooks** — run code before or after any CRUD operation; modify data or abort with an error
+- **Lifecycle hooks** — run code before or after any CRUD operation or auth event; modify data or abort with an error
 - **Scheduled jobs** — background tasks on a cron schedule, wall-clock aligned
 - **File storage** — upload/download/delete with local or S3 drivers
 - **Type-safe client SDK** — schema-derived frontend client with auth and file helpers
@@ -28,7 +28,7 @@ A TypeScript-native backend-as-a-service built on Bun and Drizzle ORM. Define yo
 5. [Client SDK](/client/) — connect from your frontend
 6. [Auth API](/api/auth/) — registration, login, OAuth, password reset
 7. [Files API](/api/files/) — upload, download, and delete files
-8. [Hooks](/hooks/) — lifecycle callbacks for CRUD operations
+8. [Hooks](/hooks/) — lifecycle callbacks for CRUD operations and auth events
 9. [Jobs](/jobs/) — scheduled background tasks
 10. [Configuration](/configuration/) — full `defineConfig` reference
 11. [Extending](/extending/) — add custom REST routes
@@ -61,11 +61,12 @@ export const posts = sqliteTable("posts", {
 import { createServer, defineConfig } from "tsbase";
 import * as schema from "./schema";
 import { rules } from "./rules";
-import { hooks } from "./hooks"; // optional
-import { jobs } from "./jobs";   // optional
+import { hooks } from "./hooks";         // optional
+import { authHooks } from "./auth-hooks"; // optional
+import { jobs } from "./jobs";            // optional
 
-const tsbase = createServer({ schema, rules, hooks, jobs });
+const tsbase = createServer({ schema, rules, hooks, authHooks, jobs });
 tsbase.listen(); // http://localhost:3000
 ```
 
-That's it. You now have a full REST API with auth, CRUD, file storage, lifecycle hooks, and scheduled jobs.
+That's it. You now have a full REST API with auth, CRUD, file storage, lifecycle hooks, auth event hooks, and scheduled jobs.

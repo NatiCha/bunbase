@@ -2,6 +2,7 @@ export { createServer } from "./core/server.ts";
 export { defineConfig } from "./core/config.ts";
 export { defineRules } from "./rules/types.ts";
 export { defineHooks } from "./hooks/types.ts";
+export { defineAuthHooks } from "./hooks/auth-types.ts";
 export { defineJobs } from "./jobs/types.ts";
 export { authenticated, admin, ownerOnly, adminOrOwner } from "./rules/helpers.ts";
 export { requireAuth, ApiError } from "./api/helpers.ts";
@@ -26,6 +27,27 @@ export type {
   AfterDeleteFn,
 } from "./hooks/types.ts";
 export type { JobDefinition, JobContext, Jobs } from "./jobs/types.ts";
+export type {
+  AuthHooks,
+  BeforeRegisterContext,
+  AfterRegisterContext,
+  BeforeLoginContext,
+  AfterLoginContext,
+  BeforeOAuthLoginContext,
+  AfterOAuthLoginContext,
+  BeforePasswordResetContext,
+  AfterPasswordResetContext,
+  AfterEmailVerifyContext,
+  BeforeRegisterFn,
+  AfterRegisterFn,
+  BeforeLoginFn,
+  AfterLoginFn,
+  BeforeOAuthLoginFn,
+  AfterOAuthLoginFn,
+  BeforePasswordResetFn,
+  AfterPasswordResetFn,
+  AfterEmailVerifyFn,
+} from "./hooks/auth-types.ts";
 export type { AnyDb, AnyTable, AnyColumn, Dialect } from "./core/db-types.ts";
 export type { DatabaseAdapter } from "./core/adapter.ts";
 export type { DatabaseConfig, ResolvedDatabaseConfig } from "./core/config.ts";

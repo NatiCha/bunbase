@@ -13,6 +13,8 @@ import {
   sessionCookieOptions,
 } from "../cookies.ts";
 import { setCsrfCookie } from "../csrf.ts";
+import type { AuthHooks } from "../../hooks/auth-types.ts";
+import { ApiError } from "../../api/helpers.ts";
 
 const SESSION_COOKIE = "tsbase_session";
 const OAUTH_STATE_COOKIE = "oauth_state";
@@ -23,15 +25,28 @@ function jsonError(code: string, message: string, status: number): Response {
   return Response.json({ error: { code, message } }, { status });
 }
 
+function isUniqueConstraintError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as Record<string, unknown>;
+  // SQLite: "UNIQUE constraint failed: ..."
+  if (typeof e.message === "string" && e.message.toLowerCase().includes("unique constraint failed")) return true;
+  // Postgres: error code 23505
+  if (e.code === "23505") return true;
+  // MySQL: errno 1062 / code ER_DUP_ENTRY
+  if (e.errno === 1062 || e.code === "ER_DUP_ENTRY") return true;
+  return false;
+}
+
 interface OAuthRouteDeps {
   db: AnyDb;
   internalSchema: InternalSchema;
   config: ResolvedConfig;
   usersTable: any;
+  authHooks?: AuthHooks;
 }
 
 export function createOAuthRoutes(deps: OAuthRouteDeps) {
-  const { db, internalSchema, config, usersTable } = deps;
+  const { db, internalSchema, config, usersTable, authHooks } = deps;
   const isDev = config.development;
   const oauthConfig = config.auth.oauth;
   const oauthAccounts = internalSchema.oauthAccounts;
@@ -108,6 +123,17 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
 
           const userInfo = await provider.getUserInfo(accessToken);
 
+          if (authHooks?.beforeOAuthLogin) {
+            try {
+              await authHooks.beforeOAuthLogin({ provider: providerName, userInfo, req });
+            } catch (err) {
+              if (err instanceof ApiError) {
+                return jsonError(err.code, err.message, err.status);
+              }
+              return jsonError("AUTH_HOOK_ERROR", "An error occurred in beforeOAuthLogin hook", 500);
+            }
+          }
+
           // Check for existing OAuth account link
           const existingOAuthRows = await (db as any)
             .select({ userId: oauthAccounts.userId })
@@ -122,6 +148,7 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
 
           const existingOAuth = existingOAuthRows[0];
           let userId: string;
+          let isNewUser = false;
 
           if (existingOAuth) {
             userId = existingOAuth.userId;
@@ -139,6 +166,7 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
               userId = existingUser.id;
             } else {
               // Create new user
+              isNewUser = true;
               userId = Bun.randomUUIDv7();
               const insertData: Record<string, unknown> = {
                 id: userId,
@@ -153,17 +181,37 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
               await (db as any).insert(usersTable).values(insertData);
             }
 
-            // Link OAuth account
-            await (db as any)
-              .insert(oauthAccounts)
-              .values({
-                id: Bun.randomUUIDv7(),
-                userId,
-                provider: providerName,
-                providerAccountId: userInfo.id,
-                createdAt: new Date().toISOString(),
-              })
-              ;
+            // Link OAuth account — tolerate a race where a concurrent callback
+            // already inserted the same (provider, providerAccountId) pair
+            try {
+              await (db as any)
+                .insert(oauthAccounts)
+                .values({
+                  id: Bun.randomUUIDv7(),
+                  userId,
+                  provider: providerName,
+                  providerAccountId: userInfo.id,
+                  createdAt: new Date().toISOString(),
+                })
+                ;
+            } catch (linkErr) {
+              if (!isUniqueConstraintError(linkErr)) throw linkErr;
+              // Unique constraint fired — a concurrent callback already linked this
+              // account. Re-query to get the canonical userId.
+              const raceRows = await (db as any)
+                .select({ userId: oauthAccounts.userId })
+                .from(oauthAccounts)
+                .where(
+                  and(
+                    eq(oauthAccounts.provider, providerName),
+                    eq(oauthAccounts.providerAccountId, userInfo.id),
+                  ),
+                )
+                ;
+              if (!raceRows[0]) throw linkErr; // constraint fired but no row found — unexpected
+              userId = raceRows[0].userId;
+              isNewUser = false;
+            }
           }
 
           // Create session
@@ -173,6 +221,16 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
             userId,
             config.auth.tokenExpiry,
           );
+
+          if (authHooks?.afterOAuthLogin) {
+            try {
+              const userRows = await (db as any).select().from(usersTable).where(eq(usersTable.id, userId));
+              const oauthUser = userRows[0] ?? { id: userId };
+              await authHooks.afterOAuthLogin({ user: oauthUser, userId, provider: providerName, isNewUser });
+            } catch (err) {
+              console.error(`[TSBase] afterOAuthLogin hook error:`, err);
+            }
+          }
 
           const sessionCookie = serializeCookie(
             SESSION_COOKIE,

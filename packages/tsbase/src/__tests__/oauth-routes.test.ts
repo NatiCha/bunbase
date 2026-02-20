@@ -259,3 +259,91 @@ test("callback reuses existing OAuth account without creating a new link", async
 
   sqlite.close();
 });
+
+// ─── Race-condition: account-link unique constraint recovery ──────────────────
+
+test("callback recovers from race: creates session for winning userId on unique constraint", async () => {
+  fetchSpy = spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(Response.json({ access_token: "g-token" }) as any)
+    .mockResolvedValueOnce(
+      Response.json({ id: "g-race-id", email: "race@example.com" }) as any,
+    );
+
+  const { sqlite, db, internalSchema } = setupDb();
+
+  // Pre-seed the user (the "winning" concurrent request already created them)
+  sqlite.run(
+    "INSERT INTO users (id, email, role) VALUES ('winner-user', 'race@example.com', 'user')",
+  );
+
+  // Spy on db.insert: when the first insert into _oauth_accounts is attempted,
+  // simulate the race — seed the winning row directly then throw the constraint error
+  let oauthInsertIntercepted = false;
+  const originalInsert = (db as any).insert.bind(db);
+  spyOn(db as any, "insert").mockImplementation((table: any) => {
+    if (table === internalSchema.oauthAccounts && !oauthInsertIntercepted) {
+      oauthInsertIntercepted = true;
+      return {
+        values: () => {
+          // The "winning" request inserts this row first
+          sqlite.run(
+            "INSERT INTO _oauth_accounts (id, user_id, provider, provider_account_id, created_at) VALUES ('oa-winner', 'winner-user', 'google', 'g-race-id', '2024-01-01')",
+          );
+          // Our insert loses the race and hits the unique constraint
+          return Promise.reject(
+            new Error(
+              "UNIQUE constraint failed: _oauth_accounts.provider, _oauth_accounts.provider_account_id",
+            ),
+          );
+        },
+      };
+    }
+    return originalInsert(table);
+  });
+
+  const routes = createOAuthRoutes({ db, internalSchema, config: makeConfig(), usersTable });
+  const response = await (routes["/auth/oauth/google/callback"] as any).GET(
+    callbackReq(STATE),
+  );
+
+  // Recovered: session created, no 500
+  expect(response.status).toBe(302);
+  expect(response.headers.get("Set-Cookie") ?? "").toContain("tsbase_session=");
+
+  // Exactly one link row — the winning one, no duplicate
+  const linkCount = sqlite
+    .query<{ n: number }, []>("SELECT COUNT(*) as n FROM _oauth_accounts")
+    .get([]);
+  expect(linkCount?.n).toBe(1);
+
+  sqlite.close();
+});
+
+test("callback returns 500 when account-link insert fails with a non-constraint error", async () => {
+  fetchSpy = spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(Response.json({ access_token: "g-token" }) as any)
+    .mockResolvedValueOnce(
+      Response.json({ id: "g-err-id", email: "error@example.com" }) as any,
+    );
+
+  const { sqlite, db, internalSchema } = setupDb();
+
+  const originalInsert = (db as any).insert.bind(db);
+  spyOn(db as any, "insert").mockImplementation((table: any) => {
+    if (table === internalSchema.oauthAccounts) {
+      return {
+        values: () =>
+          Promise.reject(new Error("Disk full — non-constraint storage error")),
+      };
+    }
+    return originalInsert(table);
+  });
+
+  const routes = createOAuthRoutes({ db, internalSchema, config: makeConfig(), usersTable });
+  const response = await (routes["/auth/oauth/google/callback"] as any).GET(
+    callbackReq(STATE),
+  );
+
+  expect(response.status).toBe(500);
+  sqlite.close();
+});
