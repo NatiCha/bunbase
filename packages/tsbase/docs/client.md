@@ -23,7 +23,7 @@ const client = createTSBaseClient<typeof schema>({
 });
 ```
 
-The client has three namespaces: `api`, `auth`, and `files`.
+The client has four namespaces: `api`, `auth`, `files`, and `realtime`.
 
 ## `api` — CRUD operations
 
@@ -160,8 +160,29 @@ const url = client.files.downloadUrl("file-id");
 await client.files.delete("file-id");
 ```
 
+## `realtime` — Live updates
+
+Subscribe to table changes and join channels. See the [Realtime](/realtime/) guide for full documentation.
+
+```ts
+// Stream live table changes
+const unsub = client.realtime.subscribe("posts", (event) => {
+  console.log(event.event, event.id, event.record);
+});
+unsub(); // stop receiving events
+
+// Broadcast pub/sub
+client.realtime.channel("room:1")
+  .on("message", (payload) => console.log(payload))
+  .subscribe();
+
+// Disconnect everything
+client.realtime.disconnect();
+```
+
 ## Next steps
 
 - [CRUD API](/api/crud/) — endpoint details, filtering operators
 - [Auth API](/api/auth/) — auth endpoint reference
 - [Files API](/api/files/) — file storage details
+- [Realtime](/realtime/) — live subscriptions, broadcast, and presence

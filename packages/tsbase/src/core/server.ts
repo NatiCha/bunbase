@@ -22,6 +22,9 @@ import type { TableHooks } from "../hooks/types.ts";
 import type { AuthHooks } from "../hooks/auth-types.ts";
 import type { JobDefinition } from "../jobs/types.ts";
 import { JobScheduler } from "../jobs/scheduler.ts";
+import { RealtimeManager } from "../realtime/manager.ts";
+import { PresenceTracker } from "../realtime/presence.ts";
+import { handleWebSocketMessage, handleWebSocketClose } from "../realtime/handler.ts";
 import adminUI from "../../admin-ui/index.html";
 
 export type RouteMap = Record<
@@ -120,6 +123,21 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
     return realUser;
   };
 
+  // Realtime manager + broadcast shim (only when realtime is enabled)
+  let realtimeManager: RealtimeManager | undefined;
+  let realtimePresence: PresenceTracker | undefined;
+  let broadcastFn: ((t: string, e: "INSERT" | "UPDATE" | "DELETE", r: Record<string, unknown>) => void) | undefined;
+
+  if (config.realtime.enabled) {
+    realtimeManager = new RealtimeManager(db, options.schema, tableRules);
+    realtimePresence = new PresenceTracker();
+    broadcastFn = (t, e, r) => {
+      realtimeManager!.broadcastTableChange(t, e, r).catch((err) => {
+        console.error("[TSBase] Realtime broadcast error:", err);
+      });
+    };
+  }
+
   // Generate CRUD REST handlers from schema with rules and hooks
   const { exact: crudExact, pattern: crudPattern } = generateAllCrudHandlers(
     options.schema,
@@ -127,6 +145,7 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
     extractAuth,
     tableRules,
     tableHooks,
+    broadcastFn,
   );
 
   // Build auth route handlers
@@ -249,6 +268,23 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
       })();
     }
 
+    // Mutable server reference needed by WS handlers for server.publish()
+    let bunServer: ReturnType<typeof Bun.serve>;
+
+    const websocketHandlers = realtimeManager && realtimePresence
+      ? {
+          async message(ws: any, raw: string | Buffer) {
+            await handleWebSocketMessage(ws, raw, bunServer, realtimeManager!, realtimePresence!);
+          },
+          close(ws: any) {
+            handleWebSocketClose(ws, bunServer, realtimeManager!, realtimePresence!);
+          },
+          open(_ws: any) {
+            // Connection established — nothing to do here
+          },
+        }
+      : undefined;
+
     const server = Bun.serve({
       port: resolvedPort,
 
@@ -258,7 +294,9 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
         "/_admin/": adminUI,
       },
 
-      async fetch(req) {
+      ...(websocketHandlers ? { websocket: websocketHandlers } : {}),
+
+      async fetch(req, srv) {
         // Ensure bootstrap is complete (important for Postgres)
         if (!bootstrapped) {
           const bootstrapResult = await bootstrapPromise;
@@ -275,6 +313,20 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
 
         const url = new URL(req.url);
         const pathname = url.pathname;
+
+        // WebSocket upgrade for /realtime
+        if (pathname === "/realtime" && config.realtime.enabled && realtimeManager) {
+          const auth = await extractAuthFromReq(req, db, internalSchema, usersTable).catch(() => null);
+          const upgraded = srv.upgrade(req, {
+            data: {
+              auth,
+              connectedAt: Date.now(),
+              presenceMeta: {},
+            },
+          });
+          if (upgraded) return undefined as unknown as Response;
+          return new Response("WebSocket upgrade failed", { status: 400 });
+        }
 
         // Admin API — must be before CRUD/user routes
         if (pathname.startsWith("/_admin/api/")) {
@@ -367,8 +419,14 @@ export function createServer(options: CreateServerOptions): TSBaseServer {
       },
     });
 
+    // Wire up the mutable server reference for WS pub/sub
+    bunServer = server;
+
     console.log(`TSBase running at ${server.url}`);
     console.log(`Admin UI: ${server.url}_admin`);
+    if (config.realtime.enabled) {
+      console.log(`Realtime WebSocket: ${String(server.url).replace(/^http/, "ws")}realtime`);
+    }
 
     // Wrap server.stop() so callers who hold the Bun server reference also stop the scheduler
     if (scheduler) {

@@ -10,9 +10,10 @@ A TypeScript-native backend-as-a-service built on Bun and Drizzle ORM. Define yo
 - **Built-in auth** — email/password registration, login, sessions, OAuth (Google, GitHub, Discord)
 - **Access rules** — per-table, per-operation control with SQL WHERE clause injection
 - **Lifecycle hooks** — run code before or after any CRUD operation or auth event; modify data or abort with an error
+- **Realtime** — WebSocket subscriptions for live table changes, broadcast channels, and presence tracking
 - **Scheduled jobs** — background tasks on a cron schedule, wall-clock aligned
 - **File storage** — upload/download/delete with local or S3 drivers
-- **Type-safe client SDK** — schema-derived frontend client with auth and file helpers
+- **Type-safe client SDK** — schema-derived frontend client with auth, file, and realtime helpers
 - **Cursor pagination** — efficient, sort-aware pagination out of the box
 - **Filtering** — rich query operators (eq, gt, contains, in, isNull, etc.)
 - **CSRF protection** — automatic double-submit cookie pattern
@@ -29,10 +30,11 @@ A TypeScript-native backend-as-a-service built on Bun and Drizzle ORM. Define yo
 6. [Auth API](/api/auth/) — registration, login, OAuth, password reset
 7. [Files API](/api/files/) — upload, download, and delete files
 8. [Hooks](/hooks/) — lifecycle callbacks for CRUD operations and auth events
-9. [Jobs](/jobs/) — scheduled background tasks
-10. [Configuration](/configuration/) — full `defineConfig` reference
-11. [Extending](/extending/) — add custom REST routes
-12. [Deployment](/deployment/) — production checklist
+9. [Realtime](/realtime/) — live table subscriptions, broadcast channels, and presence
+10. [Jobs](/jobs/) — scheduled background tasks
+11. [Configuration](/configuration/) — full `defineConfig` reference
+12. [Extending](/extending/) — add custom REST routes
+13. [Deployment](/deployment/) — production checklist
 
 ## Quick example
 

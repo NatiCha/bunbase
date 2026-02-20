@@ -260,5 +260,240 @@ export function createTSBaseClient<S extends Record<string, unknown>>(
     },
   };
 
-  return { api, auth, files };
+  const realtime = createRealtimeClient(baseUrl);
+
+  return { api, auth, files, realtime };
+}
+
+// ─── Realtime client ─────────────────────────────────────────────────────────
+
+export interface TableChangeEvent {
+  event: "INSERT" | "UPDATE" | "DELETE";
+  record?: Record<string, unknown>;
+  id: string;
+}
+
+export interface ChannelClient {
+  on(event: string, callback: (payload: unknown) => void): ChannelClient;
+  subscribe(): ChannelClient;
+  broadcast(event: string, payload: unknown): void;
+  unsubscribe(): void;
+  onPresence(callback: (event: PresenceEvent) => void): ChannelClient;
+  track(meta?: Record<string, unknown>): ChannelClient;
+  untrack(): void;
+}
+
+export type PresenceEvent =
+  | { type: "state"; channel: string; users: Array<{ userId: string; meta: Record<string, unknown> }> }
+  | { type: "join"; channel: string; user: { userId: string; meta: Record<string, unknown> } }
+  | { type: "leave"; channel: string; userId: string }
+  | { type: "update"; channel: string; user: { userId: string; meta: Record<string, unknown> } };
+
+interface InternalChannelClient extends ChannelClient {
+  _dispatchBroadcast(event: string, payload: unknown): void;
+  _dispatchPresence(msg: Record<string, unknown>): void;
+  _resubscribe(): void;
+}
+
+function createRealtimeClient(baseUrl: string) {
+  let ws: WebSocket | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Track active table subscriptions for reconnect
+  const tableListeners: Map<string, Set<(event: TableChangeEvent) => void>> = new Map();
+  // Track channel objects for reconnect
+  const channelObjects: Map<string, InternalChannelClient> = new Map();
+
+  function send(msg: unknown) {
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(msg));
+    }
+  }
+
+  function dispatch(msg: Record<string, unknown>) {
+    const type = msg.type as string;
+    if (type === "table:change") {
+      const listeners = tableListeners.get(msg.table as string);
+      if (listeners) {
+        for (const cb of listeners) {
+          cb({ event: msg.event as any, record: msg.record as any, id: msg.id as string });
+        }
+      }
+    } else if (type === "broadcast") {
+      const channel = channelObjects.get(msg.channel as string);
+      channel?._dispatchBroadcast(msg.event as string, msg.payload);
+    } else if (type.startsWith("presence:")) {
+      const channel = channelObjects.get(msg.channel as string);
+      channel?._dispatchPresence(msg);
+    }
+  }
+
+  function resubscribeAll() {
+    for (const table of tableListeners.keys()) {
+      send({ type: "subscribe:table", table });
+    }
+    for (const channel of channelObjects.values()) {
+      channel._resubscribe();
+    }
+  }
+
+  function connect() {
+    if (ws) return;
+    const wsUrl = baseUrl.replace(/^https?/, (m) => (m === "https" ? "wss" : "ws")) + "/realtime";
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      resubscribeAll();
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        dispatch(JSON.parse(event.data as string) as Record<string, unknown>);
+      } catch {
+        // Ignore malformed messages
+      }
+    };
+
+    ws.onclose = () => {
+      ws = null;
+      if (tableListeners.size > 0 || channelObjects.size > 0) {
+        reconnectTimer = setTimeout(() => {
+          connect();
+        }, 2000);
+      }
+    };
+
+    ws.onerror = () => {
+      // onclose will handle reconnect
+    };
+  }
+
+  function subscribe(
+    table: string,
+    callback: (event: TableChangeEvent) => void,
+  ): () => void {
+    const isNew = !tableListeners.has(table);
+    if (isNew) tableListeners.set(table, new Set());
+    tableListeners.get(table)!.add(callback);
+
+    connect();
+    if (isNew) {
+      if (ws?.readyState === WebSocket.OPEN) {
+        send({ type: "subscribe:table", table });
+      }
+      // If not open yet, resubscribeAll() on the open event handles it
+    }
+
+    return () => {
+      const listeners = tableListeners.get(table);
+      if (!listeners) return;
+      listeners.delete(callback);
+      if (listeners.size === 0) {
+        tableListeners.delete(table);
+        send({ type: "unsubscribe:table", table });
+      }
+    };
+  }
+
+  function channel(channelName: string): ChannelClient {
+    if (channelObjects.has(channelName)) {
+      return channelObjects.get(channelName)!;
+    }
+
+    const broadcastListeners: Map<string, Set<(payload: unknown) => void>> = new Map();
+    let presenceCallback: ((event: PresenceEvent) => void) | null = null;
+    let isSubscribed = false;
+    let isTracked = false;
+    let trackMeta: Record<string, unknown> = {};
+
+    function sendWhenReady(msg: unknown) {
+      connect();
+      if (ws?.readyState === WebSocket.OPEN) {
+        send(msg);
+      } else if (ws) {
+        ws.addEventListener("open", () => send(msg), { once: true });
+      }
+    }
+
+    const channelClient: InternalChannelClient = {
+      on(event: string, callback: (payload: unknown) => void) {
+        if (!broadcastListeners.has(event)) broadcastListeners.set(event, new Set());
+        broadcastListeners.get(event)!.add(callback);
+        return channelClient;
+      },
+
+      subscribe() {
+        isSubscribed = true;
+        sendWhenReady({ type: "subscribe:broadcast", channel: channelName });
+        return channelClient;
+      },
+
+      broadcast(event: string, payload: unknown) {
+        sendWhenReady({ type: "broadcast", channel: channelName, event, payload });
+      },
+
+      unsubscribe() {
+        isSubscribed = false;
+        isTracked = false;
+        send({ type: "unsubscribe:broadcast", channel: channelName });
+        send({ type: "unsubscribe:presence", channel: channelName });
+        channelObjects.delete(channelName);
+      },
+
+      onPresence(callback: (event: PresenceEvent) => void) {
+        presenceCallback = callback;
+        return channelClient;
+      },
+
+      track(meta?: Record<string, unknown>) {
+        isTracked = true;
+        trackMeta = meta ?? {};
+        sendWhenReady({ type: "subscribe:presence", channel: channelName, meta: trackMeta });
+        return channelClient;
+      },
+
+      untrack() {
+        isTracked = false;
+        send({ type: "unsubscribe:presence", channel: channelName });
+      },
+
+      _dispatchBroadcast(event: string, payload: unknown) {
+        const listeners = broadcastListeners.get(event);
+        if (listeners) {
+          for (const cb of listeners) cb(payload);
+        }
+      },
+
+      _dispatchPresence(msg: Record<string, unknown>) {
+        if (presenceCallback) {
+          const type = (msg.type as string).replace("presence:", "") as any;
+          presenceCallback({ ...msg, type } as PresenceEvent);
+        }
+      },
+
+      _resubscribe() {
+        if (isSubscribed) send({ type: "subscribe:broadcast", channel: channelName });
+        if (isTracked) send({ type: "subscribe:presence", channel: channelName, meta: trackMeta });
+      },
+    };
+
+    channelObjects.set(channelName, channelClient);
+    return channelClient;
+  }
+
+  function disconnect() {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    tableListeners.clear();
+    channelObjects.clear();
+    if (ws) {
+      ws.onclose = null;
+      ws.close();
+      ws = null;
+    }
+  }
+
+  return { subscribe, channel, disconnect };
 }

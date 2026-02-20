@@ -16,6 +16,8 @@ export function makeResolvedConfig(
   const corsOverrides = (overrides.cors ?? {}) as Partial<ResolvedConfig["cors"]>;
   const databaseOverrides = overrides.database ?? { driver: "sqlite" as const, url: overrides.dbPath ?? "./data/db.sqlite" };
 
+  const realtimeOverrides = (overrides.realtime ?? {}) as Partial<ResolvedConfig["realtime"]>;
+
   return {
     auth: {
       tokenExpiry: authOverrides.tokenExpiry ?? 60 * 60,
@@ -31,6 +33,9 @@ export function makeResolvedConfig(
     },
     cors: {
       origins: corsOverrides.origins ?? [],
+    },
+    realtime: {
+      enabled: realtimeOverrides.enabled ?? false,
     },
     development: overrides.development ?? true,
     database: databaseOverrides,

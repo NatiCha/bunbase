@@ -75,6 +75,11 @@ const config = defineConfig({
     // Allowed origins (required in production)
     origins: ["https://your-app.com"],
   },
+
+  realtime: {
+    // Enable WebSocket endpoint at /realtime (default: false)
+    enabled: true,
+  },
 });
 ```
 
@@ -148,6 +153,12 @@ When set, only files matching these MIME types are accepted. When unset, all typ
 List of allowed CORS origins. **Required in production** — TSBase will throw an error on startup if not configured.
 
 In development mode, all origins are allowed regardless of this setting.
+
+### `realtime.enabled`
+
+When `true`, TSBase opens a WebSocket endpoint at `/realtime` for live table subscriptions, broadcast channels, and presence. See the [Realtime](/realtime/) guide.
+
+Default: `false`
 
 ## Environment variables
 

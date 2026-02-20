@@ -13,6 +13,7 @@ import type { TableHooks } from "../hooks/types.ts";
 import type { AnyDb } from "../core/db-types.ts";
 import type { AuthUser } from "../api/types.ts";
 import { errorResponse, ApiError } from "../api/helpers.ts";
+import type { BroadcastFn } from "../realtime/manager.ts";
 
 export type RouteMap = Record<
   string,
@@ -27,6 +28,7 @@ export function generateCrudHandlers(
   extractAuth: ExtractAuth,
   tableRules?: TableRules,
   tableHooks?: TableHooks,
+  broadcast?: BroadcastFn,
 ): { exact: RouteMap; pattern: RouteMap } {
   const tableName = getTableName(table);
   const columns = getColumns(table);
@@ -168,6 +170,8 @@ export function generateCrudHandlers(
       }
     }
 
+    broadcast?.(tableName, "INSERT", createdRecord);
+
     return Response.json(createdRecord, { status: 201 });
   }
 
@@ -263,6 +267,8 @@ export function generateCrudHandlers(
       }
     }
 
+    broadcast?.(tableName, "UPDATE", rows[0]);
+
     return Response.json(rows[0]);
   }
 
@@ -314,6 +320,8 @@ export function generateCrudHandlers(
       }
     }
 
+    broadcast?.(tableName, "DELETE", rows[0]);
+
     return Response.json({ deleted: true });
   }
 
@@ -341,6 +349,7 @@ export function generateAllCrudHandlers(
   extractAuth: ExtractAuth,
   rules?: Record<string, TableRules>,
   hooks?: Record<string, TableHooks>,
+  broadcast?: BroadcastFn,
 ): { exact: RouteMap; pattern: RouteMap } {
   const exact: RouteMap = {};
   const pattern: RouteMap = {};
@@ -363,6 +372,7 @@ export function generateAllCrudHandlers(
       extractAuth,
       rules?.[tableName],
       hooks?.[tableName],
+      broadcast,
     );
 
     Object.assign(exact, handlers.exact);

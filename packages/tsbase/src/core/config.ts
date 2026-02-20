@@ -46,6 +46,9 @@ export interface TSBaseConfig {
   cors?: {
     origins?: string[]; // required in production
   };
+  realtime?: {
+    enabled?: boolean;
+  };
   development?: boolean; // default: NODE_ENV !== 'production'
   database?: DatabaseConfig; // default: { driver: "sqlite", path: "./data/db.sqlite" }
   /** @deprecated Use `database.path` instead */
@@ -90,6 +93,9 @@ export interface ResolvedConfig {
   };
   cors: {
     origins: string[];
+  };
+  realtime: {
+    enabled: boolean;
   };
   development: boolean;
   database: ResolvedDatabaseConfig;
@@ -155,6 +161,9 @@ export function resolveConfig(config?: TSBaseConfig): ResolvedConfig {
     },
     cors: {
       origins: config?.cors?.origins ?? [],
+    },
+    realtime: {
+      enabled: config?.realtime?.enabled ?? false,
     },
     development: isDev,
     database,
