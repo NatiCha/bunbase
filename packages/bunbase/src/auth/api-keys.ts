@@ -7,6 +7,16 @@ import type { AuthUser } from "../api/types.ts";
 import { validateCsrf } from "./csrf.ts";
 import { isBearerOnly } from "./middleware.ts";
 
+export async function deleteUserApiKeys(
+  db: AnyDb,
+  schema: InternalSchema,
+  userId: string,
+): Promise<void> {
+  await (db as any)
+    .delete(schema.apiKeys)
+    .where(eq(schema.apiKeys.userId, userId));
+}
+
 interface ApiKeyRoutesDeps {
   db: AnyDb;
   internalSchema: InternalSchema;
@@ -37,7 +47,7 @@ function hashApiKey(key: string): string {
 }
 
 export function createApiKeyRoutes(deps: ApiKeyRoutesDeps) {
-  const { db, internalSchema, extractAuth } = deps;
+  const { db, internalSchema, config, extractAuth } = deps;
 
   return {
     "/auth/api-keys": {
@@ -61,7 +71,7 @@ export function createApiKeyRoutes(deps: ApiKeyRoutesDeps) {
 
         const schema = z.object({
           name: z.string().min(1).max(255),
-          expiresInDays: z.number().int().positive().optional(),
+          expiresInDays: z.number().int().min(0).optional(),
         });
 
         const result = schema.safeParse(body);
@@ -74,14 +84,34 @@ export function createApiKeyRoutes(deps: ApiKeyRoutesDeps) {
         }
 
         const { name, expiresInDays } = result.data;
+        const { defaultExpirationDays, maxExpirationDays } = config.auth.apiKeys;
         const { rawKey, keyPrefix } = generateApiKey();
         const keyHash = hashApiKey(rawKey);
         const id = Bun.randomUUIDv7();
         const createdAt = new Date().toISOString();
-        const expiresAt =
-          expiresInDays != null
-            ? Math.floor(Date.now() / 1000) + expiresInDays * 86400
-            : null;
+
+        let expiresAt: number | null;
+        if (expiresInDays === 0) {
+          // Explicit infinite — bypasses max check
+          expiresAt = null;
+        } else if (expiresInDays === undefined) {
+          // Apply config default
+          if (defaultExpirationDays === 0) {
+            expiresAt = null;
+          } else {
+            expiresAt = Math.floor(Date.now() / 1000) + defaultExpirationDays * 86400;
+          }
+        } else {
+          // Explicit positive value — enforce cap if set
+          if (maxExpirationDays !== null && expiresInDays > maxExpirationDays) {
+            return jsonError(
+              "VALIDATION_ERROR",
+              `Expiration exceeds maximum allowed days (${maxExpirationDays})`,
+              400,
+            );
+          }
+          expiresAt = Math.floor(Date.now() / 1000) + expiresInDays * 86400;
+        }
 
         await (db as any).insert(internalSchema.apiKeys).values({
           id,

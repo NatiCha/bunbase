@@ -4,6 +4,7 @@ import type { AnyDb } from "../core/db-types.ts";
 import type { InternalSchema } from "../core/internal-schema.ts";
 import { hashPassword } from "./passwords.ts";
 import { createSession, deleteUserSessions } from "./sessions.ts";
+import { deleteUserApiKeys } from "./api-keys.ts";
 import {
   appendResponseCookies,
   serializeCookie,
@@ -130,11 +131,8 @@ export function createEmailRoutes(deps: EmailRouteDeps) {
               console.error(
                 `[BunBase] Email webhook failed: ${webhookResponse.status} ${webhookResponse.statusText}`,
               );
-              return jsonError(
-                "INTERNAL_SERVER_ERROR",
-                "Failed to dispatch password reset email",
-                500,
-              );
+              // Fall through to return success — do not expose whether the
+              // email exists (webhook failures must not be an enumeration oracle)
             }
           } else if (isDev) {
             console.log(
@@ -224,8 +222,9 @@ export function createEmailRoutes(deps: EmailRouteDeps) {
           .where(eq(usersTable.id, tokenRow.userId))
           ;
 
-        // Delete all sessions and tokens
+        // Delete all sessions, API keys, and tokens
         await deleteUserSessions(db, internalSchema, tokenRow.userId);
+        await deleteUserApiKeys(db, internalSchema, tokenRow.userId);
         await (db as any)
           .delete(tokens)
           .where(and(eq(tokens.userId, tokenRow.userId), eq(tokens.type, "password_reset")))

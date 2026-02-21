@@ -13,9 +13,10 @@ import {
   serializeCookie,
   sessionCookieOptions,
 } from "../cookies.ts";
-import { setCsrfCookie } from "../csrf.ts";
+import { setCsrfCookie, validateCsrf } from "../csrf.ts";
 import type { AuthHooks } from "../../hooks/auth-types.ts";
 import { ApiError } from "../../api/helpers.ts";
+import { extractAuth } from "../middleware.ts";
 
 const SESSION_COOKIE = "bunbase_session";
 const OAUTH_STATE_COOKIE = "oauth_state";
@@ -71,6 +72,31 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
     return undefined;
   }
 
+  function buildStateCookie(stateObj: object, dev: boolean): string {
+    const value = encodeURIComponent(JSON.stringify(stateObj));
+    return `${OAUTH_STATE_COOKIE}=${value}; Path=/; Max-Age=600; HttpOnly; SameSite=lax${dev ? "" : "; Secure"}`;
+  }
+
+  function clearStateCookie(dev: boolean): string {
+    return `${OAUTH_STATE_COOKIE}=; Path=/; Max-Age=0${dev ? "" : "; Secure"}`;
+  }
+
+  /** Extract and parse the state cookie, supporting legacy plain-UUID format. */
+  function parseStateCookie(req: Request): { nonce: string; action: string; userId?: string } | null {
+    const cookieHeader = req.headers.get("cookie") ?? "";
+    const rawPart = cookieHeader
+      .split(";")
+      .find((c) => c.trim().startsWith(`${OAUTH_STATE_COOKIE}=`));
+    if (!rawPart) return null;
+    const rawValue = rawPart.trim().slice(OAUTH_STATE_COOKIE.length + 1);
+    try {
+      return JSON.parse(decodeURIComponent(rawValue));
+    } catch {
+      // Legacy: plain UUID string — treat as login nonce
+      return { nonce: rawValue, action: "login" };
+    }
+  }
+
   const routes: Record<string, unknown> = {};
 
   for (const [providerName, provider] of Object.entries(allProviders)) {
@@ -81,18 +107,14 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
       ? "http://localhost:3000"
       : oauthConfig.redirectUrl ?? "";
 
-    // GET /auth/oauth/:provider → redirect to provider
+    const redirectUri = `${baseCallbackUrl}/auth/oauth/${providerName}/callback`;
+
+    // GET /auth/oauth/:provider → redirect to provider (login initiation)
     routes[`/auth/oauth/${providerName}`] = {
       GET(_req: Request): Response {
-        const state = Bun.randomUUIDv7();
-        const redirectUri = `${baseCallbackUrl}/auth/oauth/${providerName}/callback`;
-        const authUrl = provider.getAuthUrl(
-          providerConfig.clientId,
-          redirectUri,
-          state,
-        );
-
-        const stateCookie = `${OAUTH_STATE_COOKIE}=${state}; Path=/; Max-Age=600; HttpOnly; SameSite=lax${isDev ? "" : "; Secure"}`;
+        const nonce = Bun.randomUUIDv7();
+        const authUrl = provider.getAuthUrl(providerConfig.clientId, redirectUri, nonce);
+        const stateCookie = buildStateCookie({ nonce, action: "login" }, isDev);
 
         return new Response(null, {
           status: 302,
@@ -100,6 +122,30 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
             Location: authUrl,
             "Set-Cookie": stateCookie,
           },
+        });
+      },
+    };
+
+    // POST /auth/oauth/:provider/link → link initiation (requires active session + CSRF)
+    routes[`/auth/oauth/${providerName}/link`] = {
+      async POST(req: Request): Promise<Response> {
+        if (!validateCsrf(req)) {
+          return jsonError("FORBIDDEN", "Invalid CSRF token", 403);
+        }
+
+        const currentUser = await extractAuth(req, db, internalSchema, usersTable);
+        if (!currentUser) {
+          return jsonError("UNAUTHORIZED", "Not authenticated", 401);
+        }
+
+        const nonce = Bun.randomUUIDv7();
+        const stateObj = { nonce, action: "link", userId: currentUser.id };
+        const stateCookie = buildStateCookie(stateObj, isDev);
+        const authUrl = provider.getAuthUrl(providerConfig.clientId, redirectUri, nonce);
+
+        return new Response(null, {
+          status: 302,
+          headers: { Location: authUrl, "Set-Cookie": stateCookie },
         });
       },
     };
@@ -115,19 +161,14 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
           return jsonError("BAD_REQUEST", "Missing code or state", 400);
         }
 
-        // Verify state
-        const cookieHeader = req.headers.get("cookie") ?? "";
-        const storedState = cookieHeader
-          .split(";")
-          .find((c) => c.trim().startsWith(`${OAUTH_STATE_COOKIE}=`))
-          ?.split("=")[1]
-          ?.trim();
-
-        if (storedState !== state) {
+        // Parse and verify state cookie
+        const parsedState = parseStateCookie(req);
+        if (!parsedState || parsedState.nonce !== state) {
           return jsonError("BAD_REQUEST", "Invalid OAuth state", 400);
         }
 
-        const redirectUri = `${baseCallbackUrl}/auth/oauth/${providerName}/callback`;
+        const { action } = parsedState;
+        const clearState = clearStateCookie(isDev);
 
         try {
           const { accessToken } = await provider.exchangeCode(
@@ -150,7 +191,54 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
             }
           }
 
-          // Check for existing OAuth account link
+          // ── Link flow ─────────────────────────────────────────────────────────
+          if (action === "link") {
+            // Re-authenticate to confirm the session is still valid
+            const currentUser = await extractAuth(req, db, internalSchema, usersTable);
+            if (!currentUser) {
+              return jsonError("UNAUTHORIZED", "Not authenticated", 401);
+            }
+
+            // Verify the authenticated identity matches what was in the state cookie.
+            // After this check, use currentUser.id exclusively — do not trust parsedState.userId further.
+            if (currentUser.id !== parsedState.userId) {
+              return jsonError("FORBIDDEN", "Identity mismatch", 403);
+            }
+
+            const targetUserId = currentUser.id;
+
+            // Check if provider account is already linked to any user
+            const existingLinkRows = await (db as any)
+              .select({ userId: oauthAccounts.userId })
+              .from(oauthAccounts)
+              .where(
+                and(
+                  eq(oauthAccounts.provider, providerName),
+                  eq(oauthAccounts.providerAccountId, userInfo.id),
+                ),
+              );
+
+            if (existingLinkRows[0]) {
+              return jsonError("CONFLICT", "Provider account already linked to a user", 409);
+            }
+
+            await (db as any).insert(oauthAccounts).values({
+              id: Bun.randomUUIDv7(),
+              userId: targetUserId,
+              provider: providerName,
+              providerAccountId: userInfo.id,
+              createdAt: new Date().toISOString(),
+            });
+
+            const redirectTo = oauthConfig.redirectUrl ?? "/";
+            return new Response(null, {
+              status: 302,
+              headers: { Location: `${redirectTo}?linked=true`, "Set-Cookie": clearState },
+            });
+          }
+
+          // ── Login flow ────────────────────────────────────────────────────────
+          // Check for existing OAuth account link by (provider, providerAccountId)
           const existingOAuthRows = await (db as any)
             .select({ userId: oauthAccounts.userId })
             .from(oauthAccounts)
@@ -159,8 +247,7 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
                 eq(oauthAccounts.provider, providerName),
                 eq(oauthAccounts.providerAccountId, userInfo.id),
               ),
-            )
-            ;
+            );
 
           const existingOAuth = existingOAuthRows[0];
           let userId: string;
@@ -169,19 +256,30 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
           if (existingOAuth) {
             userId = existingOAuth.userId;
           } else {
-            // Check if user with this email exists
+            // Check if a user with this email already exists
             const existingUserRows = await (db as any)
               .select({ id: usersTable.id })
               .from(usersTable)
-              .where(eq(usersTable.email, userInfo.email))
-              ;
+              .where(eq(usersTable.email, userInfo.email));
 
             const existingUser = existingUserRows[0];
 
             if (existingUser) {
+              // Email collision: only auto-link when the provider confirms the email is verified.
+              // Unverified emails can be set by an attacker → block to prevent account takeover.
+              if (userInfo.emailVerified !== true) {
+                const redirectTo = oauthConfig.redirectUrl ?? "/";
+                return new Response(null, {
+                  status: 302,
+                  headers: {
+                    Location: `${redirectTo}?error=ACCOUNT_LINK_REQUIRED`,
+                    "Set-Cookie": clearState,
+                  },
+                });
+              }
               userId = existingUser.id;
             } else {
-              // Create new user
+              // No collision: create a new user
               isNewUser = true;
               userId = Bun.randomUUIDv7();
               const insertData: Record<string, unknown> = {
@@ -190,7 +288,6 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
                 passwordHash: null,
                 role: "user",
               };
-              // Add name if the column exists
               if (usersTable.name) {
                 insertData.name = userInfo.name ?? null;
               }
@@ -208,8 +305,7 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
                   provider: providerName,
                   providerAccountId: userInfo.id,
                   createdAt: new Date().toISOString(),
-                })
-                ;
+                });
             } catch (linkErr) {
               if (!isUniqueConstraintError(linkErr)) throw linkErr;
               // Unique constraint fired — a concurrent callback already linked this
@@ -222,8 +318,7 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
                     eq(oauthAccounts.provider, providerName),
                     eq(oauthAccounts.providerAccountId, userInfo.id),
                   ),
-                )
-                ;
+                );
               if (!raceRows[0]) throw linkErr; // constraint fired but no row found — unexpected
               userId = raceRows[0].userId;
               isNewUser = false;
@@ -254,8 +349,6 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
             sessionCookieOptions(isDev),
           );
           const csrf = setCsrfCookie(isDev);
-          const clearState = `${OAUTH_STATE_COOKIE}=; Path=/; Max-Age=0`;
-
           const redirectTo = oauthConfig.redirectUrl ?? "/";
 
           return new Response(

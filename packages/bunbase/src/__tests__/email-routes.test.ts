@@ -88,7 +88,7 @@ test("password reset posts webhook payload when configured", async () => {
   }
 });
 
-test("password reset returns server error when webhook fails", async () => {
+test("password reset returns 200 even when webhook fails (BB-AUTH-002: no enumeration oracle)", async () => {
   const { sqlite, db, internalSchema } = setupEmailDb();
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => new Response("bad", { status: 500 })) as unknown as typeof fetch;
@@ -117,9 +117,58 @@ test("password reset returns server error when webhook fails", async () => {
       }),
     );
 
-    expect(response.status).toBe(500);
+    // Must always return 200 — webhook failures must not leak account existence
+    expect(response.status).toBe(200);
+    const body = await response.json() as any;
+    expect(body.message).toContain("If an account");
   } finally {
     globalThis.fetch = originalFetch;
     sqlite.close();
   }
+});
+
+test("reset-password revokes all API keys for user (BB-APIKEY-004)", async () => {
+  const { sqlite, db, internalSchema } = setupEmailDb();
+
+  // Seed a raw token so we can test the reset flow directly
+  const rawToken = "test-reset-token-abcdef1234567890";
+  const encoder = new TextEncoder();
+  const data = encoder.encode(rawToken);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const tokenHash = Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+
+  sqlite.run(
+    "INSERT INTO _verification_tokens (id, user_id, token_hash, type, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ["tok-1", "user-1", tokenHash, "password_reset", expiresAt, new Date().toISOString()],
+  );
+
+  // Seed an API key for the user
+  sqlite.run(
+    "INSERT INTO _api_keys (id, user_id, key_hash, key_prefix, name, expires_at, last_used_at, created_at) VALUES (?, ?, ?, ?, ?, NULL, NULL, ?)",
+    ["key-1", "user-1", "somekeyhash", "bb_live_ab", "Test Key", new Date().toISOString()],
+  );
+
+  const routes = createEmailRoutes({
+    db,
+    internalSchema,
+    config: makeResolvedConfig({ development: true }),
+    usersTable,
+  });
+
+  const response = await routes["/auth/reset-password"].POST(
+    new Request("http://localhost/auth/reset-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: rawToken, password: "newpassword123" }),
+    }),
+  );
+
+  expect(response.status).toBe(200);
+
+  // API key must be deleted
+  const keyRow = sqlite.query("SELECT id FROM _api_keys WHERE user_id = 'user-1'").get() as any;
+  expect(keyRow).toBeNull();
 });

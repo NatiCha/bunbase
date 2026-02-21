@@ -19,6 +19,8 @@ export interface OAuthUserInfo {
   email: string;
   name?: string;
   avatar?: string;
+  /** Whether the provider has verified ownership of this email address. */
+  emailVerified?: boolean;
 }
 
 export interface CustomOAuthProviderConfig {

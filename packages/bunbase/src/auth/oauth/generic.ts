@@ -66,6 +66,8 @@ export function createGenericOAuthProvider(
       if (data.name != null) userInfo.name = String(data.name);
       const avatarVal = data.avatar ?? data.picture;
       if (avatarVal != null) userInfo.avatar = String(avatarVal);
+      const verifiedVal = data.email_verified ?? data.verified;
+      if (typeof verifiedVal === "boolean") userInfo.emailVerified = verifiedVal;
       return userInfo;
     },
   };

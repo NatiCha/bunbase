@@ -268,7 +268,10 @@ test("POST /auth/api-keys creates a key and returns it once", async () => {
   expect(body.name).toBe("CI Pipeline");
   expect(body.key).toMatch(/^bb_live_[a-f0-9]{32}$/);
   expect(body.keyPrefix).toMatch(/^bb_live_[a-f0-9]{8}$/);
-  expect(body.expiresAt).toBeNull();
+  // BB-APIKEY-003: no expiresInDays → applies 365-day default (not null)
+  const expectedExpiry = Math.floor(Date.now() / 1000) + 365 * 86400;
+  expect(body.expiresAt).toBeGreaterThan(expectedExpiry - 10);
+  expect(body.expiresAt).toBeLessThanOrEqual(expectedExpiry + 10);
   expect(body.id).toBeDefined();
 
   // Verify stored in DB
@@ -304,6 +307,81 @@ test("POST /auth/api-keys with expiresInDays sets expiry", async () => {
   const res = await routes["/auth/api-keys"].POST(req);
   const body = await res.json() as any;
   expect(body.expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1000));
+
+  sqlite.close();
+});
+
+test("POST /auth/api-keys with expiresInDays:0 creates non-expiring key (BB-APIKEY-003)", async () => {
+  const { sqlite, db, internalSchema } = setupRoutesDb();
+  sqlite.run("INSERT INTO users (id, email, role) VALUES ('u1', 'alice@example.com', 'user')");
+
+  const routes = createApiKeyRoutes({
+    db,
+    internalSchema,
+    config: makeResolvedConfig({ development: true }),
+    usersTable,
+    extractAuth: async () => ({ id: "u1", email: "alice@example.com", role: "user" }) as any,
+  });
+
+  const req = new Request("http://localhost/auth/api-keys", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer token" },
+    body: JSON.stringify({ name: "Forever Key", expiresInDays: 0 }),
+  });
+
+  const res = await routes["/auth/api-keys"].POST(req);
+  expect(res.status).toBe(201);
+  const body = await res.json() as any;
+  expect(body.expiresAt).toBeNull();
+
+  sqlite.close();
+});
+
+test("POST /auth/api-keys enforces maxExpirationDays cap (BB-APIKEY-003)", async () => {
+  const { sqlite, db, internalSchema } = setupRoutesDb();
+  sqlite.run("INSERT INTO users (id, email, role) VALUES ('u1', 'alice@example.com', 'user')");
+
+  const routes = createApiKeyRoutes({
+    db,
+    internalSchema,
+    config: makeResolvedConfig({
+      development: true,
+      auth: { apiKeys: { defaultExpirationDays: 365, maxExpirationDays: 30 } } as any,
+    }),
+    usersTable,
+    extractAuth: async () => ({ id: "u1", email: "alice@example.com", role: "user" }) as any,
+  });
+
+  // expiresInDays > maxExpirationDays → 400
+  const req = new Request("http://localhost/auth/api-keys", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer token" },
+    body: JSON.stringify({ name: "Too Long Key", expiresInDays: 60 }),
+  });
+
+  const res = await routes["/auth/api-keys"].POST(req);
+  expect(res.status).toBe(400);
+  const body = await res.json() as any;
+  expect(body.error.code).toBe("VALIDATION_ERROR");
+
+  // expiresInDays within cap → 201
+  const req2 = new Request("http://localhost/auth/api-keys", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer token" },
+    body: JSON.stringify({ name: "Within Cap", expiresInDays: 30 }),
+  });
+  const res2 = await routes["/auth/api-keys"].POST(req2);
+  expect(res2.status).toBe(201);
+
+  // expiresInDays: 0 (explicit infinite) bypasses cap → 201 with null expiresAt
+  const req3 = new Request("http://localhost/auth/api-keys", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer token" },
+    body: JSON.stringify({ name: "Infinite", expiresInDays: 0 }),
+  });
+  const res3 = await routes["/auth/api-keys"].POST(req3);
+  expect(res3.status).toBe(201);
+  expect((await res3.json() as any).expiresAt).toBeNull();
 
   sqlite.close();
 });

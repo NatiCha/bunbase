@@ -43,6 +43,7 @@ export const discord: OAuthProvider = {
       email: string;
       username: string;
       avatar?: string;
+      verified?: boolean;
     };
     return {
       id: data.id,
@@ -51,6 +52,7 @@ export const discord: OAuthProvider = {
       avatar: data.avatar
         ? `https://cdn.discordapp.com/avatars/${data.id}/${data.avatar}.png`
         : undefined,
+      emailVerified: data.verified,
     };
   },
 };

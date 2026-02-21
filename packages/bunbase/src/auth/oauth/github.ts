@@ -53,16 +53,18 @@ export const github: OAuthProvider = {
     const emails = (await emailRes.json()) as Array<{
       email: string;
       primary: boolean;
+      verified: boolean;
     }>;
 
-    const primaryEmail =
-      emails.find((e) => e.primary)?.email ?? emails[0]?.email ?? "";
+    const primaryEmailEntry = emails.find((e) => e.primary) ?? emails[0];
+    const primaryEmail = primaryEmailEntry?.email ?? "";
 
     return {
       id: String(user.id),
       email: primaryEmail,
       name: user.name,
       avatar: user.avatar_url,
+      emailVerified: primaryEmailEntry?.verified,
     };
   },
 };

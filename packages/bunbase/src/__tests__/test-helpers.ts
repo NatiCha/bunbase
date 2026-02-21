@@ -23,6 +23,7 @@ export function makeResolvedConfig(
       tokenExpiry: authOverrides.tokenExpiry ?? 60 * 60,
       email: authOverrides.email,
       oauth: authOverrides.oauth,
+      apiKeys: authOverrides.apiKeys ?? { defaultExpirationDays: 365, maxExpirationDays: null },
     },
     storage: {
       driver: storageOverrides.driver ?? "local",

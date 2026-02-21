@@ -14,7 +14,7 @@ import {
 } from "./cookies.ts";
 import { setCsrfCookie, validateCsrf } from "./csrf.ts";
 import { checkRateLimit, getClientIp } from "./rate-limit.ts";
-import { extractAuth, extractSessionId } from "./middleware.ts";
+import { extractAuth, extractSessionId, isBearerOnly } from "./middleware.ts";
 import { z } from "zod/v4";
 import type { AuthHooks } from "../hooks/auth-types.ts";
 import { ApiError } from "../api/helpers.ts";
@@ -409,7 +409,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
 
     "/auth/logout": {
       async POST(req: Request): Promise<Response> {
-        if (!validateCsrf(req)) {
+        if (!isBearerOnly(req) && !validateCsrf(req)) {
           return jsonError("FORBIDDEN", "Invalid CSRF token", 403);
         }
 

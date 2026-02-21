@@ -44,12 +44,14 @@ export const google: OAuthProvider = {
       email: string;
       name?: string;
       picture?: string;
+      verified_email?: boolean;
     };
     return {
       id: data.id,
       email: data.email,
       name: data.name,
       avatar: data.picture,
+      emailVerified: data.verified_email,
     };
   },
 };

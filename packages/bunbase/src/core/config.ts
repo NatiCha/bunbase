@@ -34,6 +34,12 @@ export interface BunBaseConfig {
       /** Custom OAuth providers keyed by a unique provider name. */
       providers?: Record<string, import("../auth/oauth/types.ts").CustomOAuthProviderConfig>;
     };
+    apiKeys?: {
+      /** Default TTL for new keys in days. 0 = infinite by default. Default: 365. */
+      defaultExpirationDays?: number;
+      /** Hard cap on TTL. Keys cannot be created with a longer TTL. null = no cap. */
+      maxExpirationDays?: number;
+    };
   };
   storage?: {
     driver?: "local" | "s3";
@@ -90,6 +96,12 @@ export interface ResolvedConfig {
       github?: OAuthProviderConfig;
       discord?: OAuthProviderConfig;
       providers?: Record<string, import("../auth/oauth/types.ts").CustomOAuthProviderConfig>;
+    };
+    apiKeys: {
+      /** Default TTL in days. 0 = new keys are infinite by default. */
+      defaultExpirationDays: number;
+      /** Hard cap in days. null = no cap. */
+      maxExpirationDays: number | null;
     };
   };
   storage: {
@@ -161,11 +173,33 @@ export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
   const isDev = config?.development ?? process.env.NODE_ENV !== "production";
   const database = resolveDatabaseConfig(config);
 
+  // Validate and resolve apiKeys config
+  const rawApiKeys = config?.auth?.apiKeys;
+  const defaultExpirationDays = rawApiKeys?.defaultExpirationDays ?? 365;
+  const maxExpirationDays = rawApiKeys?.maxExpirationDays ?? null;
+
+  if (rawApiKeys?.defaultExpirationDays !== undefined && defaultExpirationDays < 0) {
+    throw new Error("BunBase: auth.apiKeys.defaultExpirationDays must be >= 0");
+  }
+  if (maxExpirationDays !== null && maxExpirationDays < 1) {
+    throw new Error("BunBase: auth.apiKeys.maxExpirationDays must be >= 1");
+  }
+  if (
+    maxExpirationDays !== null &&
+    defaultExpirationDays > 0 &&
+    defaultExpirationDays > maxExpirationDays
+  ) {
+    throw new Error(
+      `BunBase: auth.apiKeys.defaultExpirationDays (${defaultExpirationDays}) cannot exceed maxExpirationDays (${maxExpirationDays})`,
+    );
+  }
+
   const resolved: ResolvedConfig = {
     auth: {
       tokenExpiry: config?.auth?.tokenExpiry ?? 30 * 24 * 60 * 60, // 30 days
       email: config?.auth?.email,
       oauth: config?.auth?.oauth,
+      apiKeys: { defaultExpirationDays, maxExpirationDays },
     },
     storage: {
       driver: config?.storage?.driver ?? "local",
