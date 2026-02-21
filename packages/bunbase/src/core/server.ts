@@ -1,4 +1,5 @@
 import pkg from "../../package.json";
+import type { AnyRelations } from "drizzle-orm/relations";
 import type { BunBaseConfig } from "./config.ts";
 import { resolveConfig, type ResolvedConfig } from "./config.ts";
 import { createDatabase, runUserMigrations } from "./database.ts";
@@ -29,27 +30,44 @@ import { PresenceTracker } from "../realtime/presence.ts";
 import { handleWebSocketMessage, handleWebSocketClose } from "../realtime/handler.ts";
 import adminUI from "../../admin-ui/index.html";
 
+/**
+ * BunBase server composition and request orchestration.
+ * @module
+ */
+
 export type RouteMap = Record<
   string,
   Record<string, (req: Request) => Response | Promise<Response>>
 >;
 
+/** Context passed to `extend` route builders. */
 export interface ExtendContext {
   db: AnyDb;
   extractAuth: (req: Request) => Promise<AuthUser | null>;
 }
 
-export interface CreateServerOptions {
-  schema: Record<string, unknown>;
-  relations?: unknown;
-  rules?: Record<string, unknown>;
-  hooks?: Record<string, unknown>;
+/**
+ * Options for creating a BunBase server.
+ *
+ * @remarks
+ * `relations` is separate from `schema` because Drizzle relation metadata is a
+ * distinct object produced by `defineRelations(schema, ...)`. Pass both when
+ * using `expand` on CRUD endpoints.
+ */
+export interface CreateServerOptions<
+  TSchema extends Record<string, unknown> = Record<string, unknown>,
+> {
+  schema: TSchema;
+  relations?: AnyRelations;
+  rules?: Record<string, TableRules>;
+  hooks?: Record<string, TableHooks>;
   authHooks?: AuthHooks;
   jobs?: JobDefinition[];
   config?: BunBaseConfig;
   extend?: (ctx: ExtendContext) => RouteMap;
 }
 
+/** Runtime BunBase server instance. */
 export interface BunBaseServer {
   db: AnyDb;
   adapter: DatabaseAdapter;
@@ -57,6 +75,19 @@ export interface BunBaseServer {
   listen: (port?: number) => ReturnType<typeof Bun.serve>;
 }
 
+/**
+ * Create a BunBase server from schema, rules, and config.
+ *
+ * @param options Server options containing schema, rules, hooks, routes, and config.
+ * @returns A BunBase server with `listen()`, `db`, `adapter`, and resolved `config`.
+ *
+ * @example
+ * ```ts
+ * const rules = defineRules({ tasks: { list: () => null, create: ({ auth }) => !!auth } });
+ * const server = createServer({ schema, relations, rules });
+ * server.listen(3000);
+ * ```
+ */
 export function createServer(options: CreateServerOptions): BunBaseServer {
   const tableRules =
     options.rules as Record<string, TableRules> | undefined;
@@ -213,6 +244,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
   }
 
   // Merge extend routes (if provided)
+  // Extend routes must live under /api/* so the same CORS/CSRF protections apply.
   if (options.extend) {
     const extendRoutes = options.extend({ db, extractAuth });
     for (const [path, handlers] of Object.entries(extendRoutes)) {

@@ -1,3 +1,8 @@
+/**
+ * Cookie serialization and auth cookie defaults.
+ * @module
+ */
+
 export interface CookieOptions {
   httpOnly: boolean;
   secure: boolean;
@@ -6,6 +11,7 @@ export interface CookieOptions {
   maxAge: number;
 }
 
+/** Session cookie defaults (`HttpOnly`, 30 days, secure outside development). */
 export function sessionCookieOptions(isDev: boolean): CookieOptions {
   return {
     httpOnly: true,
@@ -16,6 +22,7 @@ export function sessionCookieOptions(isDev: boolean): CookieOptions {
   };
 }
 
+/** CSRF cookie defaults (client-readable, 30 days, secure outside development). */
 export function csrfCookieOptions(isDev: boolean): CookieOptions {
   return {
     httpOnly: false, // JS needs to read this
@@ -26,6 +33,7 @@ export function csrfCookieOptions(isDev: boolean): CookieOptions {
   };
 }
 
+/** Serialize a cookie string from structured options. */
 export function serializeCookie(
   name: string,
   value: string,
@@ -37,14 +45,17 @@ export function serializeCookie(
   return cookie;
 }
 
+/** Clear an HttpOnly cookie by setting `Max-Age=0`. */
 export function clearCookie(name: string, isDev: boolean): string {
   return `${name}=; Path=/; Max-Age=0; SameSite=lax${isDev ? "" : "; Secure"}; HttpOnly`;
 }
 
+/** Clear a non-HttpOnly client cookie by setting `Max-Age=0`. */
 export function clearClientCookie(name: string, isDev: boolean): string {
   return `${name}=; Path=/; Max-Age=0; SameSite=lax${isDev ? "" : "; Secure"}`;
 }
 
+/** Append multiple `Set-Cookie` headers onto a `ResponseInit`. */
 export function appendResponseCookies(
   init: ResponseInit,
   cookies: string[],
@@ -60,6 +71,7 @@ export function appendResponseCookies(
   };
 }
 
+/** Parse a Cookie header into a key/value record. */
 export function parseCookies(cookieHeader: string): Record<string, string> {
   const cookies: Record<string, string> = {};
   if (!cookieHeader) return cookies;

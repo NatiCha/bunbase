@@ -1,7 +1,15 @@
 import type { OAuthProvider, OAuthUserInfo, CustomOAuthProviderConfig } from "./types.ts";
 
+/**
+ * Generic OAuth provider factory used by `defineOAuthProvider`.
+ * @module
+ */
+
 const DEFAULT_SCOPES = ["openid", "email", "profile"];
 
+/**
+ * Create a custom OAuth provider from explicit endpoint config.
+ */
 export function createGenericOAuthProvider(
   name: string,
   config: CustomOAuthProviderConfig,

@@ -1,3 +1,9 @@
+/**
+ * BunBase configuration types and resolution helpers.
+ * @module
+ */
+
+/** OAuth client credentials for built-in providers. */
 export interface OAuthProviderConfig {
   clientId: string;
   clientSecret: string;
@@ -75,15 +81,23 @@ export interface BunBaseConfig {
   trustedProxies?: string[];
 }
 
+/**
+ * Define BunBase config with full type checking.
+ *
+ * @param config User config.
+ * @returns The same config object.
+ */
 export function defineConfig(config: BunBaseConfig): BunBaseConfig {
   return config;
 }
 
+/** Normalized database configuration used at runtime. */
 export interface ResolvedDatabaseConfig {
   driver: "sqlite" | "postgres" | "mysql";
   url: string; // normalized connection string
 }
 
+/** Fully-resolved BunBase runtime configuration with defaults applied. */
 export interface ResolvedConfig {
   auth: {
     tokenExpiry: number;
@@ -169,6 +183,19 @@ function resolveDatabaseConfig(config?: BunBaseConfig): ResolvedDatabaseConfig {
   return { driver: "sqlite", url: config?.dbPath ?? "./data/db.sqlite" };
 }
 
+/**
+ * Resolve user config into BunBase runtime config.
+ *
+ * @param config Optional partial config.
+ * @returns Resolved config with defaults and production validations applied.
+ *
+ * @remarks
+ * Defaults:
+ * - `auth.tokenExpiry`: 30 days
+ * - `auth.apiKeys.defaultExpirationDays`: 365
+ * - `auth.apiKeys.maxExpirationDays`: `null`
+ * - `storage.maxFileSize`: 10MB
+ */
 export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
   const isDev = config?.development ?? process.env.NODE_ENV !== "production";
   const database = resolveDatabaseConfig(config);

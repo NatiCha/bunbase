@@ -1,3 +1,8 @@
+/**
+ * OAuth provider contracts used by BunBase OAuth routes.
+ * @module
+ */
+
 export interface OAuthProvider {
   name: string;
   authorizationUrl: string;

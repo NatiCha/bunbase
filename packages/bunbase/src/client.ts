@@ -1,4 +1,10 @@
 import type { Table, InferSelectModel, InferInsertModel } from "drizzle-orm";
+import type { BunBaseErrorCode, BunBaseErrorEnvelope } from "./api/types.ts";
+
+/**
+ * BunBase TypeScript client SDK for CRUD, auth, files, and realtime.
+ * @module
+ */
 
 // ─── Type machinery ───────────────────────────────────────────────────────────
 
@@ -6,13 +12,15 @@ type TableKeys<S> = {
   [K in keyof S]: S[K] extends Table ? K : never;
 }[keyof S];
 
-export interface ListParams {
+export interface ListParams<TExpand extends string = string> {
+  /** JSON filter object encoded into `?filter=...`. */
   filter?: Record<string, unknown>;
   cursor?: string;
   limit?: number;
   sort?: string;
   order?: "asc" | "desc";
-  expand?: string[];
+  /** Relations to expand, e.g. `["owner", "project.team"]`. */
+  expand?: TExpand[];
 }
 
 export interface ListResponse<T> {
@@ -21,9 +29,11 @@ export interface ListResponse<T> {
   hasMore: boolean;
 }
 
-export interface TableClient<TSelect, TInsert> {
-  list(params?: ListParams): Promise<ListResponse<TSelect>>;
-  get(id: string, opts?: { expand?: string[] }): Promise<TSelect | null>;
+type ExpandKeys<TSelect> = Extract<keyof TSelect, string>;
+
+export interface TableClient<TSelect, TInsert, TExpand extends string = ExpandKeys<TSelect> | string> {
+  list(params?: ListParams<TExpand>): Promise<ListResponse<TSelect>>;
+  get(id: string, opts?: { expand?: TExpand[] }): Promise<TSelect | null>;
   create(data: TInsert): Promise<TSelect>;
   update(id: string, data: Partial<TInsert>): Promise<TSelect | null>;
   delete(id: string): Promise<{ deleted: boolean }>;
@@ -43,6 +53,10 @@ interface BunBaseClientOptions {
   apiKey?: string;
 }
 
+export interface BunBaseClientError extends Error {
+  code?: BunBaseErrorCode | string;
+}
+
 // ─── CSRF helper ──────────────────────────────────────────────────────────────
 
 function getCsrfToken(): string {
@@ -53,8 +67,25 @@ function getCsrfToken(): string {
   return match?.split("=")[1]?.trim() ?? "";
 }
 
+async function throwApiError(res: Response, fallback: string): Promise<never> {
+  const parsed = await res.json().catch(() => ({} as Partial<BunBaseErrorEnvelope>));
+  const message = parsed?.error?.message ?? fallback;
+  const err = new Error(message) as BunBaseClientError;
+  err.code = parsed?.error?.code;
+  throw err;
+}
+
 // ─── Factory ──────────────────────────────────────────────────────────────────
 
+/**
+ * Create a BunBase client instance.
+ *
+ * @example
+ * ```ts
+ * const client = createBunBaseClient<{ tasks: typeof tasksTable }>({ url: "http://localhost:3000" });
+ * const page = await client.api.tasks.list({ limit: 20, expand: ["owner"] });
+ * ```
+ */
 export function createBunBaseClient<S extends Record<string, unknown>>(
   options: BunBaseClientOptions,
 ) {
@@ -102,12 +133,7 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
             credentials,
             headers: authHeaders(),
           });
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw Object.assign(new Error((err as any)?.error?.message ?? "List failed"), {
-              code: (err as any)?.error?.code,
-            });
-          }
+          if (!res.ok) await throwApiError(res, "List failed");
           return res.json();
         },
 
@@ -116,12 +142,7 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
           if (opts?.expand) url.searchParams.set("expand", opts.expand.join(","));
           const res = await fetch(url.toString(), { credentials, headers: authHeaders() });
           if (res.status === 404) return null;
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw Object.assign(new Error((err as any)?.error?.message ?? "Get failed"), {
-              code: (err as any)?.error?.code,
-            });
-          }
+          if (!res.ok) await throwApiError(res, "Get failed");
           return res.json();
         },
 
@@ -132,12 +153,7 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
             credentials,
             body: JSON.stringify(data),
           });
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw Object.assign(new Error((err as any)?.error?.message ?? "Create failed"), {
-              code: (err as any)?.error?.code,
-            });
-          }
+          if (!res.ok) await throwApiError(res, "Create failed");
           return res.json();
         },
 
@@ -149,12 +165,7 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
             body: JSON.stringify(data),
           });
           if (res.status === 404) return null;
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw Object.assign(new Error((err as any)?.error?.message ?? "Update failed"), {
-              code: (err as any)?.error?.code,
-            });
-          }
+          if (!res.ok) await throwApiError(res, "Update failed");
           return res.json();
         },
 
@@ -166,12 +177,7 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
               : { "X-CSRF-Token": getCsrfToken() },
             credentials,
           });
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw Object.assign(new Error((err as any)?.error?.message ?? "Delete failed"), {
-              code: (err as any)?.error?.code,
-            });
-          }
+          if (!res.ok) await throwApiError(res, "Delete failed");
           return res.json();
         },
       };

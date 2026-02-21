@@ -12,6 +12,11 @@ import { evaluateRule } from "../rules/evaluator.ts";
 import type { TableRules } from "../rules/types.ts";
 import { extname } from "node:path";
 
+/**
+ * File upload/download/delete routes and storage-driver integration.
+ * @module
+ */
+
 function jsonError(code: string, message: string, status: number): Response {
   return Response.json({ error: { code, message } }, { status });
 }
@@ -45,6 +50,7 @@ interface FileRouteDeps {
   usersTable: any;
 }
 
+/** Create storage driver from resolved config (`local` or `s3`). */
 export function createStorageDriver(config: ResolvedConfig): StorageDriver {
   if (config.storage.driver === "s3" && config.storage.s3) {
     return createS3Storage(config.storage.s3);
@@ -52,6 +58,7 @@ export function createStorageDriver(config: ResolvedConfig): StorageDriver {
   return createLocalStorage(config.storage.localPath);
 }
 
+/** Create authenticated file upload, download, and delete routes. */
 export function createFileRoutes(deps: FileRouteDeps) {
   const { db, adapter, internalSchema, config, schema, rules, usersTable } = deps;
   const storage = createStorageDriver(config);

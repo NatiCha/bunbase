@@ -1,13 +1,25 @@
 import type { Column, Table } from "drizzle-orm";
 import type { SQLiteBunDatabase } from "drizzle-orm/bun-sqlite";
-import type { BunSQLDatabase } from "drizzle-orm/bun-sql";
+import type { BunSQLDatabase } from "drizzle-orm/bun-sql/postgres";
 import type { BunMySqlDatabase } from "drizzle-orm/bun-sql/mysql";
+import type { AnyRelations } from "drizzle-orm/relations";
+
+/**
+ * Dialect-agnostic Drizzle database and schema utility types.
+ * @module
+ */
 
 /**
  * Dialect-agnostic database type.
  * Works with SQLite (bun:sqlite + drizzle), Postgres, and MySQL (Bun.sql + drizzle).
  */
-export type AnyDb = SQLiteBunDatabase | BunSQLDatabase | BunMySqlDatabase;
+export type AnyDb<
+  TSchema extends Record<string, unknown> = Record<string, never>,
+  TRelations extends AnyRelations = AnyRelations,
+> =
+  | SQLiteBunDatabase<TSchema, TRelations>
+  | BunSQLDatabase<TSchema, TRelations>
+  | BunMySqlDatabase<TSchema, TRelations>;
 
 /**
  * Dialect-agnostic table type.

@@ -6,6 +6,11 @@ import type { TableRules } from "../rules/types.ts";
 import type { RealtimeSocketData, ServerMessage } from "./types.ts";
 import { evaluateRule } from "../rules/evaluator.ts";
 
+/**
+ * Realtime subscription state and filtered table change broadcasting.
+ * @module
+ */
+
 export type BroadcastFn = (
   tableName: string,
   action: "INSERT" | "UPDATE" | "DELETE",

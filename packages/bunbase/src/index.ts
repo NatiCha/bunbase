@@ -1,3 +1,10 @@
+/**
+ * BunBase public API surface.
+ *
+ * This module re-exports the server, rules, hooks, auth, jobs, and type utilities
+ * needed to build BunBase applications from scratch.
+ * @module
+ */
 export { createServer } from "./core/server.ts";
 export { defineConfig } from "./core/config.ts";
 export { defineRules } from "./rules/types.ts";
@@ -24,8 +31,9 @@ export { requireAuth, ApiError } from "./api/helpers.ts";
 export { isBearerOnly } from "./auth/middleware.ts";
 export type { BunBaseConfig, ResolvedConfig } from "./core/config.ts";
 export type { BunBaseServer, CreateServerOptions, ExtendContext, RouteMap } from "./core/server.ts";
-export type { AuthUser } from "./api/types.ts";
-export type { Rules, TableRules, RuleArg, RuleFunction } from "./rules/types.ts";
+export type { AuthUser, BunBaseErrorCode, BunBaseErrorEnvelope } from "./api/types.ts";
+export type { Rules, TableRules, RuleArg, RuleFunction, RuleResult } from "./rules/types.ts";
+export type { FilterOperators } from "./crud/filters.ts";
 export type {
   Hooks,
   TableHooks,
@@ -69,4 +77,4 @@ export type { DatabaseAdapter } from "./core/adapter.ts";
 export type { DatabaseConfig, ResolvedDatabaseConfig } from "./core/config.ts";
 export { createGenericOAuthProvider as defineOAuthProvider } from "./auth/oauth/generic.ts";
 export type { CustomOAuthProviderConfig, OAuthProvider, OAuthUserInfo } from "./auth/oauth/types.ts";
-export { defineRelations } from "./crud/relations.ts";
+export { defineRelations, MAX_RELATION_DEPTH } from "./crud/relations.ts";

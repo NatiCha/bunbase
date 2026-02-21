@@ -1,5 +1,15 @@
 import type { OAuthProvider, OAuthUserInfo } from "./types.ts";
 
+/**
+ * Built-in Google OAuth provider implementation.
+ * @module
+ */
+
+/**
+ * Google OAuth provider with default `openid email profile` scopes.
+ *
+ * @remarks Includes `access_type=offline` in auth URL generation.
+ */
 export const google: OAuthProvider = {
   name: "google",
   authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",

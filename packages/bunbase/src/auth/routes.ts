@@ -19,6 +19,11 @@ import { z } from "zod/v4";
 import type { AuthHooks } from "../hooks/auth-types.ts";
 import { ApiError } from "../api/helpers.ts";
 
+/**
+ * Primary auth routes: register, login, logout, and me.
+ * @module
+ */
+
 const SESSION_COOKIE = "bunbase_session";
 const BLOCKED_SIGNUP_FIELDS = new Set([
   "id",
@@ -114,6 +119,14 @@ function resolvePasswordHash(user: UsersRow): string | null {
   return null;
 }
 
+/**
+ * Build BunBase core auth routes.
+ *
+ * @remarks
+ * - `register` and `login` are rate-limited.
+ * - `logout` requires CSRF unless request is bearer-only.
+ * - Signup blocks privileged/internal fields by default.
+ */
 export function createAuthRoutes(deps: AuthRouteDeps) {
   const { db, internalSchema, config, usersTable, authHooks } = deps;
   const isDev = config.development;

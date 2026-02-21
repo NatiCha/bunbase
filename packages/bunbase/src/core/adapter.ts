@@ -1,6 +1,11 @@
 import type { Dialect } from "./db-types.ts";
 
 /**
+ * Adapter interface for dialect-specific raw database operations.
+ * @module
+ */
+
+/**
  * DatabaseAdapter handles dialect-specific operations that can't
  * go through Drizzle ORM:
  *  - DDL bootstrap (CREATE TABLE, CREATE INDEX, ALTER TABLE)

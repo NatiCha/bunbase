@@ -1,13 +1,20 @@
-// Relations support for CRUD queries
-// Uses Drizzle's defineRelations() v2 API for auto-joining
-// This module re-exports relation utilities for user schema definitions
+/**
+ * Relation helpers used by CRUD `expand` support.
+ * @module
+ */
 
 export { defineRelations } from "drizzle-orm/relations";
 
-// Max nesting depth for relational queries
+/** Maximum allowed depth for dotted `expand` relation paths. */
 export const MAX_RELATION_DEPTH = 3;
 
-// Helper to build `with` clause for relational queries
+/**
+ * Build a Drizzle `with` relation map from requested expand keys.
+ *
+ * @param requestedRelations Expand keys from query string, e.g. `["owner", "project.team"]`.
+ * @param maxDepth Maximum dotted depth allowed. Defaults to `MAX_RELATION_DEPTH`.
+ * @returns A `with` clause object, or `undefined` when no valid relation keys remain.
+ */
 export function buildWithClause(
   requestedRelations: string[] | undefined,
   maxDepth: number = MAX_RELATION_DEPTH,

@@ -1,5 +1,15 @@
 import type { OAuthProvider, OAuthUserInfo } from "./types.ts";
 
+/**
+ * Built-in GitHub OAuth provider implementation.
+ * @module
+ */
+
+/**
+ * GitHub OAuth provider.
+ *
+ * @remarks GitHub email is resolved via `/user/emails`, not guaranteed in `/user`.
+ */
 export const github: OAuthProvider = {
   name: "github",
   authorizationUrl: "https://github.com/login/oauth/authorize",

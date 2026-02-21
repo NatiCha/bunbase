@@ -17,6 +17,11 @@ import type { AuthUser } from "../api/types.ts";
 import { errorResponse, ApiError } from "../api/helpers.ts";
 import type { BroadcastFn } from "../realtime/manager.ts";
 
+/**
+ * Generated CRUD route handlers with rules, hooks, pagination, filters, and expand support.
+ * @module
+ */
+
 export type RouteMap = Record<
   string,
   Record<string, (req: Request) => Response | Promise<Response>>
@@ -197,6 +202,8 @@ export function generateCrudHandlers(
 
     const orderBy = buildOrderBy(idColumn, sortColumn, order);
 
+    // `expand` is comma-separated relation keys, e.g. `expand=owner,project.team`.
+    // Keys beyond MAX_RELATION_DEPTH or unknown relation keys are dropped.
     const expandParam = url.searchParams.get("expand");
     const expandFields = expandParam ? expandParam.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
     const withClause = buildWithClause(expandFields);
@@ -354,6 +361,7 @@ export function generateCrudHandlers(
     const where = conditions.length > 1 ? and(...conditions) : conditions[0];
 
     const url = new URL(req.url);
+    // `expand` syntax: comma-separated relation keys (dotted nesting allowed up to depth limit).
     const expandParam = url.searchParams.get("expand");
     const expandFields = expandParam ? expandParam.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
     const withClause = buildWithClause(expandFields);

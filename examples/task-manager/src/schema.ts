@@ -1,3 +1,6 @@
+/**
+ * Example Drizzle schema consumed directly by BunBase server generation.
+ */
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {

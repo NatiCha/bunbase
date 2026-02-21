@@ -1,3 +1,6 @@
+/**
+ * Example custom routes using ExtendContext auth extraction and raw DB access.
+ */
 import type { ExtendContext, RouteMap } from "bunbase";
 
 export function customRoutes({ db, extractAuth }: ExtendContext): RouteMap {

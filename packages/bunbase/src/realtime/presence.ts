@@ -1,5 +1,10 @@
 import type { PresenceUser } from "./types.ts";
 
+/**
+ * In-memory presence tracker keyed by channel and user id.
+ * @module
+ */
+
 interface PresenceEntry {
   meta: Record<string, unknown>;
   connections: Set<unknown>;

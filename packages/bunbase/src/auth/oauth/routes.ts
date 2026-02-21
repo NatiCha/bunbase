@@ -18,6 +18,11 @@ import type { AuthHooks } from "../../hooks/auth-types.ts";
 import { ApiError } from "../../api/helpers.ts";
 import { extractAuth } from "../middleware.ts";
 
+/**
+ * OAuth login/link route factory.
+ * @module
+ */
+
 const SESSION_COOKIE = "bunbase_session";
 const OAUTH_STATE_COOKIE = "oauth_state";
 

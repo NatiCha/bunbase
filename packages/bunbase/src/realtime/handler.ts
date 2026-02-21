@@ -3,6 +3,11 @@ import type { RealtimeSocketData, ClientMessage, ServerMessage } from "./types.t
 import type { RealtimeManager } from "./manager.ts";
 import type { PresenceTracker } from "./presence.ts";
 
+/**
+ * WebSocket message/close handlers for BunBase realtime protocol.
+ * @module
+ */
+
 function sendTo(ws: ServerWebSocket<RealtimeSocketData>, msg: ServerMessage): void {
   try {
     ws.send(JSON.stringify(msg));

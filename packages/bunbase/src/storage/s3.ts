@@ -1,5 +1,10 @@
 import type { StorageDriver } from "./local.ts";
 
+/**
+ * S3-compatible storage driver (AWS SigV4 signed requests).
+ * @module
+ */
+
 interface S3Config {
   bucket: string;
   region?: string;
@@ -94,6 +99,7 @@ async function sigv4Headers(
   };
 }
 
+/** Create an S3-backed storage driver. */
 export function createS3Storage(config: S3Config): StorageDriver {
   async function s3Fetch(
     method: string,

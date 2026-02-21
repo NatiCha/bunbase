@@ -16,6 +16,11 @@ import { z } from "zod/v4";
 import type { AuthHooks } from "../hooks/auth-types.ts";
 import { ApiError } from "../api/helpers.ts";
 
+/**
+ * Password reset and email verification auth routes.
+ * @module
+ */
+
 const SESSION_COOKIE = "bunbase_session";
 
 function jsonError(
@@ -43,6 +48,11 @@ interface EmailRouteDeps {
   authHooks?: AuthHooks;
 }
 
+/**
+ * Create password reset and email verification routes.
+ *
+ * @remarks Password reset tokens expire after 3600 seconds (1 hour).
+ */
 export function createEmailRoutes(deps: EmailRouteDeps) {
   const { db, internalSchema, config, usersTable, authHooks } = deps;
   const isDev = config.development;

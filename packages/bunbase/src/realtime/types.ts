@@ -1,5 +1,10 @@
 import type { AuthUser } from "../api/types.ts";
 
+/**
+ * Realtime websocket protocol types.
+ * @module
+ */
+
 export interface RealtimeSocketData {
   auth: AuthUser | null;
   connectedAt: number;

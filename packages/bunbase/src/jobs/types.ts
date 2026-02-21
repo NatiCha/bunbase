@@ -1,5 +1,10 @@
 import type { AnyDb } from "../core/db-types.ts";
 
+/**
+ * BunBase job declaration types.
+ * @module
+ */
+
 export type JobContext = {
   db: AnyDb;
 };
@@ -12,6 +17,7 @@ export interface JobDefinition {
 
 export type Jobs = JobDefinition[];
 
+/** Define scheduled jobs with type inference. */
 export function defineJobs(jobs: Jobs): Jobs {
   return jobs;
 }

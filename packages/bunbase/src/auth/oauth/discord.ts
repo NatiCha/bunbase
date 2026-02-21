@@ -1,5 +1,11 @@
 import type { OAuthProvider, OAuthUserInfo } from "./types.ts";
 
+/**
+ * Built-in Discord OAuth provider implementation.
+ * @module
+ */
+
+/** Discord OAuth provider with `identify` and `email` scopes. */
 export const discord: OAuthProvider = {
   name: "discord",
   authorizationUrl: "https://discord.com/api/oauth2/authorize",

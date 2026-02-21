@@ -15,23 +15,57 @@ import {
 } from "drizzle-orm";
 import type { Column } from "drizzle-orm";
 
+/**
+ * Filter parser and SQL condition builder for CRUD list endpoints.
+ * @module
+ */
+
+/**
+ * Supported operators for a single filter field.
+ *
+ * @example
+ * { eq: "open" }
+ * @example
+ * { contains: "urgent" }
+ * @example
+ * { in: ["todo", "done"] }
+ */
 export interface FilterOperators {
+  /** Equals. Example: `{ eq: 42 }` */
   eq?: unknown;
+  /** Not equals. Example: `{ ne: "archived" }` */
   ne?: unknown;
+  /** SQL `LIKE %value%`. Example: `{ contains: "foo" }` */
   contains?: string;
+  /** SQL `LIKE value%`. Example: `{ startsWith: "pre" }` */
   startsWith?: string;
+  /** SQL `LIKE %value`. Example: `{ endsWith: ".png" }` */
   endsWith?: string;
+  /** Greater than. Example: `{ gt: 100 }` */
   gt?: unknown;
+  /** Greater than or equal. Example: `{ gte: "2026-01-01" }` */
   gte?: unknown;
+  /** Less than. Example: `{ lt: 10 }` */
   lt?: unknown;
+  /** Less than or equal. Example: `{ lte: 5 }` */
   lte?: unknown;
+  /** In list. Example: `{ in: ["a", "b"] }` */
   in?: unknown[];
+  /** Not in list. Example: `{ notIn: [0, -1] }` */
   notIn?: unknown[];
+  /** Null checks. `true` => IS NULL, `false` => IS NOT NULL. */
   isNull?: boolean;
 }
 
 export type FilterInput = Record<string, FilterOperators | unknown>;
 
+/**
+ * Build a combined SQL `WHERE` clause from API filter input.
+ *
+ * @remarks
+ * - Direct primitive values are treated as `eq`.
+ * - Unknown fields (not present in `columns`) are ignored.
+ */
 export function buildWhereConditions(
   filters: FilterInput,
   columns: Record<string, Column>,

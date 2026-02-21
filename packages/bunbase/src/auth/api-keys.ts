@@ -7,6 +7,11 @@ import type { AuthUser } from "../api/types.ts";
 import { validateCsrf } from "./csrf.ts";
 import { isBearerOnly } from "./middleware.ts";
 
+/**
+ * API key lifecycle helpers and auth routes.
+ * @module
+ */
+
 export async function deleteUserApiKeys(
   db: AnyDb,
   schema: InternalSchema,
@@ -46,6 +51,9 @@ function hashApiKey(key: string): string {
   return hasher.digest("hex");
 }
 
+/**
+ * Create API key CRUD routes.
+ */
 export function createApiKeyRoutes(deps: ApiKeyRoutesDeps) {
   const { db, internalSchema, config, extractAuth } = deps;
 
@@ -90,6 +98,10 @@ export function createApiKeyRoutes(deps: ApiKeyRoutesDeps) {
         const id = Bun.randomUUIDv7();
         const createdAt = new Date().toISOString();
 
+        // Expiration precedence:
+        // 1) explicit expiresInDays
+        // 2) config defaultExpirationDays
+        // `0` means "no expiration"
         let expiresAt: number | null;
         if (expiresInDays === 0) {
           // Explicit infinite — bypasses max check

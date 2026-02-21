@@ -7,6 +7,15 @@ import { SqliteAdapter } from "./adapters/sqlite.ts";
 import { PostgresAdapter } from "./adapters/postgres.ts";
 import { MysqlAdapter } from "./adapters/mysql.ts";
 
+/**
+ * Database bootstrapping and Drizzle integration.
+ * @module
+ *
+ * @remarks
+ * BunBase expects Drizzle beta APIs (including `drizzle-orm/relations` metadata)
+ * and passes `schema` + `relations` separately into the Drizzle client.
+ */
+
 export interface DatabaseResult {
   db: AnyDb;
   dialect: Dialect;

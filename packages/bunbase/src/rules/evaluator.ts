@@ -1,11 +1,25 @@
 import type { SQL } from "drizzle-orm";
 import type { RuleFunction, RuleResult, RuleArg } from "./types.ts";
 
+/**
+ * Rule evaluation helpers.
+ * @module
+ */
+
 export interface EvaluatedRule {
   allowed: boolean;
   whereClause?: SQL;
 }
 
+/**
+ * Evaluate a rule into a normalized allow/filter result.
+ *
+ * @remarks
+ * - Missing rule: deny by default.
+ * - `null`: explicit unrestricted allow.
+ * - `boolean`: direct allow/deny.
+ * - `SQL`: allow with row-level filter where supported.
+ */
 export async function evaluateRule(
   rule: RuleFunction | undefined,
   arg: RuleArg,

@@ -1,6 +1,11 @@
 import type { AnyDb } from "../core/db-types.ts";
 import type { JobDefinition } from "./types.ts";
 
+/**
+ * Cron-like background job scheduler used by BunBase.
+ * @module
+ */
+
 type CronField = {
   value: number | "*" | { step: number };
 };
@@ -120,6 +125,7 @@ export class JobScheduler {
     this.db = db;
   }
 
+  /** Start all configured jobs. Safe to call once per scheduler lifecycle. */
   start(definitions: JobDefinition[]): void {
     if (this.started) {
       console.warn("[BunBase] JobScheduler.start() called more than once — ignoring");
@@ -198,6 +204,7 @@ export class JobScheduler {
     }
   }
 
+  /** Stop all scheduled timers and clear tracked jobs. */
   stop(): void {
     this.stopped = true;
     for (const state of this.jobs.values()) {

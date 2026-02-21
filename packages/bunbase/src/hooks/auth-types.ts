@@ -1,5 +1,10 @@
 import type { OAuthUserInfo } from "../auth/oauth/types.ts";
 
+/**
+ * Auth lifecycle hook types.
+ * @module
+ */
+
 export type BeforeRegisterContext = {
   email: string;
   data: Record<string, unknown>;

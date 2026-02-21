@@ -5,14 +5,21 @@ import type { AuthUser } from "../api/types.ts";
 import type { AnyDb } from "../core/db-types.ts";
 import type { InternalSchema } from "../core/internal-schema.ts";
 
+/**
+ * Request authentication extractors and bearer/session precedence.
+ * @module
+ */
+
 const SESSION_COOKIE = "bunbase_session";
 
+/** Extract session id from BunBase session cookie. */
 export function extractSessionId(req: Request): string | null {
   const cookieHeader = req.headers.get("cookie") ?? "";
   const cookies = parseCookies(cookieHeader);
   return cookies[SESSION_COOKIE] ?? null;
 }
 
+/** Extract bearer token from Authorization header. */
 export function extractBearerToken(req: Request): string | null {
   const auth = req.headers.get("authorization") ?? "";
   const match = auth.match(/^Bearer\s+(.+)$/i);
@@ -94,6 +101,9 @@ export async function getApiKeyUser(
   return { ...user, id, email, role };
 }
 
+/**
+ * Resolve authenticated user from session cookie first, then bearer API key.
+ */
 export async function extractAuth(
   req: Request,
   db: AnyDb,

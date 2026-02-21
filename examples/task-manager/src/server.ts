@@ -1,3 +1,7 @@
+/**
+ * Canonical BunBase setup example:
+ * schema -> rules -> createServer -> listen.
+ */
 import { createServer, defineConfig } from "bunbase";
 import type { ExtendContext } from "bunbase";
 import * as schema from "./schema";

@@ -1,12 +1,21 @@
 import { parseCookies, serializeCookie, csrfCookieOptions } from "./cookies.ts";
 
+/**
+ * CSRF helpers using a double-submit cookie strategy.
+ * @module
+ */
+
 const CSRF_COOKIE = "csrf_token";
 const CSRF_HEADER = "x-csrf-token";
 
+/** Generate a random CSRF token. */
 export function generateCsrfToken(): string {
   return Bun.randomUUIDv7();
 }
 
+/**
+ * Validate CSRF by comparing cookie token to `x-csrf-token` header.
+ */
 export function validateCsrf(req: Request): boolean {
   const cookieHeader = req.headers.get("cookie") ?? "";
   const cookies = parseCookies(cookieHeader);
@@ -17,6 +26,9 @@ export function validateCsrf(req: Request): boolean {
   return cookieToken === headerToken;
 }
 
+/**
+ * Create and serialize a new CSRF cookie token.
+ */
 export function setCsrfCookie(isDev: boolean): {
   token: string;
   cookie: string;
