@@ -39,6 +39,8 @@ export type BunBaseAPI<S> = {
 
 interface BunBaseClientOptions {
   url: string;
+  /** Bearer API key for server-side / CLI usage. When set, cookies and CSRF are omitted. */
+  apiKey?: string;
 }
 
 // ─── CSRF helper ──────────────────────────────────────────────────────────────
@@ -57,8 +59,22 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
   options: BunBaseClientOptions,
 ) {
   const baseUrl = options.url.replace(/\/$/, "");
+  const apiKey = options.apiKey;
+
+  // When an API key is set, use bearer auth and omit cookies/CSRF
+  const credentials: RequestCredentials = apiKey ? "omit" : "include";
+
+  function authHeaders(): HeadersInit {
+    return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+  }
 
   function mutationHeaders(): HeadersInit {
+    if (apiKey) {
+      return {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      };
+    }
     return {
       "Content-Type": "application/json",
       "X-CSRF-Token": getCsrfToken(),
@@ -82,7 +98,10 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
           if (params?.order) url.searchParams.set("order", params.order);
           if (params?.expand) url.searchParams.set("expand", params.expand.join(","));
 
-          const res = await fetch(url.toString(), { credentials: "include" });
+          const res = await fetch(url.toString(), {
+            credentials,
+            headers: authHeaders(),
+          });
           if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             throw Object.assign(new Error((err as any)?.error?.message ?? "List failed"), {
@@ -95,7 +114,7 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
         async get(id: string, opts?: { expand?: string[] }): Promise<unknown> {
           const url = new URL(`${tableUrl}/${id}`);
           if (opts?.expand) url.searchParams.set("expand", opts.expand.join(","));
-          const res = await fetch(url.toString(), { credentials: "include" });
+          const res = await fetch(url.toString(), { credentials, headers: authHeaders() });
           if (res.status === 404) return null;
           if (!res.ok) {
             const err = await res.json().catch(() => ({}));
@@ -110,7 +129,7 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
           const res = await fetch(tableUrl, {
             method: "POST",
             headers: mutationHeaders(),
-            credentials: "include",
+            credentials,
             body: JSON.stringify(data),
           });
           if (!res.ok) {
@@ -126,7 +145,7 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
           const res = await fetch(`${tableUrl}/${id}`, {
             method: "PATCH",
             headers: mutationHeaders(),
-            credentials: "include",
+            credentials,
             body: JSON.stringify(data),
           });
           if (res.status === 404) return null;
@@ -142,8 +161,10 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
         async delete(id: string): Promise<{ deleted: boolean }> {
           const res = await fetch(`${tableUrl}/${id}`, {
             method: "DELETE",
-            headers: { "X-CSRF-Token": getCsrfToken() },
-            credentials: "include",
+            headers: apiKey
+              ? { Authorization: `Bearer ${apiKey}` }
+              : { "X-CSRF-Token": getCsrfToken() },
+            credentials,
           });
           if (!res.ok) {
             const err = await res.json().catch(() => ({}));
@@ -167,7 +188,7 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
       const res = await fetch(`${baseUrl}/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        credentials,
         body: JSON.stringify(data),
       });
       return res.json() as Promise<{ user: Record<string, unknown> }>;
@@ -177,7 +198,7 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
       const res = await fetch(`${baseUrl}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        credentials,
         body: JSON.stringify(data),
       });
       return res.json() as Promise<{ user: Record<string, unknown> }>;
@@ -186,15 +207,18 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
     async logout() {
       const res = await fetch(`${baseUrl}/auth/logout`, {
         method: "POST",
-        headers: { "X-CSRF-Token": getCsrfToken() },
-        credentials: "include",
+        headers: apiKey
+          ? { Authorization: `Bearer ${apiKey}` }
+          : { "X-CSRF-Token": getCsrfToken() },
+        credentials,
       });
       return res.json() as Promise<{ success: boolean }>;
     },
 
     async me() {
       const res = await fetch(`${baseUrl}/auth/me`, {
-        credentials: "include",
+        credentials,
+        headers: authHeaders(),
       });
       if (!res.ok) return null;
       const data = (await res.json()) as {
@@ -234,6 +258,52 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
     oauthUrl(provider: string) {
       return `${baseUrl}/auth/oauth/${provider}`;
     },
+
+    apiKeys: {
+      async create(data: { name: string; expiresInDays?: number }) {
+        const res = await fetch(`${baseUrl}/auth/api-keys`, {
+          method: "POST",
+          headers: mutationHeaders(),
+          credentials,
+          body: JSON.stringify(data),
+        });
+        return res.json() as Promise<{
+          id: string;
+          name: string;
+          keyPrefix: string;
+          key: string;
+          expiresAt: number | null;
+          createdAt: string;
+        }>;
+      },
+
+      async list() {
+        const res = await fetch(`${baseUrl}/auth/api-keys`, {
+          credentials,
+          headers: authHeaders(),
+        });
+        return res.json() as Promise<Array<{
+          id: string;
+          userId: string;
+          keyPrefix: string;
+          name: string;
+          expiresAt: number | null;
+          lastUsedAt: string | null;
+          createdAt: string;
+        }>>;
+      },
+
+      async delete(id: string) {
+        const res = await fetch(`${baseUrl}/auth/api-keys/${id}`, {
+          method: "DELETE",
+          headers: apiKey
+            ? { Authorization: `Bearer ${apiKey}` }
+            : { "X-CSRF-Token": getCsrfToken() },
+          credentials,
+        });
+        return res.json() as Promise<{ deleted: boolean }>;
+      },
+    },
   };
 
   const files = {
@@ -244,7 +314,8 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
         `${baseUrl}/files/${collection}/${recordId}`,
         {
           method: "POST",
-          credentials: "include",
+          credentials,
+          headers: authHeaders(),
           body: formData,
         },
       );
@@ -258,13 +329,14 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
     async delete(fileId: string) {
       const res = await fetch(`${baseUrl}/files/${fileId}`, {
         method: "DELETE",
-        credentials: "include",
+        credentials,
+        headers: authHeaders(),
       });
       return res.json();
     },
   };
 
-  const realtime = createRealtimeClient(baseUrl);
+  const realtime = createRealtimeClient(baseUrl, apiKey);
 
   return { api, auth, files, realtime };
 }
@@ -299,7 +371,7 @@ interface InternalChannelClient extends ChannelClient {
   _resubscribe(): void;
 }
 
-function createRealtimeClient(baseUrl: string) {
+function createRealtimeClient(baseUrl: string, apiKey?: string) {
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -344,7 +416,12 @@ function createRealtimeClient(baseUrl: string) {
   function connect() {
     if (ws) return;
     const wsUrl = baseUrl.replace(/^https?/, (m) => (m === "https" ? "wss" : "ws")) + "/realtime";
-    ws = new WebSocket(wsUrl);
+    // Bun's WebSocket supports custom headers for server-side bearer auth.
+    // Browser WebSocket API does not, so the header is only passed when an apiKey
+    // is configured (server-side/CLI usage). Browser clients use cookie-based WS auth.
+    ws = (apiKey && typeof Bun !== "undefined")
+      ? new WebSocket(wsUrl, { headers: { Authorization: `Bearer ${apiKey}` } } as any)
+      : new WebSocket(wsUrl);
 
     ws.onopen = () => {
       resubscribeAll();

@@ -21,6 +21,7 @@ export {
   yearStart,
 } from "./rules/helpers.ts";
 export { requireAuth, ApiError } from "./api/helpers.ts";
+export { isBearerOnly } from "./auth/middleware.ts";
 export type { BunBaseConfig, ResolvedConfig } from "./core/config.ts";
 export type { BunBaseServer, CreateServerOptions, ExtendContext, RouteMap } from "./core/server.ts";
 export type { AuthUser } from "./api/types.ts";

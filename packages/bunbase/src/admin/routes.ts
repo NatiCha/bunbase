@@ -144,6 +144,7 @@ export async function handleAdminApi(
   const oauthAccounts = internalSchema.oauthAccounts;
   const files = internalSchema.files;
   const requestLogs = internalSchema.requestLogs;
+  const apiKeys = internalSchema.apiKeys;
 
   const qi = adapter.quoteIdentifier.bind(adapter);
 
@@ -241,6 +242,35 @@ export async function handleAdminApi(
   if (path === "/logs" && method === "DELETE") {
     await (db as any).delete(requestLogs);
     return Response.json({ cleared: true });
+  }
+
+  // GET /api-keys — list all API keys across all users (admin only)
+  if (path === "/api-keys" && method === "GET") {
+    const rows = await (db as any)
+      .select({
+        id: apiKeys.id,
+        userId: apiKeys.userId,
+        keyPrefix: apiKeys.keyPrefix,
+        name: apiKeys.name,
+        expiresAt: apiKeys.expiresAt,
+        lastUsedAt: apiKeys.lastUsedAt,
+        createdAt: apiKeys.createdAt,
+      })
+      .from(apiKeys)
+      .orderBy(desc(apiKeys.createdAt))
+      ;
+    return Response.json(rows);
+  }
+
+  // DELETE /api-keys/:id — revoke any key (admin only)
+  const apiKeyDeleteMatch = path.match(/^\/api-keys\/([^/]+)$/);
+  if (apiKeyDeleteMatch && method === "DELETE") {
+    const id = apiKeyDeleteMatch[1];
+    await (db as any)
+      .delete(apiKeys)
+      .where(eq(apiKeys.id, id))
+      ;
+    return Response.json({ deleted: true });
   }
 
   // GET /schema — table names + column definitions

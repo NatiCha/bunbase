@@ -62,6 +62,19 @@ export class SqliteAdapter implements DatabaseAdapter {
       )
     `);
 
+    this.sqlite.run(`
+      CREATE TABLE IF NOT EXISTS _api_keys (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        key_hash TEXT NOT NULL,
+        key_prefix TEXT NOT NULL,
+        name TEXT NOT NULL,
+        expires_at INTEGER,
+        last_used_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+
     // Indexes
     this.sqlite.run("CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON _sessions(user_id)");
     this.sqlite.run("CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON _sessions(expires_at)");
@@ -70,6 +83,8 @@ export class SqliteAdapter implements DatabaseAdapter {
     this.sqlite.run("CREATE INDEX IF NOT EXISTS idx_oauth_accounts_user ON _oauth_accounts(user_id)");
     this.sqlite.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_accounts_provider ON _oauth_accounts(provider, provider_account_id)");
     this.sqlite.run("CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON _request_logs(timestamp)");
+    this.sqlite.run("CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON _api_keys(user_id)");
+    this.sqlite.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_hash ON _api_keys(key_hash)");
   }
 
   async rawQuery<T = Record<string, unknown>>(

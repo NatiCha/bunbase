@@ -109,6 +109,20 @@ export class MysqlAdapter implements DatabaseAdapter {
       )
     `);
 
+    await this.sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS \`_api_keys\` (
+        \`id\` TEXT NOT NULL,
+        \`user_id\` TEXT NOT NULL,
+        \`key_hash\` CHAR(64) NOT NULL,
+        \`key_prefix\` TEXT NOT NULL,
+        \`name\` TEXT NOT NULL,
+        \`expires_at\` BIGINT,
+        \`last_used_at\` TEXT,
+        \`created_at\` TEXT NOT NULL DEFAULT (NOW()),
+        PRIMARY KEY (\`id\`(191))
+      )
+    `);
+
     // Indexes — MySQL uses CREATE INDEX IF NOT EXISTS syntax differently; use DROP+CREATE or just swallow errors
     const idxStmts = [
       "CREATE INDEX idx_sessions_user_id ON `_sessions`(`user_id`(191))",
@@ -118,6 +132,8 @@ export class MysqlAdapter implements DatabaseAdapter {
       "CREATE INDEX idx_oauth_accounts_user ON `_oauth_accounts`(`user_id`(191))",
       "CREATE UNIQUE INDEX idx_oauth_accounts_provider ON `_oauth_accounts`(`provider`(191), `provider_account_id`(191))",
       "CREATE INDEX idx_request_logs_timestamp ON `_request_logs`(`timestamp`(191))",
+      "CREATE INDEX idx_api_keys_user_id ON `_api_keys`(`user_id`(191))",
+      "CREATE UNIQUE INDEX idx_api_keys_hash ON `_api_keys`(`key_hash`)",
     ];
     for (const stmt of idxStmts) {
       try {

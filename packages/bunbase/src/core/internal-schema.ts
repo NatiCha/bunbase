@@ -1,6 +1,6 @@
 import { sqliteTable, text as sqliteText, integer as sqliteInteger } from "drizzle-orm/sqlite-core";
 import { pgTable, text as pgText, integer as pgInteger, bigint as pgBigint } from "drizzle-orm/pg-core";
-import { mysqlTable, text as mysqlText, int as mysqlInt, bigint as mysqlBigint } from "drizzle-orm/mysql-core";
+import { mysqlTable, text as mysqlText, int as mysqlInt, bigint as mysqlBigint, char as mysqlChar } from "drizzle-orm/mysql-core";
 import type { Dialect } from "./db-types.ts";
 
 // ─── SQLite Variants ───
@@ -50,6 +50,17 @@ export const sqliteRequestLogs = sqliteTable("_request_logs", {
   timestamp: sqliteText("timestamp").notNull(),
 });
 
+export const sqliteApiKeys = sqliteTable("_api_keys", {
+  id: sqliteText("id").primaryKey(),
+  userId: sqliteText("user_id").notNull(),
+  keyHash: sqliteText("key_hash").notNull(),
+  keyPrefix: sqliteText("key_prefix").notNull(),
+  name: sqliteText("name").notNull(),
+  expiresAt: sqliteInteger("expires_at"),
+  lastUsedAt: sqliteText("last_used_at"),
+  createdAt: sqliteText("created_at").notNull(),
+});
+
 // ─── Postgres Variants ───
 
 export const pgSessions = pgTable("_sessions", {
@@ -95,6 +106,17 @@ export const pgRequestLogs = pgTable("_request_logs", {
   durationMs: pgInteger("duration_ms").notNull(),
   userId: pgText("user_id"),
   timestamp: pgText("timestamp").notNull(),
+});
+
+export const pgApiKeys = pgTable("_api_keys", {
+  id: pgText("id").primaryKey(),
+  userId: pgText("user_id").notNull(),
+  keyHash: pgText("key_hash").notNull(),
+  keyPrefix: pgText("key_prefix").notNull(),
+  name: pgText("name").notNull(),
+  expiresAt: pgBigint("expires_at", { mode: "number" }),
+  lastUsedAt: pgText("last_used_at"),
+  createdAt: pgText("created_at").notNull(),
 });
 
 // ─── MySQL Variants ───
@@ -144,6 +166,17 @@ export const mysqlRequestLogs = mysqlTable("_request_logs", {
   timestamp: mysqlText("timestamp").notNull(),
 });
 
+export const mysqlApiKeys = mysqlTable("_api_keys", {
+  id: mysqlText("id").primaryKey(),
+  userId: mysqlText("user_id").notNull(),
+  keyHash: mysqlChar("key_hash", { length: 64 }).notNull(),
+  keyPrefix: mysqlText("key_prefix").notNull(),
+  name: mysqlText("name").notNull(),
+  expiresAt: mysqlBigint("expires_at", { mode: "number" }),
+  lastUsedAt: mysqlText("last_used_at"),
+  createdAt: mysqlText("created_at").notNull(),
+});
+
 // ─── Dialect-aware getter ───
 
 export interface InternalSchema {
@@ -152,6 +185,7 @@ export interface InternalSchema {
   verificationTokens: typeof sqliteVerificationTokens | typeof pgVerificationTokens | typeof mysqlVerificationTokens;
   oauthAccounts: typeof sqliteOauthAccounts | typeof pgOauthAccounts | typeof mysqlOauthAccounts;
   requestLogs: typeof sqliteRequestLogs | typeof pgRequestLogs | typeof mysqlRequestLogs;
+  apiKeys: typeof sqliteApiKeys | typeof pgApiKeys | typeof mysqlApiKeys;
 }
 
 export function getInternalSchema(dialect: Dialect): InternalSchema {
@@ -162,6 +196,7 @@ export function getInternalSchema(dialect: Dialect): InternalSchema {
       verificationTokens: pgVerificationTokens,
       oauthAccounts: pgOauthAccounts,
       requestLogs: pgRequestLogs,
+      apiKeys: pgApiKeys,
     };
   }
   if (dialect === "mysql") {
@@ -171,6 +206,7 @@ export function getInternalSchema(dialect: Dialect): InternalSchema {
       verificationTokens: mysqlVerificationTokens,
       oauthAccounts: mysqlOauthAccounts,
       requestLogs: mysqlRequestLogs,
+      apiKeys: mysqlApiKeys,
     };
   }
   return {
@@ -179,5 +215,6 @@ export function getInternalSchema(dialect: Dialect): InternalSchema {
     verificationTokens: sqliteVerificationTokens,
     oauthAccounts: sqliteOauthAccounts,
     requestLogs: sqliteRequestLogs,
+    apiKeys: sqliteApiKeys,
   };
 }

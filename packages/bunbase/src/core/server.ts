@@ -11,8 +11,9 @@ import { addCorsHeaders, handleCorsPreflightOrNull } from "../cors.ts";
 import { createAuthRoutes } from "../auth/routes.ts";
 import { createEmailRoutes } from "../auth/email.ts";
 import { createOAuthRoutes } from "../auth/oauth/routes.ts";
-import { extractAuth as extractAuthFromReq } from "../auth/middleware.ts";
+import { extractAuth as extractAuthFromReq, isBearerOnly } from "../auth/middleware.ts";
 import { validateCsrf, isCsrfExempt } from "../auth/csrf.ts";
+import { createApiKeyRoutes } from "../auth/api-keys.ts";
 import { generateAllCrudHandlers } from "../crud/handler.ts";
 import { createFileRoutes, createStorageDriver } from "../storage/routes.ts";
 import { handleAdminApi, pushRequestLog } from "../admin/routes.ts";
@@ -188,13 +189,21 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     usersTable,
   });
 
+  const apiKeyRoutes = createApiKeyRoutes({
+    db,
+    internalSchema,
+    config,
+    usersTable,
+    extractAuth,
+  });
+
   // Storage driver for admin operations
   const adminStorage = createStorageDriver(config);
 
   // Merge all HTTP routes into a lookup map
   const httpRoutes: RouteMap = {};
 
-  for (const routeSet of [authRoutes, emailRoutes, oauthRoutes, fileRoutes, crudExact]) {
+  for (const routeSet of [authRoutes, emailRoutes, oauthRoutes, fileRoutes, apiKeyRoutes, crudExact]) {
     for (const [path, handlers] of Object.entries(routeSet)) {
       httpRoutes[path] = handlers as Record<
         string,
@@ -366,11 +375,14 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
         enrichedHeaders.set("x-bunbase-socket-ip", socketIp);
         req = new Request(req, { headers: enrichedHeaders });
 
-        // CSRF check for state-changing mutations — covers both /api/ and /_admin/api/
+        // CSRF check for state-changing mutations — covers both /api/ and /_admin/api/.
+        // Skipped for bearer-only requests (no session cookie present) since CSRF attacks
+        // require the victim's browser to send cookies automatically.
         if (
           (pathname.startsWith("/api/") || pathname.startsWith("/_admin/api/")) &&
           ["POST", "PATCH", "DELETE"].includes(req.method) &&
-          !isCsrfExempt(pathname)
+          !isCsrfExempt(pathname) &&
+          !isBearerOnly(req)
         ) {
           if (!validateCsrf(req)) {
             return addCorsHeaders(
