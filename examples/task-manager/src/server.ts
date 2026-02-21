@@ -1,12 +1,12 @@
-import { createServer, defineConfig } from "tsbase";
-import type { ExtendContext } from "tsbase";
+import { createServer, defineConfig } from "bunbase";
+import type { ExtendContext } from "bunbase";
 import * as schema from "./schema";
 import { rules } from "./rules";
 import { customRoutes } from "./custom-routes";
 
 const isDev = process.env.NODE_ENV !== "production";
 
-const tsbase = createServer({
+const bunbase = createServer({
   schema,
   rules,
   extend: customRoutes,
@@ -16,4 +16,4 @@ const tsbase = createServer({
   }),
 });
 
-tsbase.listen();
+bunbase.listen();

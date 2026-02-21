@@ -29,7 +29,7 @@ function getCsrfToken(): string {
 
 export function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useQuery<Stats>({
-    queryKey: ["tsbase", "custom", "stats"],
+    queryKey: ["bunbase", "custom", "stats"],
     queryFn: async () => {
       const res = await fetch("/api/stats", { credentials: "include" });
       return res.json();
@@ -37,7 +37,7 @@ export function Dashboard() {
   });
 
   const { data: myTasks = [], isLoading: tasksLoading } = useQuery<MyTask[]>({
-    queryKey: ["tsbase", "custom", "my-tasks"],
+    queryKey: ["bunbase", "custom", "my-tasks"],
     queryFn: async () => {
       const res = await fetch("/api/my-tasks", { credentials: "include" });
       if (!res.ok) return [];

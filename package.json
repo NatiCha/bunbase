@@ -2,10 +2,10 @@
   "private": true,
   "workspaces": ["packages/*", "examples/*"],
   "scripts": {
-    "dev": "bun run --filter tsbase dev",
+    "dev": "bun run --filter bunbase dev",
     "dev:example": "bun run --filter task-manager dev",
-    "test": "bun run --filter tsbase test",
-    "build": "bun run --filter tsbase build",
+    "test": "bun run --filter bunbase test",
+    "build": "bun run --filter bunbase build",
     "db:generate": "bun run --filter task-manager db:generate",
     "docs": "cd docs && bun run dev",
     "docs:build": "cd docs && bun run build"

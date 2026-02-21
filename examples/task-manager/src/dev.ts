@@ -12,7 +12,7 @@ Bun.serve({
   async fetch(req) {
     const url = new URL(req.url);
 
-    // Proxy API routes to TSBase
+    // Proxy API routes to BunBase
     if (
       url.pathname.startsWith("/api") ||
       url.pathname.startsWith("/auth") ||

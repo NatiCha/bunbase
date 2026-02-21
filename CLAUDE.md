@@ -110,7 +110,7 @@ bun --hot ./index.ts
 IMPORTANT: Before writing code that uses Bun APIs, read the relevant .mdx file. Do not rely on pre-trained knowledge for Bun APIs.
 
 ```
-[Bun Docs]|root: ./packages/tsbase/node_modules/bun-types/docs
+[Bun Docs]|root: ./packages/bunbase/node_modules/bun-types/docs
 |:{feedback.mdx,index.mdx,installation.mdx,quickstart.mdx,typescript.mdx}
 |bundler:{bytecode.mdx,css.mdx,esbuild.mdx,executables.mdx,fullstack.mdx,hot-reloading.mdx,html-static.mdx,index.mdx,loaders.mdx,macros.mdx,minifier.mdx,plugins.mdx}
 |guides:{index.mdx}
@@ -142,15 +142,15 @@ IMPORTANT: Before writing code that uses Bun APIs, read the relevant .mdx file. 
 <!-- bun-docs-index:end -->
 
 <!-- ccc:start -->
-## Project Context — tsbase
+## Project Context — bunbase
 
 Client: personal
-Project Hub: /Users/charlessqueri/Library/Mobile Documents/iCloud~md~obsidian/Documents/work/clients/personal/projects/tsbase
+Project Hub: /Users/charlessqueri/Library/Mobile Documents/iCloud~md~obsidian/Documents/work/clients/personal/projects/bunbase
 
 This project is managed through the Claude Command Center (CCC). The project hub above is a directory of markdown files containing tasks, status, decisions, PRDs, and session logs. You can read these files directly — they are organized for self-discovery:
 
 ```
-/Users/charlessqueri/Library/Mobile Documents/iCloud~md~obsidian/Documents/work/clients/personal/projects/tsbase/
+/Users/charlessqueri/Library/Mobile Documents/iCloud~md~obsidian/Documents/work/clients/personal/projects/bunbase/
 ├── PROJECT.md        # Project overview and metadata
 ├── TASKS.md          # Task list with checkbox statuses
 ├── STATUS.md         # Current project status
@@ -165,9 +165,9 @@ Task statuses in TASKS.md: `[ ]` todo, `[~]` in progress, `[x]` done, `[!]` bloc
 ### CCC CLI
 Use the `ccc` CLI for structured operations (creating, updating, scaffolding). Read files directly for exploration.
 
-- List tasks: `ccc task list personal tsbase`
-- Project status: `ccc status personal tsbase`
-- Update a task: `ccc task update personal tsbase <line> <status>`  (statuses: todo, in_progress, done, blocked)
-- Add a task: `ccc task add personal tsbase "<text>"`
-- Log a session: `ccc session create personal tsbase "<description>"`
+- List tasks: `ccc task list personal bunbase`
+- Project status: `ccc status personal bunbase`
+- Update a task: `ccc task update personal bunbase <line> <status>`  (statuses: todo, in_progress, done, blocked)
+- Add a task: `ccc task add personal bunbase "<text>"`
+- Log a session: `ccc session create personal bunbase "<description>"`
 <!-- ccc:end -->

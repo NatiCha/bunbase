@@ -1,10 +1,10 @@
-# Task Manager — TSBase Example
+# Task Manager — BunBase Example
 
-A full-stack task management app built on TSBase. Demonstrates auth, CRUD, access rules, and the admin UI.
+A full-stack task management app built on BunBase. Demonstrates auth, CRUD, access rules, and the admin UI.
 
 ## Stack
 
-- **Backend** — TSBase (Bun + Drizzle ORM + REST API)
+- **Backend** — BunBase (Bun + Drizzle ORM + REST API)
 - **Frontend** — React 19 + Tailwind CSS v4
 - **Database** — SQLite (local file at `./data/db.sqlite`)
 
@@ -37,7 +37,7 @@ The migrations are applied automatically on server start.
 bun run dev
 ```
 
-This starts both the TSBase API server and the frontend bundler concurrently.
+This starts both the BunBase API server and the frontend bundler concurrently.
 
 | Service | URL |
 |---------|-----|

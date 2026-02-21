@@ -33,7 +33,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Finder (MacOS) folder config
 .DS_Store
 
-# TSBase data (any workspace)
+# BunBase data (any workspace)
 data/
 drizzle/
 

@@ -11,7 +11,7 @@
     "db:studio": "bunx drizzle-kit studio"
   },
   "dependencies": {
-    "tsbase": "workspace:*",
+    "bunbase": "workspace:*",
     "drizzle-orm": "^1.0.0-beta.15-859cf75",
     "react": "^19",
     "react-dom": "^19",

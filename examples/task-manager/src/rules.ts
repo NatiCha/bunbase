@@ -1,4 +1,4 @@
-import { defineRules, authenticated, ownerOnly } from "tsbase";
+import { defineRules, authenticated, ownerOnly } from "bunbase";
 import { projects } from "./schema";
 
 export const rules = defineRules({

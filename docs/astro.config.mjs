@@ -5,8 +5,8 @@ import starlight from '@astrojs/starlight';
 export default defineConfig({
   integrations: [
     starlight({
-      title: 'TSBase',
-      social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/charlessqueri/tsbase' }],
+      title: 'BunBase',
+      social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/NatiCha/bunbase' }],
       sidebar: [
         { label: 'Introduction', slug: 'index' },
         { label: 'Quickstart', slug: 'quickstart' },
