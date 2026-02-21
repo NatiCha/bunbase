@@ -8,6 +8,8 @@ type Task = typeof schema.tasks.$inferSelect;
 
 interface TaskCardProps {
   task: Task;
+  /** Name or email of the assigned user, populated via expand=["assignee"] */
+  assigneeName?: string;
   onEdit: (task: Task) => void;
   onDelete: (id: string) => void;
 }
@@ -24,12 +26,15 @@ const priorityColors: Record<string, string> = {
   high: "bg-red-100 text-red-700",
 };
 
-export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
+export function TaskCard({ task, assigneeName, onEdit, onDelete }: TaskCardProps) {
   return (
     <div className="flex items-start justify-between p-4 border rounded-lg group">
       <div className="space-y-1 flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-medium truncate">{task.title}</span>
+          {assigneeName && (
+            <span className="text-xs text-muted-foreground">→ {assigneeName}</span>
+          )}
         </div>
         {task.description && (
           <p className="text-sm text-muted-foreground line-clamp-2">{task.description}</p>

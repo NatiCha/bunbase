@@ -5,11 +5,13 @@ import { LoginForm } from "./components/LoginForm.tsx";
 import { Dashboard } from "./components/Dashboard.tsx";
 import { ProjectList } from "./components/ProjectList.tsx";
 import { ProjectDetail } from "./components/ProjectDetail.tsx";
+import { ApiKeys } from "./components/ApiKeys.tsx";
 
 type Page =
   | { name: "dashboard" }
   | { name: "projects" }
-  | { name: "project"; id: string };
+  | { name: "project"; id: string }
+  | { name: "api-keys" };
 
 export function App() {
   const { user, isLoading, login, register, logout } = useAuth();
@@ -54,6 +56,7 @@ export function App() {
           onBack={() => setPage({ name: "projects" })}
         />
       )}
+      {page.name === "api-keys" && <ApiKeys />}
     </Layout>
   );
 }

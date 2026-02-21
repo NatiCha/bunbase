@@ -355,7 +355,7 @@ export async function handleAdminApi(
   if (recordsTableMatch && method === "GET") {
     const tableName = recordsTableMatch[1];
     const validTables = getSchemaTableNames(schema);
-    if (!validTables.has(tableName)) return jsonError("NOT_FOUND", "Table not found", 404);
+    if (!validTables.has(tableName)) return jsonError("NOT_FOUND", `Table '${tableName}' not found. Available tables: ${Array.from(validTables).sort().join(", ")}`, 404);
 
     const page = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10));
     const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") ?? "20", 10)));
@@ -404,7 +404,7 @@ export async function handleAdminApi(
   if (recordsTableMatch && method === "POST") {
     const tableName = recordsTableMatch[1];
     const validTables = getSchemaTableNames(schema);
-    if (!validTables.has(tableName)) return jsonError("NOT_FOUND", "Table not found", 404);
+    if (!validTables.has(tableName)) return jsonError("NOT_FOUND", `Table '${tableName}' not found. Available tables: ${Array.from(validTables).sort().join(", ")}`, 404);
 
     const body = (await req.json()) as Record<string, unknown>;
     const columns = getSchemaColumns(schema, tableName);
@@ -449,7 +449,7 @@ export async function handleAdminApi(
     const tableName = recordsItemMatch[1];
     const id = recordsItemMatch[2];
     const validTables = getSchemaTableNames(schema);
-    if (!validTables.has(tableName)) return jsonError("NOT_FOUND", "Table not found", 404);
+    if (!validTables.has(tableName)) return jsonError("NOT_FOUND", `Table '${tableName}' not found. Available tables: ${Array.from(validTables).sort().join(", ")}`, 404);
 
     const body = (await req.json()) as Record<string, unknown>;
     const columns = getSchemaColumns(schema, tableName);
@@ -497,7 +497,7 @@ export async function handleAdminApi(
     const tableName = recordsItemMatch[1];
     const id = recordsItemMatch[2];
     const validTables = getSchemaTableNames(schema);
-    if (!validTables.has(tableName)) return jsonError("NOT_FOUND", "Table not found", 404);
+    if (!validTables.has(tableName)) return jsonError("NOT_FOUND", `Table '${tableName}' not found. Available tables: ${Array.from(validTables).sort().join(", ")}`, 404);
 
     await adapter.rawExecute(
       `DELETE FROM ${qi(tableName)} WHERE id = $id`,

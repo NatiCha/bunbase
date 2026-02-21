@@ -40,7 +40,6 @@ const noAuth = async (_req: Request) => null;
 // Open rules — allow all operations without restriction (explicit opt-in required since deny-by-default)
 const openRules = {
   list: () => null,
-  view: () => null,
   get: () => null,
   create: () => null,
   update: () => null,
@@ -231,7 +230,7 @@ test("GET /api/posts/:id returns 403 when rule denies", async () => {
   const { sqlite, db } = setupDb();
   sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
     .run({ $id: "p1", $title: "Title", $authorId: "u1" });
-  const { pattern } = generateCrudHandlers(posts, db, mockAuth(), { view: () => false });
+  const { pattern } = generateCrudHandlers(posts, db, mockAuth(), { get: () => false });
   const res = await pattern["/api/posts/:id"].GET(makeRequest("GET", "/api/posts/p1"));
   expect(res.status).toBe(403);
   sqlite.close();

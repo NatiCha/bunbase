@@ -33,7 +33,8 @@ export type RuleArg<
  * Rule return semantics:
  * - `true`: allow operation.
  * - `false`: deny operation.
- * - `null`: explicit allow with no restriction (not "unset").
+ * - `null`: explicit allow — identical to `true` in the evaluator. Prefer `true` or `allowAll()`.
+ *   @deprecated Use `true` instead of `null` for clarity. Both are treated identically.
  * - `SQL`: allow, but apply as a WHERE filter where supported.
  */
 export type RuleResult = boolean | SQL | null;
@@ -44,6 +45,9 @@ export type RuleFunction<TArg extends RuleArg = RuleArg> =
 
 export interface TableRules {
   list?: RuleFunction;
+  /**
+   * @deprecated Use `get` instead. `view` is a legacy alias for single-record reads and will be removed in a future version.
+   */
   view?: RuleFunction;
   get?: RuleFunction;
   create?: RuleFunction;

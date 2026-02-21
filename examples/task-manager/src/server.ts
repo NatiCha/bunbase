@@ -12,11 +12,13 @@ const isDev = process.env.NODE_ENV !== "production";
 
 const bunbase = createServer({
   schema,
+  relations: schema.relations,
   rules,
   extend: customRoutes,
   config: defineConfig({
     development: isDev,
     cors: isDev ? { origins: ["http://localhost:5173"] } : undefined,
+    realtime: { enabled: true },
   }),
 });
 

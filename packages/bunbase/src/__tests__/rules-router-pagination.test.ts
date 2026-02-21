@@ -32,7 +32,7 @@ test("view rule is enforced for GET /:id reads", async () => {
     .run({ $id: "p1", $authorId: "u1" });
 
   const db = drizzle({ client: sqlite });
-  const { pattern } = generateCrudHandlers(posts, db, mockAuth(), { view: () => false });
+  const { pattern } = generateCrudHandlers(posts, db, mockAuth(), { get: () => false });
 
   const res = await pattern["/api/posts/:id"].GET(
     new Request("http://localhost/api/posts/p1"),

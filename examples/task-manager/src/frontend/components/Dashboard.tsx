@@ -1,8 +1,14 @@
-import React from "react";
-import { useQuery } from "@tanstack/react-query";
+/**
+ * Dashboard with live task feed powered by BunBase realtime WebSocket.
+ * Demonstrates: client.realtime.subscribe(table, callback)
+ */
+import React, { useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card.tsx";
 import { Badge } from "./ui/badge.tsx";
-import { CheckCircle, Clock, ListTodo, BarChart3 } from "lucide-react";
+import { CheckCircle, Clock, ListTodo, BarChart3, Wifi } from "lucide-react";
+import { client } from "../lib/client.ts";
+import type { TableChangeEvent } from "bunbase";
 
 interface Stats {
   total: number;
@@ -19,15 +25,20 @@ interface MyTask {
   project_id: string;
 }
 
-function getCsrfToken(): string {
-  if (typeof document === "undefined") return "";
-  const match = document.cookie
-    .split(";")
-    .find((c) => c.trim().startsWith("csrf_token="));
-  return match?.split("=")[1]?.trim() ?? "";
+interface LiveEvent {
+  id: string;
+  action: "INSERT" | "UPDATE" | "DELETE";
+  title: string;
+  timestamp: Date;
 }
 
+const MAX_LIVE_EVENTS = 5;
+
 export function Dashboard() {
+  const queryClient = useQueryClient();
+  const [liveEvents, setLiveEvents] = useState<LiveEvent[]>([]);
+  const unsubRef = useRef<(() => void) | null>(null);
+
   const { data: stats, isLoading: statsLoading } = useQuery<Stats>({
     queryKey: ["bunbase", "custom", "stats"],
     queryFn: async () => {
@@ -45,6 +56,32 @@ export function Dashboard() {
     },
   });
 
+  // Subscribe to realtime task changes and keep the stats counter fresh
+  useEffect(() => {
+    const unsub = client.realtime.subscribe("tasks", (event: TableChangeEvent) => {
+      const record = event.record as { title?: string } | undefined;
+      const title = record?.title ?? `Task ${event.id.slice(0, 6)}`;
+
+      // Append to live event feed (most recent first)
+      setLiveEvents((prev) => {
+        const next: LiveEvent = {
+          id: `${event.id}-${Date.now()}`,
+          action: event.action,
+          title,
+          timestamp: new Date(),
+        };
+        return [next, ...prev].slice(0, MAX_LIVE_EVENTS);
+      });
+
+      // Invalidate stats so counters update immediately
+      queryClient.invalidateQueries({ queryKey: ["bunbase", "custom", "stats"] });
+      queryClient.invalidateQueries({ queryKey: ["bunbase", "custom", "my-tasks"] });
+    });
+
+    unsubRef.current = unsub;
+    return () => unsub();
+  }, [queryClient]);
+
   const loading = statsLoading || tasksLoading;
 
   if (loading) {
@@ -57,6 +94,12 @@ export function Dashboard() {
     { label: "In Progress", value: stats?.in_progress ?? 0, icon: Clock, color: "text-yellow-600" },
     { label: "Done", value: stats?.done ?? 0, icon: CheckCircle, color: "text-green-600" },
   ];
+
+  const actionLabel: Record<string, string> = {
+    INSERT: "created",
+    UPDATE: "updated",
+    DELETE: "deleted",
+  };
 
   return (
     <div className="space-y-6">
@@ -74,6 +117,34 @@ export function Dashboard() {
             </CardContent>
           </Card>
         ))}
+      </div>
+
+      {/* Live task feed via realtime WebSocket */}
+      <div>
+        <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+          <Wifi className="h-4 w-4 text-green-500" />
+          Live Activity
+        </h3>
+        {liveEvents.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Watching for task changes in real-time…
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {liveEvents.map((ev) => (
+              <div key={ev.id} className="flex items-center justify-between p-2 border rounded text-sm">
+                <span>
+                  <span className="font-medium">{ev.title}</span>
+                  {" "}
+                  <span className="text-muted-foreground">{actionLabel[ev.action]}</span>
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {ev.timestamp.toLocaleTimeString()}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {myTasks.length > 0 && (

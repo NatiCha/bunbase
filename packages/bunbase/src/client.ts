@@ -82,15 +82,17 @@ async function throwApiError(res: Response, fallback: string): Promise<never> {
  *
  * @example
  * ```ts
- * const client = createBunBaseClient<{ tasks: typeof tasksTable }>({ url: "http://localhost:3000" });
+ * import * as schema from "./schema";
+ * const client = createBunBaseClient({ url: "http://localhost:3000", schema });
  * const page = await client.api.tasks.list({ limit: 20, expand: ["owner"] });
  * ```
  */
 export function createBunBaseClient<S extends Record<string, unknown>>(
-  options: BunBaseClientOptions,
+  options: BunBaseClientOptions & { schema: S },
 ) {
   const baseUrl = options.url.replace(/\/$/, "");
   const apiKey = options.apiKey;
+  const schemaKeys = Object.keys(options.schema);
 
   // When an API key is set, use bearer auth and omit cookies/CSRF
   const credentials: RequestCredentials = apiKey ? "omit" : "include";
@@ -114,7 +116,17 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
 
   // Proxy-based API client: client.api.tableName.list() etc.
   const api = new Proxy({} as BunBaseAPI<S>, {
-    get(_target, tableName: string) {
+    get(_target, tableName: string | symbol) {
+      // Pass through symbol accesses (JS internals)
+      if (typeof tableName !== "string") return undefined;
+      // Pass through Promise/thenable protocol checks
+      if (tableName === "then" || tableName === "catch" || tableName === "finally") return undefined;
+      // Validate table name at access time when schema is available
+      if (schemaKeys.length > 0 && !schemaKeys.includes(tableName)) {
+        throw new Error(
+          `'${tableName}' is not a valid table. Available: ${schemaKeys.join(", ")}`,
+        );
+      }
       const tableUrl = `${baseUrl}/api/${tableName}`;
 
       const tableClient: TableClient<unknown, unknown> = {

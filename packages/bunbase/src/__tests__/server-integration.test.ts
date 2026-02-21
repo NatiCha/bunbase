@@ -39,7 +39,7 @@ beforeAll(async () => {
   bunbase = createServer({
     schema: { users: usersTable, posts: postsTable },
     rules: {
-      posts: { list: () => null, view: () => null, get: () => null, create: () => null, update: () => null, delete: () => null },
+      posts: { list: () => null, get: () => null, create: () => null, update: () => null, delete: () => null },
     },
     config: makeResolvedConfig({
       development: true,
@@ -306,7 +306,6 @@ beforeAll(async () => {
     rules: defineRules({
       widgets: {
         list: () => null,
-        view: () => null,
         get: () => null,
         // create: deny if body contains a "status" field (forbidden field)
         create: ({ body }) => !isSet(body, "status"),

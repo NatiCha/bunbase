@@ -32,7 +32,7 @@ beforeAll(async () => {
   bunbaseModify = createServer({
     schema: { items },
     rules: {
-      items: { list: () => null, view: () => null, get: () => null, create: () => null, update: () => null, delete: () => null },
+      items: { list: () => null, get: () => null, create: () => null, update: () => null, delete: () => null },
     },
     hooks: defineHooks({
       items: {
@@ -95,7 +95,7 @@ beforeAll(async () => {
   bunbaseBlock = createServer({
     schema: { items },
     rules: {
-      items: { list: () => null, view: () => null, get: () => null, create: () => null, update: () => null, delete: () => null },
+      items: { list: () => null, get: () => null, create: () => null, update: () => null, delete: () => null },
     },
     hooks: defineHooks({
       items: {

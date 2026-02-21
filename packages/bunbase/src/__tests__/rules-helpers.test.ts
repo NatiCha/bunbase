@@ -84,13 +84,13 @@ test("adminOrOwner returns SQL clause for non-admin user", () => {
 
 // ─── allowAll ────────────────────────────────────────────────────────────────
 
-test("allowAll permits all operations (returns null)", async () => {
+test("allowAll permits all operations (returns true)", async () => {
   const arg = { auth: null, body: {}, headers: {}, query: {}, method: "GET", db: {} as any };
-  expect(await allowAll.list!(arg)).toBeNull();
-  expect(await allowAll.get!(arg)).toBeNull();
-  expect(await allowAll.create!(arg)).toBeNull();
-  expect(await allowAll.update!(arg)).toBeNull();
-  expect(await allowAll.delete!(arg)).toBeNull();
+  expect(await allowAll.list!(arg)).toBe(true);
+  expect(await allowAll.get!(arg)).toBe(true);
+  expect(await allowAll.create!(arg)).toBe(true);
+  expect(await allowAll.update!(arg)).toBe(true);
+  expect(await allowAll.delete!(arg)).toBe(true);
 });
 
 // ─── isSet ───────────────────────────────────────────────────────────────────

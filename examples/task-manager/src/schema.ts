@@ -2,6 +2,7 @@
  * Example Drizzle schema consumed directly by BunBase server generation.
  */
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { defineRelations } from "drizzle-orm/relations";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey().$defaultFn(() => Bun.randomUUIDv7()),
@@ -34,3 +35,13 @@ export const tasks = sqliteTable("tasks", {
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()).$onUpdateFn(() => new Date().toISOString()),
 });
+
+/** Relational metadata for expand support: tasks.assignee -> users */
+export const relations = defineRelations({ tasks, users }, (r) => ({
+  tasks: {
+    assignee: r.one.users({
+      from: r.tasks.assigneeId,
+      to: r.users.id,
+    }),
+  },
+}));

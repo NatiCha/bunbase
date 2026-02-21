@@ -20,6 +20,7 @@ import { createFileRoutes, createStorageDriver } from "../storage/routes.ts";
 import { handleAdminApi, pushRequestLog } from "../admin/routes.ts";
 import { hashPassword } from "../auth/passwords.ts";
 import type { AuthUser } from "../api/types.ts";
+import { errorResponse } from "../api/helpers.ts";
 import type { TableRules } from "../rules/types.ts";
 import type { TableHooks } from "../hooks/types.ts";
 import type { AuthHooks } from "../hooks/auth-types.ts";
@@ -186,6 +187,11 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     tableRules,
     tableHooks,
     broadcastFn,
+  );
+
+  // Collect known CRUD table names for descriptive 404 messages
+  const knownApiTables = new Set(
+    Object.keys(crudExact).map((p) => p.replace(/^\/api\//, "")),
   );
 
   // Build auth route handlers
@@ -495,7 +501,23 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
           }
         }
 
-        const notFound = new Response("Not Found", { status: 404 });
+        // For /api/ paths, include available table names in the error to aid debugging
+        let notFound: Response;
+        if (pathname.startsWith("/api/")) {
+          const tableSegment = pathname.slice(5).split("/")[0];
+          if (tableSegment && !knownApiTables.has(tableSegment)) {
+            const available = Array.from(knownApiTables).sort().join(", ");
+            notFound = errorResponse(
+              "NOT_FOUND",
+              `Table '${tableSegment}' not found. Available tables: ${available || "(none)"}`,
+              404,
+            );
+          } else {
+            notFound = errorResponse("NOT_FOUND", "Route not found", 404);
+          }
+        } else {
+          notFound = errorResponse("NOT_FOUND", "Route not found", 404);
+        }
         await logRequest(db, internalSchema, req, pathname, start, notFound, null);
         return addCorsHeaders(notFound, req, config);
       },

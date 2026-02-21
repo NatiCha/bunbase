@@ -1,6 +1,6 @@
 import React from "react";
 import { Button } from "./ui/button.tsx";
-import { LayoutDashboard, FolderKanban, LogOut } from "lucide-react";
+import { LayoutDashboard, FolderKanban, KeyRound, LogOut } from "lucide-react";
 
 interface LayoutProps {
   user: { id: string; email: string; role: string };
@@ -38,6 +38,14 @@ export function Layout({ user, page, onNavigate, onLogout, children }: LayoutPro
               >
                 <FolderKanban className="h-4 w-4 mr-1" />
                 Projects
+              </Button>
+              <Button
+                variant={page.name === "api-keys" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => onNavigate({ name: "api-keys" })}
+              >
+                <KeyRound className="h-4 w-4 mr-1" />
+                API Keys
               </Button>
             </nav>
           </div>

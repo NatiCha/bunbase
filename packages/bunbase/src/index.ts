@@ -78,3 +78,13 @@ export type { DatabaseConfig, ResolvedDatabaseConfig } from "./core/config.ts";
 export { createGenericOAuthProvider as defineOAuthProvider } from "./auth/oauth/generic.ts";
 export type { CustomOAuthProviderConfig, OAuthProvider, OAuthUserInfo } from "./auth/oauth/types.ts";
 export { defineRelations, MAX_RELATION_DEPTH } from "./crud/relations.ts";
+export { createBunBaseClient } from "./client.ts";
+export type {
+  TableChangeEvent,
+  TableClient,
+  ListParams,
+  ListResponse,
+  BunBaseAPI,
+  ChannelClient,
+  PresenceEvent,
+} from "./client.ts";

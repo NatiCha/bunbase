@@ -395,7 +395,7 @@ test("GET /files returns 404 when file data is missing from storage", async () =
     internalSchema,
     config: makeConfig(),
     schema: { posts: postsTable },
-    rules: { posts: { view: () => null } },
+    rules: { posts: { get: () => null } },
     usersTable,
   });
 
@@ -444,7 +444,7 @@ test("GET /files returns file content when authenticated and file exists", async
     internalSchema,
     config: makeConfig(),
     schema: { posts: postsTable },
-    rules: { posts: { view: () => null } },
+    rules: { posts: { get: () => null } },
     usersTable,
   });
 
@@ -493,7 +493,7 @@ test("GET /files passes method/headers/query/id/db in read rule arg", async () =
     schema: { posts: postsTable },
     rules: {
       posts: {
-        view: (arg) => {
+        get: (arg) => {
           capturedArg = arg;
           return null;
         },
@@ -752,7 +752,7 @@ test("GET /files returns 403 when whereClause rule filters out the record", asyn
     schema: { posts: postsTable },
     rules: {
       posts: {
-        view: () => eq(cols.id, "allowed-rec"),
+        get: () => eq(cols.id, "allowed-rec"),
       },
     },
     usersTable,

@@ -44,12 +44,11 @@ export function adminOrOwner(
  * defineRules({ announcements: allowAll })
  */
 export const allowAll: TableRules = {
-  list: () => null,
-  view: () => null,
-  get: () => null,
-  create: () => null,
-  update: () => null,
-  delete: () => null,
+  list: () => true,
+  get: () => true,
+  create: () => true,
+  update: () => true,
+  delete: () => true,
 };
 
 /** Check if a field was submitted in the request body */

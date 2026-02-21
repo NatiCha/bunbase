@@ -75,14 +75,17 @@ type BunBaseReactAPI<S> = {
 // ─── Factory ──────────────────────────────────────────────────────────────────
 
 export function createBunBaseReact<S extends Record<string, unknown>>(
-  options: BunBaseReactOptions,
+  options: BunBaseReactOptions & { schema: S },
 ) {
   const baseUrl = options.url.replace(/\/$/, "");
   const client = createBunBaseClient<S>(options);
 
   // Proxy that returns queryOptions/mutationOptions per table
   const api = new Proxy({} as BunBaseReactAPI<S>, {
-    get(_target, tableName: string) {
+    get(_target, tableName: string | symbol) {
+      if (typeof tableName !== "string") return undefined;
+      if (tableName === "then" || tableName === "catch" || tableName === "finally") return undefined;
+      // client.api proxy validates the table name and throws if invalid
       const tableClient = (client.api as any)[tableName] as TableClient<unknown, unknown>;
 
       const tableQueryClient: TableQueryClient<unknown, unknown> = {

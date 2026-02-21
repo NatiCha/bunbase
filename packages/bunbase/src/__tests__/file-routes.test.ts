@@ -102,7 +102,7 @@ function setupDbAndRoutes(allowView: boolean) {
     schema: { users: usersTable, posts },
     rules: {
       posts: {
-        view: () => allowView,
+        get: () => allowView,
       },
     },
     usersTable,

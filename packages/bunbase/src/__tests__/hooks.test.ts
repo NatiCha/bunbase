@@ -36,7 +36,6 @@ const noAuth = async (_req: Request): Promise<AuthUser | null> => null;
 // Open rules — allow all operations without restriction (explicit opt-in required since deny-by-default)
 const openRules = {
   list: () => null,
-  view: () => null,
   get: () => null,
   create: () => null,
   update: () => null,

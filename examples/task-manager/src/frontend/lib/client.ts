@@ -1,7 +1,8 @@
 import { createBunBaseReact } from "bunbase/react";
-import type * as schema from "../../schema";
+import * as schema from "../../schema";
 
-export const { BunBaseProvider, api, useAuth } =
-  createBunBaseReact<typeof schema>({
+export const { BunBaseProvider, api, useAuth, client } =
+  createBunBaseReact({
     url: window.location.origin,
+    schema,
   });

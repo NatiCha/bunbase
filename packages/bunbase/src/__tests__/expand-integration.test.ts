@@ -65,7 +65,6 @@ beforeAll(async () => {
 
   const openRules = {
     list: () => null,
-    view: () => null,
     get: () => null,
     create: () => null,
     update: () => null,
