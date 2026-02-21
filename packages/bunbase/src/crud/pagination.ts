@@ -42,6 +42,7 @@ export function decodeCursor(cursor: string): CursorData | null {
 }
 
 export function resolveLimit(limit?: number): number {
+  if (limit === -1) return -1; // sentinel: no limit (listAll)
   if (!limit || limit < 1) return DEFAULT_LIMIT;
   return Math.min(limit, MAX_LIMIT);
 }

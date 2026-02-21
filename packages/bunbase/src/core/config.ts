@@ -79,6 +79,23 @@ export interface BunBaseConfig {
    * Example: ["127.0.0.1"] for a local nginx proxy.
    */
   trustedProxies?: string[];
+  /**
+   * Serve a single-page application (SPA) alongside the API.
+   *
+   * Pass a **statically-imported** HTML bundle — dynamic `import()` does not
+   * trigger Bun's HTML bundler. The import must be at the top level of your
+   * entry file.
+   *
+   * @example
+   * ```ts
+   * import indexHtml from "./frontend/index.html";
+   * createServer({ schema, config: defineConfig({ frontend: { html: indexHtml } }) });
+   * ```
+   */
+  frontend?: {
+    /** Result of `import x from "./index.html"` — passed directly to Bun.serve routes. */
+    html: unknown;
+  };
 }
 
 /**
@@ -143,6 +160,10 @@ export interface ResolvedConfig {
   dbPath: string;
   migrationsPath: string;
   trustedProxies: string[];
+  /** Present only when the user configured SPA serving. */
+  frontend?: {
+    html: unknown;
+  };
 }
 
 function resolveDatabaseConfig(config?: BunBaseConfig): ResolvedDatabaseConfig {
@@ -246,6 +267,7 @@ export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
     dbPath: database.url,
     migrationsPath: config?.migrationsPath ?? "./drizzle",
     trustedProxies: config?.trustedProxies ?? [],
+    frontend: config?.frontend,
   };
 
   if (!isDev) {

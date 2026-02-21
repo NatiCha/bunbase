@@ -177,6 +177,7 @@ export function generateCrudHandlers(
     }
     const limitParam = url.searchParams.get("limit");
     const limit = resolveLimit(limitParam ? Number(limitParam) : undefined);
+    const fetchAll = limit === -1;
     const cursor = url.searchParams.get("cursor") ?? undefined;
     const sortField = url.searchParams.get("sort") ?? undefined;
     const order = (url.searchParams.get("order") ?? "asc") as "asc" | "desc";
@@ -188,7 +189,7 @@ export function generateCrudHandlers(
     const allConditions: (SQL | undefined)[] = [];
     allConditions.push(buildWhereConditions(filter, columns as Record<string, Column>));
 
-    if (cursor) {
+    if (cursor && !fetchAll) {
       allConditions.push(buildCursorCondition(cursor, idColumn, sortColumn, order));
     }
 
@@ -207,6 +208,57 @@ export function generateCrudHandlers(
     const expandParam = url.searchParams.get("expand");
     const expandFields = expandParam ? expandParam.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
     const withClause = buildWithClause(expandFields);
+
+    // fetchAll branch: limit=-1 sentinel — return all rows without a LIMIT clause.
+    // IDs are chunked in batches of 500 for the expand query to stay within
+    // SQLite's SQLITE_LIMIT_VARIABLE_NUMBER (default 999).
+    if (fetchAll) {
+      const allRows = await (db as any)
+        .select()
+        .from(table)
+        .where(where)
+        .orderBy(...orderBy);
+
+      if (withClause && Object.keys(withClause).length > 0) {
+        if (!(db as any).query?.[resolvedSchemaKey]) {
+          return errorResponse(
+            "BAD_REQUEST",
+            `expand is not supported for table "${tableName}" — ensure defineRelations() is passed to createServer()`,
+            400,
+          );
+        }
+        const allowedWith = await resolveAllowedWithClause(
+          withClause,
+          resolvedSchemaKey,
+          db,
+          allRules,
+          auth,
+        );
+        const allIds = (allRows as Record<string, unknown>[]).map((r) => String(r["id"]));
+        const expandedById = new Map<string, unknown>();
+        for (let i = 0; i < allIds.length; i += 500) {
+          const batchIds = allIds.slice(i, i + 500);
+          const batchRows = await (db as any).query[resolvedSchemaKey].findMany({
+            where: { OR: batchIds.map((id) => ({ id })) },
+            with: allowedWith,
+          });
+          for (const row of batchRows) {
+            expandedById.set(
+              String((row as Record<string, unknown>)["id"]),
+              stripSensitiveFields(row as Record<string, unknown>),
+            );
+          }
+        }
+        const enriched = allIds.map((id) => expandedById.get(id)).filter(Boolean);
+        return Response.json({ data: enriched, nextCursor: null, hasMore: false });
+      }
+
+      return Response.json({
+        data: (allRows as Record<string, unknown>[]).map(stripSensitiveFields),
+        nextCursor: null,
+        hasMore: false,
+      });
+    }
 
     // Step 1: Fetch paginated rows using standard SQL (handles all WHERE/ORDER/LIMIT conditions)
     const rows = await (db as any)

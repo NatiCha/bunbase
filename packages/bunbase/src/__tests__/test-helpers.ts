@@ -43,6 +43,7 @@ export function makeResolvedConfig(
     dbPath: overrides.dbPath ?? databaseOverrides.url ?? "./data/db.sqlite",
     migrationsPath: overrides.migrationsPath ?? "./drizzle",
     trustedProxies: overrides.trustedProxies ?? [],
+    frontend: overrides.frontend,
   };
 }
 

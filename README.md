@@ -78,3 +78,54 @@ bun run --cwd examples/task-manager dev
 ## Patterns reference
 
 See [`docs/examples.ts`](./docs/examples.ts) for compile-checked code snippets covering every pattern: filters, pagination, expand, rules, hooks, jobs, OAuth, and more.
+
+## Fetching all records with `listAll()`
+
+`listAll()` returns every matching record in a single HTTP request — no cursor
+loop, no pagination. Internally it passes `limit=-1` to the server, which
+queries without a LIMIT clause and returns `hasMore: false`.
+
+```ts
+const allTasks = await client.api.tasks.listAll({ filter: { done: false } });
+```
+
+With TanStack Query:
+
+```tsx
+const { data = [] } = useQuery(api.tasks.listAll.queryOptions({ sort: "createdAt" }));
+```
+
+Filter, sort, and expand params work the same as `list()`. For very large tables
+where you want to process records incrementally, use `list()` with manual cursor
+handling instead.
+
+## Frontend (SPA) serving
+
+BunBase can serve your React/Vue/Svelte SPA alongside the API in a single process.
+Enable it with the `frontend` config option.
+
+> **Static import required.** Bun's HTML bundler processes imports at module
+> load time. Dynamic `import()` does not work for HTML files — the import must
+> be a static top-level statement.
+
+```ts
+// server.ts
+import indexHtml from "./frontend/index.html";   // static import — required
+import { createServer, defineConfig } from "bunbase";
+
+createServer({
+  schema,
+  rules,
+  config: defineConfig({
+    frontend: { html: indexHtml },
+  }),
+}).listen(3000);
+```
+
+With `frontend.html` set, BunBase adds `/*` as a SPA catch-all in `Bun.serve()`.
+All API namespaces (`/api/*`, `/auth/*`, `/_admin/api/*`, `/files/*`, `/realtime`)
+remain more specific and continue to reach BunBase's handlers — Bun's router is
+specificity-based, not order-based.
+
+Run with `bun --hot server.ts` for hot module replacement during development.
+Tailwind, TSX, and CSS bundling are handled natively by Bun — no Vite needed.

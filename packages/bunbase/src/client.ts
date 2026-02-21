@@ -33,6 +33,17 @@ type ExpandKeys<TSelect> = Extract<keyof TSelect, string>;
 
 export interface TableClient<TSelect, TInsert, TExpand extends string = ExpandKeys<TSelect> | string> {
   list(params?: ListParams<TExpand>): Promise<ListResponse<TSelect>>;
+  /**
+   * Fetch all records matching `params` in a single request.
+   * Passes `limit=-1` to the server, which returns every matching record
+   * with no cursor. Accepts the same filter/sort/expand params as `list()`.
+   *
+   * @example
+   * ```ts
+   * const allTasks = await client.api.tasks.listAll({ filter: { done: false } });
+   * ```
+   */
+  listAll(params?: Omit<ListParams<TExpand>, "cursor" | "limit">): Promise<TSelect[]>;
   get(id: string, opts?: { expand?: TExpand[] }): Promise<TSelect | null>;
   create(data: TInsert): Promise<TSelect>;
   update(id: string, data: Partial<TInsert>): Promise<TSelect | null>;
@@ -147,6 +158,11 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
           });
           if (!res.ok) await throwApiError(res, "List failed");
           return res.json();
+        },
+
+        async listAll(params?: Omit<ListParams, "cursor" | "limit">): Promise<unknown[]> {
+          const page = await tableClient.list({ ...params, limit: -1 });
+          return page.data;
         },
 
         async get(id: string, opts?: { expand?: string[] }): Promise<unknown> {

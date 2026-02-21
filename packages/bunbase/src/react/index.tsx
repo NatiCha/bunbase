@@ -27,6 +27,21 @@ interface TableQueryClient<TSelect, TInsert> {
     };
     queryKey: (params?: ListParams) => readonly unknown[];
   };
+  /**
+   * Query options for `listAll` — fetches all records in a single request.
+   *
+   * @example
+   * ```tsx
+   * const { data = [] } = useQuery(api.tasks.listAll.queryOptions({ filter: { done: false } }));
+   * ```
+   */
+  listAll: {
+    queryOptions: (params?: Omit<ListParams, "cursor" | "limit">) => {
+      queryKey: readonly unknown[];
+      queryFn: () => Promise<TSelect[]>;
+    };
+    queryKey: (params?: Omit<ListParams, "cursor" | "limit">) => readonly unknown[];
+  };
   get: {
     queryOptions: (id: string, opts?: { expand?: string[] }) => {
       queryKey: readonly unknown[];
@@ -98,6 +113,17 @@ export function createBunBaseReact<S extends Record<string, unknown>>(
           },
           queryKey(params?: ListParams) {
             return ["bunbase", tableName, "list", params ?? {}] as const;
+          },
+        },
+        listAll: {
+          queryOptions(params?: Omit<ListParams, "cursor" | "limit">) {
+            return {
+              queryKey: ["bunbase", tableName, "listAll", params ?? {}] as const,
+              queryFn: () => tableClient.listAll(params),
+            };
+          },
+          queryKey(params?: Omit<ListParams, "cursor" | "limit">) {
+            return ["bunbase", tableName, "listAll", params ?? {}] as const;
           },
         },
         get: {

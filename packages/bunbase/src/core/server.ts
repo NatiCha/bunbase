@@ -359,119 +359,129 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
         }
       : undefined;
 
-    const server = Bun.serve({
-      port: resolvedPort,
+    // Extract main request handler as a named function so the SPA catch-all
+    // route forwarders can call it without duplicating the handler body in a route.
+    async function masterFetch(
+      req: Request,
+      srv: ReturnType<typeof Bun.serve>,
+    ): Promise<Response> {
+      // Capture socket IP before any cloning — srv.requestIP() needs the original request.
+      const socketIp = srv.requestIP(req)?.address ?? "unknown";
 
-      routes: {
-        "/health": Response.json({ status: "ok", version: pkg.version }),
-        "/_admin": adminUI,
-        "/_admin/": adminUI,
-      },
-
-      ...(websocketHandlers ? { websocket: websocketHandlers } : {}),
-
-      async fetch(req, srv) {
-        // Capture socket IP before any cloning — srv.requestIP() needs the original request.
-        const socketIp = srv.requestIP(req)?.address ?? "unknown";
-
-        // Ensure bootstrap is complete (important for Postgres)
-        if (!bootstrapped) {
-          const bootstrapResult = await bootstrapPromise;
-          if (bootstrapResult && !usersTable) {
-            usersTable = bootstrapResult;
-          }
+      // Ensure bootstrap is complete (important for Postgres)
+      if (!bootstrapped) {
+        const bootstrapResult = await bootstrapPromise;
+        if (bootstrapResult && !usersTable) {
+          usersTable = bootstrapResult;
         }
+      }
 
-        const start = Date.now();
+      const start = Date.now();
 
-        // CORS preflight
-        const preflight = handleCorsPreflightOrNull(req, config);
-        if (preflight) return preflight;
+      // CORS preflight
+      const preflight = handleCorsPreflightOrNull(req, config);
+      if (preflight) return preflight;
 
-        const url = new URL(req.url);
-        const pathname = url.pathname;
+      const url = new URL(req.url);
+      const pathname = url.pathname;
 
-        // WebSocket upgrade for /realtime — must use the original req, not a clone,
-        // because srv.upgrade() requires the native Bun request handle.
-        if (pathname === "/realtime" && config.realtime.enabled && realtimeManager) {
-          const auth = await extractAuthFromReq(req, db, internalSchema, usersTable).catch(() => null);
-          const upgraded = srv.upgrade(req, {
-            data: {
-              auth,
-              connectedAt: Date.now(),
-              presenceMeta: {},
-            },
-          });
-          if (upgraded) return undefined as unknown as Response;
-          return new Response("WebSocket upgrade failed", { status: 400 });
-        }
+      // WebSocket upgrade for /realtime — must use the original req, not a clone,
+      // because srv.upgrade() requires the native Bun request handle.
+      if (pathname === "/realtime" && config.realtime.enabled && realtimeManager) {
+        const auth = await extractAuthFromReq(req, db, internalSchema, usersTable).catch(() => null);
+        const upgraded = srv.upgrade(req, {
+          data: {
+            auth,
+            connectedAt: Date.now(),
+            presenceMeta: {},
+          },
+        });
+        if (upgraded) return undefined as unknown as Response;
+        return new Response("WebSocket upgrade failed", { status: 400 });
+      }
 
-        // Inject socket IP header for all HTTP routes. Must happen after the WebSocket
-        // path above since cloning req would invalidate the native handle needed by srv.upgrade().
-        // We always overwrite any client-provided value to prevent spoofing.
-        const enrichedHeaders = new Headers(req.headers);
-        enrichedHeaders.set("x-bunbase-socket-ip", socketIp);
-        req = new Request(req, { headers: enrichedHeaders });
+      // Inject socket IP header for all HTTP routes. Must happen after the WebSocket
+      // path above since cloning req would invalidate the native handle needed by srv.upgrade().
+      // We always overwrite any client-provided value to prevent spoofing.
+      const enrichedHeaders = new Headers(req.headers);
+      enrichedHeaders.set("x-bunbase-socket-ip", socketIp);
+      req = new Request(req, { headers: enrichedHeaders });
 
-        // CSRF check for state-changing mutations — covers both /api/ and /_admin/api/.
-        // Skipped for bearer-only requests (no session cookie present) since CSRF attacks
-        // require the victim's browser to send cookies automatically.
-        if (
-          (pathname.startsWith("/api/") || pathname.startsWith("/_admin/api/")) &&
-          ["POST", "PATCH", "DELETE"].includes(req.method) &&
-          !isCsrfExempt(pathname) &&
-          !isBearerOnly(req)
-        ) {
-          if (!validateCsrf(req)) {
-            return addCorsHeaders(
-              Response.json(
-                { error: { code: "FORBIDDEN", message: "Invalid CSRF token" } },
-                { status: 403 },
-              ),
-              req,
-              config,
-            );
-          }
-        }
-
-        // Admin API — must be before CRUD/user routes
-        if (pathname.startsWith("/_admin/api/")) {
-          const response = await handleAdminApi(
+      // CSRF check for state-changing mutations — covers both /api/ and /_admin/api/.
+      // Skipped for bearer-only requests (no session cookie present) since CSRF attacks
+      // require the victim's browser to send cookies automatically.
+      if (
+        (pathname.startsWith("/api/") || pathname.startsWith("/_admin/api/")) &&
+        ["POST", "PATCH", "DELETE"].includes(req.method) &&
+        !isCsrfExempt(pathname) &&
+        !isBearerOnly(req)
+      ) {
+        if (!validateCsrf(req)) {
+          return addCorsHeaders(
+            Response.json(
+              { error: { code: "FORBIDDEN", message: "Invalid CSRF token" } },
+              { status: 403 },
+            ),
             req,
-            db,
-            adapter,
-            internalSchema,
             config,
-            options.schema,
-            adminStorage,
-            usersTable,
           );
-          const durationMs = Date.now() - start;
-          const user = await extractAuthFromReq(req, db, internalSchema, usersTable).catch(() => null);
-          await pushRequestLog(db, internalSchema, {
-            id: Bun.randomUUIDv7(),
-            method: req.method,
-            path: pathname,
-            status: response.status,
-            durationMs,
-            userId: user?.id ?? null,
-            timestamp: new Date().toISOString(),
-          });
+        }
+      }
+
+      // Admin API — must be before CRUD/user routes
+      if (pathname.startsWith("/_admin/api/")) {
+        const response = await handleAdminApi(
+          req,
+          db,
+          adapter,
+          internalSchema,
+          config,
+          options.schema,
+          adminStorage,
+          usersTable,
+        );
+        const durationMs = Date.now() - start;
+        const user = await extractAuthFromReq(req, db, internalSchema, usersTable).catch(() => null);
+        await pushRequestLog(db, internalSchema, {
+          id: Bun.randomUUIDv7(),
+          method: req.method,
+          path: pathname,
+          status: response.status,
+          durationMs,
+          userId: user?.id ?? null,
+          timestamp: new Date().toISOString(),
+        });
+        return addCorsHeaders(response, req, config);
+      }
+
+      // SPA catch-all for /_admin/*
+      if (pathname.startsWith("/_admin")) {
+        return new Response(null, {
+          status: 302,
+          headers: { Location: "/_admin" },
+        });
+      }
+
+      // Exact match HTTP routes
+      const routeHandlers = httpRoutes[pathname];
+      if (routeHandlers) {
+        const handler = routeHandlers[req.method];
+        if (handler) {
+          const response = await handler(req);
+          await logRequest(db, internalSchema, req, pathname, start, response, null);
           return addCorsHeaders(response, req, config);
         }
+        return addCorsHeaders(
+          new Response("Method Not Allowed", { status: 405 }),
+          req,
+          config,
+        );
+      }
 
-        // SPA catch-all for /_admin/*
-        if (pathname.startsWith("/_admin")) {
-          return new Response(null, {
-            status: 302,
-            headers: { Location: "/_admin" },
-          });
-        }
-
-        // Exact match HTTP routes
-        const routeHandlers = httpRoutes[pathname];
-        if (routeHandlers) {
-          const handler = routeHandlers[req.method];
+      // Pattern match HTTP routes (file routes + CRUD item routes with params)
+      for (const { pattern, handlers } of patternRoutes) {
+        if (pattern.test(pathname)) {
+          const handler = handlers[req.method];
           if (handler) {
             const response = await handler(req);
             await logRequest(db, internalSchema, req, pathname, start, response, null);
@@ -483,43 +493,59 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
             config,
           );
         }
+      }
 
-        // Pattern match HTTP routes (file routes + CRUD item routes with params)
-        for (const { pattern, handlers } of patternRoutes) {
-          if (pattern.test(pathname)) {
-            const handler = handlers[req.method];
-            if (handler) {
-              const response = await handler(req);
-              await logRequest(db, internalSchema, req, pathname, start, response, null);
-              return addCorsHeaders(response, req, config);
-            }
-            return addCorsHeaders(
-              new Response("Method Not Allowed", { status: 405 }),
-              req,
-              config,
-            );
-          }
-        }
-
-        // For /api/ paths, include available table names in the error to aid debugging
-        let notFound: Response;
-        if (pathname.startsWith("/api/")) {
-          const tableSegment = pathname.slice(5).split("/")[0];
-          if (tableSegment && !knownApiTables.has(tableSegment)) {
-            const available = Array.from(knownApiTables).sort().join(", ");
-            notFound = errorResponse(
-              "NOT_FOUND",
-              `Table '${tableSegment}' not found. Available tables: ${available || "(none)"}`,
-              404,
-            );
-          } else {
-            notFound = errorResponse("NOT_FOUND", "Route not found", 404);
-          }
+      // For /api/ paths, include available table names in the error to aid debugging
+      let notFound: Response;
+      if (pathname.startsWith("/api/")) {
+        const tableSegment = pathname.slice(5).split("/")[0];
+        if (tableSegment && !knownApiTables.has(tableSegment)) {
+          const available = Array.from(knownApiTables).sort().join(", ");
+          notFound = errorResponse(
+            "NOT_FOUND",
+            `Table '${tableSegment}' not found. Available tables: ${available || "(none)"}`,
+            404,
+          );
         } else {
           notFound = errorResponse("NOT_FOUND", "Route not found", 404);
         }
-        await logRequest(db, internalSchema, req, pathname, start, notFound, null);
-        return addCorsHeaders(notFound, req, config);
+      } else {
+        notFound = errorResponse("NOT_FOUND", "Route not found", 404);
+      }
+      await logRequest(db, internalSchema, req, pathname, start, notFound, null);
+      return addCorsHeaders(notFound, req, config);
+    }
+
+    // When frontend.html is set, register API namespace forwarders so they win
+    // over the SPA catch-all. Bun's router is specificity-based: /api/* beats /*.
+    // Forwarders call masterFetch so the full auth/CSRF/logging pipeline applies.
+    const frontendRoutes: Record<string, unknown> = config.frontend?.html
+      ? {
+          "/api/*": (req: Request, srv: any) => masterFetch(req, srv),
+          "/auth/*": (req: Request, srv: any) => masterFetch(req, srv),
+          "/_admin/api/*": (req: Request, srv: any) => masterFetch(req, srv),
+          "/_admin/*": (req: Request, srv: any) => masterFetch(req, srv),
+          "/files/*": (req: Request, srv: any) => masterFetch(req, srv),
+          "/realtime": (req: Request, srv: any) => masterFetch(req, srv),
+          // SPA catch-all — served via Bun's HTML bundler (HMR, TSX, CSS)
+          "/*": config.frontend!.html,
+        }
+      : {};
+
+    const server = Bun.serve({
+      port: resolvedPort,
+
+      routes: {
+        "/health": Response.json({ status: "ok", version: pkg.version }),
+        "/_admin": adminUI,
+        "/_admin/": adminUI,
+        ...(frontendRoutes as any),
+      },
+
+      ...(websocketHandlers ? { websocket: websocketHandlers } : {}),
+
+      async fetch(req, srv) {
+        return masterFetch(req, srv);
       },
     });
 
