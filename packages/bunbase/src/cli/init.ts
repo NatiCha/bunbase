@@ -7,6 +7,8 @@ import {
   TEMPLATE_OPTIONS,
   DATABASE_OPTIONS,
   OAUTH_OPTIONS,
+  CLAUDE_MD,
+  AGENTS_MD,
   type TemplateType,
   type OAuthProvider,
   type DatabaseDriver,
@@ -126,6 +128,8 @@ export async function init({ projectName, nonInteractive }: InitOptions) {
     "src/rules.ts": template.rules,
     "drizzle.config.ts": template.drizzleConfig,
     ".env": template.env,
+    "CLAUDE.md": CLAUDE_MD,
+    "AGENTS.md": AGENTS_MD,
     ...STATIC_FILES,
   };
 

@@ -540,3 +540,228 @@ export const OAUTH_OPTIONS: { label: string; value: OAuthProvider }[] = [
   { label: "GitHub", value: "github" },
   { label: "Discord", value: "discord" },
 ];
+
+// ─── AI agent instruction files ───────────────────────────────────────────────
+
+export const CLAUDE_MD = `## BunBase Project
+
+This project uses [BunBase](https://bunbase.dev) — a TypeScript-native backend built on Bun and Drizzle ORM. It auto-generates a full REST API (CRUD, auth, file storage, realtime) from your Drizzle schema.
+
+### Project structure
+
+- \`src/schema.ts\` — Drizzle table definitions (source of truth for the data model)
+- \`src/rules.ts\` — access control rules (deny by default; define what each role can do)
+- \`src/index.ts\` — server entry point (\`createServer\` + \`listen\`)
+- \`src/hooks.ts\` — lifecycle hooks, if present (run code before/after CRUD operations)
+
+### Commands
+
+- \`bun dev\` — start dev server with hot reload
+- \`bun start\` — production server
+- \`bun run db:push\` — push schema changes to the database
+- \`bun run db:generate\` — generate migration files
+- \`bun test\` — run all tests
+
+### Key APIs
+
+**Rules** — deny by default; every operation must be explicitly allowed:
+
+\`\`\`ts
+import { defineRules, authenticated, ownerOnly, admin } from "bunbase";
+import { posts } from "./schema";
+
+export const rules = defineRules({
+  posts: {
+    list: () => true,                                  // public
+    get: () => true,                                   // public
+    create: ({ auth }) => authenticated(auth),         // logged-in users
+    update: ({ auth }) => ownerOnly(posts.authorId, auth), // owner only
+    delete: ({ auth }) => admin(auth),                 // admins only
+  },
+});
+\`\`\`
+
+Rule return values:
+- \`true\` or \`null\` → allow
+- \`false\` → deny (403)
+- Drizzle SQL expression → allow but scope results to matching rows
+
+**Hooks** — run code before/after CRUD operations:
+
+\`\`\`ts
+import { defineHooks } from "bunbase";
+import { posts } from "./schema";
+
+export const hooks = {
+  posts: defineHooks(posts, {
+    beforeCreate: ({ data, auth, request }) => ({ ...data, authorId: auth!.id }),
+    afterCreate: ({ record, request }) => { /* send notification, etc. */ },
+    beforeUpdate: ({ data, record, auth }) => data,
+    afterDelete: ({ record }) => { /* cleanup */ },
+  }),
+};
+\`\`\`
+
+**Testing** — use \`createTestServer\` for integration tests:
+
+\`\`\`ts
+import { createTestServer } from "bunbase/testing";
+import { test, expect, afterAll } from "bun:test";
+import * as schema from "../src/schema";
+import { rules } from "../src/rules";
+
+const server = await createTestServer({ schema, rules });
+afterAll(() => server.cleanup());
+
+test("creates record", async () => {
+  const res = await server.fetch("/api/posts", {
+    method: "POST",
+    body: JSON.stringify({ title: "Hello" }),
+  });
+  expect(res.status).toBe(201);
+});
+\`\`\`
+
+Use \`server.adapter.rawExecute(sql)\` to seed test data directly.
+
+**Client SDK** — typed frontend client:
+
+\`\`\`ts
+import { createBunBaseClient } from "bunbase/client";
+
+const client = createBunBaseClient({ baseUrl: "http://localhost:3000" });
+
+// CRUD
+const posts = await client.posts.list({ filter: { status: "published" } });
+const post = await client.posts.create({ title: "Hello", body: "World" });
+
+// Auth
+await client.auth.login({ email, password });
+const me = await client.auth.me();
+\`\`\`
+
+### BunBase Docs Index
+
+IMPORTANT: Before implementing a BunBase feature you are unfamiliar with, read the relevant doc file. All docs are bundled in \`node_modules/bunbase/docs/\`.
+
+\`\`\`
+[BunBase Docs]|root: ./node_modules/bunbase/docs
+|:{index.md,quickstart.md,schema.md,rules.md,hooks.md,client.md,configuration.md,deployment.md,extending.md,jobs.md,realtime.md}
+|api:{auth.md,crud.md,files.md}
+\`\`\`
+`;
+
+export const AGENTS_MD = `# BunBase Project — Agent Instructions
+
+## What is BunBase?
+
+BunBase is a TypeScript-native backend-as-a-service built on Bun and Drizzle ORM. Define your schema, set access rules, and get a full REST API — auth, CRUD, file storage, and realtime — with zero boilerplate.
+
+## Project layout
+
+| File | Purpose |
+|---|---|
+| \`src/schema.ts\` | Drizzle table definitions — the data model |
+| \`src/rules.ts\` | Access control — who can do what |
+| \`src/index.ts\` | Server entry point |
+| \`src/hooks.ts\` | Lifecycle hooks (optional) |
+
+## Commands
+
+\`\`\`sh
+bun dev            # dev server with hot reload
+bun start          # production server
+bun test           # run all tests
+bun run db:push    # push schema to database (no migration file)
+bun run db:generate # generate migration files
+\`\`\`
+
+## Auto-generated API endpoints (per table)
+
+| Endpoint | Operation |
+|---|---|
+| \`GET  /api/{table}\` | list with filtering & cursor pagination |
+| \`GET  /api/{table}/:id\` | get single record |
+| \`POST /api/{table}\` | create record |
+| \`PATCH /api/{table}/:id\` | update record |
+| \`DELETE /api/{table}/:id\` | delete record |
+| \`POST /auth/register\` | register user |
+| \`POST /auth/login\` | login |
+| \`POST /auth/logout\` | logout |
+| \`GET  /auth/me\` | current user |
+
+## Rules (access control)
+
+Rules are **deny-by-default**. Every operation must be explicitly allowed.
+
+\`\`\`ts
+import { defineRules, authenticated, ownerOnly, admin, allowAll } from "bunbase";
+import { posts } from "./schema";
+
+export const rules = defineRules({
+  posts: {
+    list: () => true,
+    get: () => true,
+    create: ({ auth }) => authenticated(auth),
+    update: ({ auth }) => ownerOnly(posts.authorId, auth),
+    delete: ({ auth }) => admin(auth),
+  },
+});
+\`\`\`
+
+Rule functions receive: \`{ auth, id, record, body, headers, query, method, db }\`.
+Return \`true\` to allow, \`false\` to deny (403), or a Drizzle SQL expression to allow-with-filter.
+
+## Hooks
+
+\`\`\`ts
+import { defineHooks } from "bunbase";
+
+export const hooks = {
+  posts: defineHooks(schema.posts, {
+    beforeCreate: ({ data, auth, request }) => ({ ...data, authorId: auth!.id }),
+    afterCreate: ({ record, request }) => { /* send notification */ },
+  }),
+};
+\`\`\`
+
+Hook contexts always include \`request: { method, path, ip, headers }\`.
+
+## Testing
+
+\`\`\`ts
+import { createTestServer } from "bunbase/testing";
+
+const server = await createTestServer({ schema, rules });
+afterAll(() => server.cleanup());
+
+test("creates post", async () => {
+  const res = await server.fetch("/api/posts", {
+    method: "POST",
+    body: JSON.stringify({ title: "Hello" }),
+  });
+  expect(res.status).toBe(201);
+});
+\`\`\`
+
+\`createTestServer\` auto-creates tables, handles CSRF, starts on a random port. Use \`server.adapter.rawExecute(sql)\` to seed data.
+
+## Reference docs (bundled in node_modules)
+
+Read the relevant file before implementing unfamiliar features:
+
+| Topic | File |
+|---|---|
+| Schema / tables | \`./node_modules/bunbase/docs/schema.md\` |
+| Rules (access control) | \`./node_modules/bunbase/docs/rules.md\` |
+| Lifecycle hooks | \`./node_modules/bunbase/docs/hooks.md\` |
+| CRUD filtering & pagination | \`./node_modules/bunbase/docs/api/crud.md\` |
+| Auth endpoints | \`./node_modules/bunbase/docs/api/auth.md\` |
+| File storage | \`./node_modules/bunbase/docs/api/files.md\` |
+| Frontend client SDK | \`./node_modules/bunbase/docs/client.md\` |
+| Realtime / WebSocket | \`./node_modules/bunbase/docs/realtime.md\` |
+| Scheduled jobs | \`./node_modules/bunbase/docs/jobs.md\` |
+| Full config reference | \`./node_modules/bunbase/docs/configuration.md\` |
+| Custom routes | \`./node_modules/bunbase/docs/extending.md\` |
+| Deployment checklist | \`./node_modules/bunbase/docs/deployment.md\` |
+`;
