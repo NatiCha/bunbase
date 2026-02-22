@@ -596,7 +596,7 @@ export const hooks = {
   posts: defineHooks(posts, {
     beforeCreate: ({ data, auth, request }) => ({ ...data, authorId: auth!.id }),
     afterCreate: ({ record, request }) => { /* send notification, etc. */ },
-    beforeUpdate: ({ data, record, auth }) => data,
+    beforeUpdate: ({ data, existing, auth }) => data,
     afterDelete: ({ record }) => { /* cleanup */ },
   }),
 };
@@ -629,11 +629,13 @@ Use \`server.adapter.rawExecute(sql)\` to seed test data directly.
 \`\`\`ts
 import { createBunBaseClient } from "bunbase/client";
 
-const client = createBunBaseClient({ baseUrl: "http://localhost:3000" });
+import * as schema from "./schema";
+
+const client = createBunBaseClient({ url: "http://localhost:3000", schema });
 
 // CRUD
-const posts = await client.posts.list({ filter: { status: "published" } });
-const post = await client.posts.create({ title: "Hello", body: "World" });
+const { data } = await client.api.posts.list({ filter: { status: "published" } });
+const post = await client.api.posts.create({ title: "Hello", body: "World" });
 
 // Auth
 await client.auth.login({ email, password });
@@ -646,7 +648,7 @@ IMPORTANT: Before implementing a BunBase feature you are unfamiliar with, read t
 
 \`\`\`
 [BunBase Docs]|root: ./node_modules/bunbase/docs
-|:{index.md,quickstart.md,schema.md,rules.md,hooks.md,client.md,configuration.md,deployment.md,extending.md,jobs.md,realtime.md}
+|:{index.md,quickstart.md,schema.md,rules.md,hooks.md,client.md,configuration.md,deployment.md,extending.md,jobs.md,realtime.md,testing.md}
 |api:{auth.md,crud.md,files.md}
 \`\`\`
 `;
@@ -764,4 +766,5 @@ Read the relevant file before implementing unfamiliar features:
 | Full config reference | \`./node_modules/bunbase/docs/configuration.md\` |
 | Custom routes | \`./node_modules/bunbase/docs/extending.md\` |
 | Deployment checklist | \`./node_modules/bunbase/docs/deployment.md\` |
+| Testing / createTestServer | \`./node_modules/bunbase/docs/testing.md\` |
 `;

@@ -77,7 +77,7 @@ IMPORTANT: Before implementing or modifying a BunBase feature, read the relevant
 
 ```
 [BunBase Docs]|root: ./packages/bunbase/docs
-|:{index.md,quickstart.md,schema.md,rules.md,hooks.md,client.md,configuration.md,deployment.md,extending.md,jobs.md,realtime.md}
+|:{index.md,quickstart.md,schema.md,rules.md,hooks.md,client.md,configuration.md,deployment.md,extending.md,jobs.md,realtime.md,testing.md}
 |api:{auth.md,crud.md,files.md}
 ```
 
