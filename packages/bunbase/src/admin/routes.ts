@@ -4,6 +4,7 @@ import type { AnyDb } from "../core/db-types.ts";
 import type { InternalSchema } from "../core/internal-schema.ts";
 import type { DatabaseAdapter } from "../core/adapter.ts";
 import { extractAuth } from "../auth/middleware.ts";
+import type { AuthUser } from "../api/types.ts";
 import { createStorageDriver } from "../storage/routes.ts";
 import type { StorageDriver } from "../storage/local.ts";
 import { getTableName, getColumns } from "drizzle-orm";
@@ -69,7 +70,7 @@ async function requireAdmin(
   db: AnyDb,
   internalSchema: InternalSchema,
   usersTable: any,
-): Promise<{ user: Record<string, unknown> } | Response> {
+): Promise<{ user: AuthUser } | Response> {
   const user = await extractAuth(req, db, internalSchema, usersTable);
   if (!user) {
     return jsonError("UNAUTHORIZED", "Not authenticated", 401);

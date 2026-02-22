@@ -32,11 +32,12 @@ export { isBearerOnly } from "./auth/middleware.ts";
 export type { BunBaseConfig, ResolvedConfig } from "./core/config.ts";
 export type { BunBaseServer, CreateServerOptions, ExtendContext, RouteMap } from "./core/server.ts";
 export type { AuthUser, BunBaseErrorCode, BunBaseErrorEnvelope } from "./api/types.ts";
-export type { Rules, TableRules, RuleArg, RuleFunction, RuleResult } from "./rules/types.ts";
+export type { Rules, TableRules, TableRulesFor, RuleArg, RuleFunction, RuleResult } from "./rules/types.ts";
 export type { FilterOperators } from "./crud/filters.ts";
 export type {
   Hooks,
   TableHooks,
+  HookRequest,
   BeforeCreateContext,
   AfterCreateContext,
   BeforeUpdateContext,

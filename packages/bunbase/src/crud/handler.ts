@@ -11,7 +11,7 @@ import { buildWithClause } from "./relations.ts";
 import { evaluateRule } from "../rules/evaluator.ts";
 import type { TableRules } from "../rules/types.ts";
 import type { RuleArg } from "../rules/types.ts";
-import type { TableHooks } from "../hooks/types.ts";
+import type { TableHooks, HookRequest } from "../hooks/types.ts";
 import type { AnyDb } from "../core/db-types.ts";
 import type { AuthUser } from "../api/types.ts";
 import { errorResponse, ApiError } from "../api/helpers.ts";
@@ -28,6 +28,18 @@ export type RouteMap = Record<
 >;
 
 type ExtractAuth = (req: Request) => Promise<AuthUser | null>;
+
+function buildHookRequest(req: Request): import("../hooks/types.ts").HookRequest {
+  return {
+    method: req.method,
+    path: new URL(req.url).pathname,
+    ip:
+      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+      req.headers.get("x-real-ip") ??
+      null,
+    headers: req.headers,
+  };
+}
 
 // Strip the auth-internal passwordHash field from any record returned by the API.
 // This field is managed by BunBase's auth system and must never appear in responses,
@@ -317,6 +329,7 @@ export function generateCrudHandlers(
   // ── POST /api/{table} — create ───────────────────────────────────────
   async function handleCreate(req: Request): Promise<Response> {
     const auth = await extractAuth(req);
+    const hookReq = buildHookRequest(req);
 
     // Parse body BEFORE rule eval so rules can inspect it
     let body: Record<string, unknown>;
@@ -347,7 +360,7 @@ export function generateCrudHandlers(
     // beforeCreate hook
     if (tableHooks?.beforeCreate) {
       try {
-        const result = await tableHooks.beforeCreate({ data: insertData, auth, tableName });
+        const result = await tableHooks.beforeCreate({ data: insertData, auth, tableName, request: hookReq });
         if (result !== undefined && result !== null) {
           insertData = result as Record<string, unknown>;
         }
@@ -386,7 +399,7 @@ export function generateCrudHandlers(
     // afterCreate hook (errors are logged, never affect response)
     if (tableHooks?.afterCreate) {
       try {
-        await tableHooks.afterCreate({ record: createdRecord, auth, tableName });
+        await tableHooks.afterCreate({ record: createdRecord, auth, tableName, request: hookReq });
       } catch (err) {
         console.error(`[BunBase] afterCreate hook error for "${tableName}":`, err);
       }
@@ -458,6 +471,7 @@ export function generateCrudHandlers(
     if (!id) return errorResponse("BAD_REQUEST", "Missing id", 400);
 
     const auth = await extractAuth(req);
+    const hookReq = buildHookRequest(req);
 
     // Parse body before rule eval so rules can inspect it
     let body: Record<string, unknown>;
@@ -507,7 +521,7 @@ export function generateCrudHandlers(
     // beforeUpdate hook — share already-fetched existing record (no duplicate fetch)
     if (tableHooks?.beforeUpdate) {
       try {
-        const result = await tableHooks.beforeUpdate({ id, data: filtered, existing: existingRecord, auth, tableName });
+        const result = await tableHooks.beforeUpdate({ id, data: filtered, existing: existingRecord, auth, tableName, request: hookReq });
         if (result !== undefined && result !== null) {
           filtered = result as Record<string, unknown>;
         }
@@ -527,7 +541,7 @@ export function generateCrudHandlers(
     // afterUpdate hook (errors are logged, never affect response)
     if (tableHooks?.afterUpdate) {
       try {
-        await tableHooks.afterUpdate({ id, record: rows[0], auth, tableName });
+        await tableHooks.afterUpdate({ id, record: rows[0], auth, tableName, request: hookReq });
       } catch (err) {
         console.error(`[BunBase] afterUpdate hook error for "${tableName}":`, err);
       }
@@ -544,6 +558,7 @@ export function generateCrudHandlers(
     if (!id) return errorResponse("BAD_REQUEST", "Missing id", 400);
 
     const auth = await extractAuth(req);
+    const hookReq = buildHookRequest(req);
 
     // Fetch existing record for rule context (may be undefined if not found)
     const existingRows = await (db as any).select().from(table).where(eq(idColumn, id));
@@ -575,7 +590,7 @@ export function generateCrudHandlers(
     // beforeDelete hook — share already-fetched record (no duplicate fetch)
     if (tableHooks?.beforeDelete) {
       try {
-        await tableHooks.beforeDelete({ id, record: existingRecord, auth, tableName });
+        await tableHooks.beforeDelete({ id, record: existingRecord, auth, tableName, request: hookReq });
       } catch (err) {
         if (err instanceof ApiError) {
           return errorResponse(err.code, err.message, err.status);
@@ -590,7 +605,7 @@ export function generateCrudHandlers(
     // afterDelete hook (errors are logged, never affect response)
     if (tableHooks?.afterDelete) {
       try {
-        await tableHooks.afterDelete({ id, record: existingRecord, auth, tableName });
+        await tableHooks.afterDelete({ id, record: existingRecord, auth, tableName, request: hookReq });
       } catch (err) {
         console.error(`[BunBase] afterDelete hook error for "${tableName}":`, err);
       }

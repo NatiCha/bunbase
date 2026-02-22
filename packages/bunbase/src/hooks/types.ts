@@ -6,16 +6,27 @@ import type { InferInsertModel, InferSelectModel, Table } from "drizzle-orm";
  * @module
  */
 
+/** Minimal request context passed to every hook. */
+export interface HookRequest {
+  method: string;
+  path: string;
+  /** Client IP from X-Forwarded-For / X-Real-IP headers, or null if unavailable. */
+  ip: string | null;
+  headers: Headers;
+}
+
 export type BeforeCreateContext<TInsert extends Record<string, unknown> = Record<string, unknown>> = {
   data: TInsert;
   auth: AuthUser | null;
   tableName: string;
+  request: HookRequest;
 };
 
 export type AfterCreateContext<TSelect extends Record<string, unknown> = Record<string, unknown>> = {
   record: TSelect;
   auth: AuthUser | null;
   tableName: string;
+  request: HookRequest;
 };
 
 export type BeforeUpdateContext<
@@ -27,6 +38,7 @@ export type BeforeUpdateContext<
   existing: TSelect;
   auth: AuthUser | null;
   tableName: string;
+  request: HookRequest;
 };
 
 export type AfterUpdateContext<TSelect extends Record<string, unknown> = Record<string, unknown>> = {
@@ -34,6 +46,7 @@ export type AfterUpdateContext<TSelect extends Record<string, unknown> = Record<
   record: TSelect;
   auth: AuthUser | null;
   tableName: string;
+  request: HookRequest;
 };
 
 export type BeforeDeleteContext<TSelect extends Record<string, unknown> = Record<string, unknown>> = {
@@ -41,6 +54,7 @@ export type BeforeDeleteContext<TSelect extends Record<string, unknown> = Record
   record: TSelect;
   auth: AuthUser | null;
   tableName: string;
+  request: HookRequest;
 };
 
 export type AfterDeleteContext<TSelect extends Record<string, unknown> = Record<string, unknown>> = {
@@ -48,6 +62,7 @@ export type AfterDeleteContext<TSelect extends Record<string, unknown> = Record<
   record: TSelect;
   auth: AuthUser | null;
   tableName: string;
+  request: HookRequest;
 };
 
 export type BeforeCreateFn<TInsert extends Record<string, unknown> = Record<string, unknown>> = (
@@ -91,8 +106,38 @@ export interface TableHooks<
 
 export type Hooks = Record<string, TableHooks>;
 
-export function defineHooks(hooks: Hooks): Hooks {
-  return hooks;
+/**
+ * Define hooks for a single table with full type inference from the Drizzle table:
+ *
+ * ```ts
+ * hooks: {
+ *   posts: defineHooks(schema.posts, {
+ *     afterCreate({ record, auth, request }) {
+ *       // record is typed as Post ✓
+ *     },
+ *   }),
+ * }
+ * ```
+ */
+export function defineHooks<TTable extends Table>(table: TTable, hooks: TableHooksFor<TTable>): TableHooksFor<TTable>;
+/**
+ * Define hooks for multiple tables at once (untyped records):
+ *
+ * ```ts
+ * hooks: defineHooks({
+ *   posts: { afterCreate({ record }) { ... } },
+ * })
+ * ```
+ */
+export function defineHooks(hooks: Hooks): Hooks;
+export function defineHooks<TTable extends Table>(
+  tableOrHooks: TTable | Hooks,
+  hooks?: TableHooksFor<TTable>,
+): TableHooksFor<TTable> | Hooks {
+  if (hooks !== undefined) {
+    return hooks;
+  }
+  return tableOrHooks as Hooks;
 }
 
 /**

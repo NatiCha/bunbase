@@ -2,11 +2,26 @@
  * Shared API contract types used by BunBase server and client helpers.
  * @module
  */
+/**
+ * Authenticated user context passed to hooks and rules.
+ *
+ * This interface is open for declaration merging — extend it in your project
+ * to add type-safe custom fields from your users table:
+ *
+ * ```ts
+ * // src/types.ts
+ * declare module "bunbase" {
+ *   interface AuthUser {
+ *     organizationId: string;
+ *     plan: "free" | "pro";
+ *   }
+ * }
+ * ```
+ */
 export interface AuthUser {
   id: string;
   email: string;
   role: string;
-  [key: string]: unknown;
 }
 
 /**

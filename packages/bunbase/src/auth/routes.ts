@@ -456,7 +456,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
           return jsonError("UNAUTHORIZED", "Not authenticated", 401);
         }
 
-        return Response.json({ user: stripSensitiveUserFields(user as UsersRow) });
+        return Response.json({ user: stripSensitiveUserFields(user as unknown as UsersRow) });
       },
     },
   };

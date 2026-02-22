@@ -3,7 +3,8 @@
   "version": "0.0.1",
   "type": "module",
   "bin": {
-    "bunbase": "./src/cli/index.ts"
+    "bunbase": "./src/cli/index.ts",
+    "create-bunbase": "./src/cli/create.ts"
   },
   "exports": {
     ".": {
@@ -17,6 +18,10 @@
     "./react": {
       "types": "./dist/types/react/index.d.ts",
       "default": "./src/react/index.tsx"
+    },
+    "./testing": {
+      "types": "./dist/types/testing/index.d.ts",
+      "default": "./src/testing/index.ts"
     }
   },
   "files": ["src", "dist", "docs", "README.md"],

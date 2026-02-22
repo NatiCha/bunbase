@@ -157,7 +157,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
         { $id: impersonateId },
       );
       if (targetUser) {
-        return targetUser as AuthUser;
+        return targetUser as unknown as AuthUser;
       }
     }
 

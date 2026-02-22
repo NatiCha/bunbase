@@ -1,4 +1,78 @@
 
+## BunBase — Project Conventions
+
+### Architecture
+- Monorepo: `packages/bunbase/` is the library, `examples/task-manager/` is the demo app
+- Entry point: `packages/bunbase/src/index.ts` — exports `createServer`, `defineConfig`, `defineRules`, `defineHooks`
+- Testing utilities: `packages/bunbase/src/testing/index.ts` — exported from `bunbase/testing` subpath
+
+### Key APIs
+
+**Rules** — deny by default; always define rules for every operation you want to expose:
+```ts
+import { defineRules, allowAll } from "bunbase";
+
+// Typed overload (preferred) — record/body inferred from Drizzle table:
+rules: {
+  posts: defineRules(schema.posts, {
+    list: () => true,
+    get: () => true,
+    create: ({ auth }) => auth !== null,
+    update: ({ record, auth }) => record.authorId === auth?.id,
+    delete: ({ auth }) => auth?.role === "admin",
+  }),
+}
+// Multi-table shorthand (untyped):
+rules: defineRules({ posts: { list: () => true } })
+```
+
+**Hooks** — typed overload infers record/data from Drizzle table:
+```ts
+import { defineHooks } from "bunbase";
+
+hooks: {
+  posts: defineHooks(schema.posts, {
+    beforeCreate: ({ data, auth, request }) => ({ ...data, authorId: auth?.id }),
+    afterCreate: ({ record, request }) => { /* record is typed as Post */ },
+  }),
+}
+```
+All hook contexts include `request: { method, path, ip, headers }`.
+
+**AuthUser** — no index signature; extend via declaration merging:
+```ts
+declare module "bunbase" {
+  interface AuthUser { organizationId: string; plan: "free" | "pro"; }
+}
+```
+
+### Testing
+Prefer `createTestServer` over manual server setup — auto-creates tables, handles CSRF, starts on port 0:
+```ts
+import { createTestServer } from "bunbase/testing";
+
+const server = await createTestServer({ schema: { posts }, rules: { ... } });
+afterAll(() => server.cleanup());
+
+test("creates post", async () => {
+  const res = await server.fetch("/api/posts", { method: "POST", body: JSON.stringify({ ... }) });
+  expect(res.status).toBe(201);
+});
+```
+Use `server.adapter.rawExecute(sql)` to seed data directly.
+
+### CLI
+- `bunbase init [name]` — interactive project scaffolder
+- `bun create bunbase [name]` — same thing, zero-install via `create-bunbase` bin entry
+
+### Package exports
+- `bunbase` — main API (`createServer`, `defineRules`, `defineHooks`, helpers)
+- `bunbase/client` — frontend SDK (`createBunBaseClient`)
+- `bunbase/react` — React hooks (`createBunBaseReact`)
+- `bunbase/testing` — test utilities (`createTestServer`)
+
+---
+
 Default to using Bun instead of Node.js.
 
 - Use `bun <file>` instead of `node <file>` or `ts-node <file>`

@@ -1,4 +1,4 @@
-import type { SQL } from "drizzle-orm";
+import type { SQL, InferInsertModel, InferSelectModel, Table } from "drizzle-orm";
 import type { AuthUser } from "../api/types.ts";
 import type { AnyDb } from "../core/db-types.ts";
 
@@ -58,10 +58,48 @@ export interface TableRules {
 export type Rules = Record<string, TableRules>;
 
 /**
- * Define table rules.
+ * Utility to build a typed TableRules contract from a Drizzle table.
+ * `record` is typed as the table's select model; `body` as a partial insert model.
+ */
+export type TableRulesFor<TTable extends Table> = {
+  list?:   RuleFunction<RuleArg<InferSelectModel<TTable> & Record<string, unknown>, Partial<InferInsertModel<TTable>> & Record<string, unknown>>>;
+  get?:    RuleFunction<RuleArg<InferSelectModel<TTable> & Record<string, unknown>, Partial<InferInsertModel<TTable>> & Record<string, unknown>>>;
+  create?: RuleFunction<RuleArg<InferSelectModel<TTable> & Record<string, unknown>, Partial<InferInsertModel<TTable>> & Record<string, unknown>>>;
+  update?: RuleFunction<RuleArg<InferSelectModel<TTable> & Record<string, unknown>, Partial<InferInsertModel<TTable>> & Record<string, unknown>>>;
+  delete?: RuleFunction<RuleArg<InferSelectModel<TTable> & Record<string, unknown>, Partial<InferInsertModel<TTable>> & Record<string, unknown>>>;
+};
+
+/**
+ * Define rules for a single table with full type inference from the Drizzle table:
+ *
+ * ```ts
+ * rules: {
+ *   posts: defineRules(schema.posts, {
+ *     update({ record, auth }) {
+ *       // record is typed as Post ✓
+ *       return record.authorId === auth?.id;
+ *     },
+ *   }),
+ * }
+ * ```
+ */
+export function defineRules<TTable extends Table>(table: TTable, rules: TableRulesFor<TTable>): TableRulesFor<TTable>;
+/**
+ * Define rules for multiple tables at once (untyped records):
+ *
+ * ```ts
+ * rules: defineRules({
+ *   posts: { list: () => true },
+ * })
+ * ```
  *
  * @remarks BunBase is deny-by-default. Missing operation rules are denied.
  */
-export function defineRules(rules: Rules): Rules {
-  return rules;
+export function defineRules(rules: Rules): Rules;
+export function defineRules<TTable extends Table>(
+  tableOrRules: TTable | Rules,
+  rules?: TableRulesFor<TTable>,
+): TableRulesFor<TTable> | Rules {
+  if (rules !== undefined) return rules;
+  return tableOrRules as Rules;
 }

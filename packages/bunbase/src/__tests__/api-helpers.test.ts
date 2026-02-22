@@ -2,6 +2,13 @@ import { test, expect } from "bun:test";
 import { requireAuth, ApiError, errorResponse } from "../api/helpers.ts";
 import type { AuthUser } from "../api/types.ts";
 
+// Demonstrate declaration merging — users extend AuthUser with their own fields
+declare module "../api/types.ts" {
+  interface AuthUser {
+    name?: string;
+  }
+}
+
 // ─── requireAuth ─────────────────────────────────────────────────────────────
 
 test("requireAuth returns the user when authenticated", () => {
