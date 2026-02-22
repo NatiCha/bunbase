@@ -7,8 +7,8 @@ import { dirname, join } from "node:path";
  */
 
 export interface StorageDriver {
-  write(path: string, data: Uint8Array): Promise<void>;
-  read(path: string): Promise<Uint8Array | null>;
+  write(path: string, data: Uint8Array<ArrayBuffer>): Promise<void>;
+  read(path: string): Promise<Uint8Array<ArrayBuffer> | null>;
   delete(path: string): Promise<void>;
   exists(path: string): Promise<boolean>;
 }

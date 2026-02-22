@@ -1,4 +1,5 @@
 import type { Table, InferSelectModel, InferInsertModel } from "drizzle-orm";
+import { getTableName } from "drizzle-orm";
 import type { BunBaseErrorCode, BunBaseErrorEnvelope } from "./api/types.ts";
 
 /**
@@ -105,6 +106,18 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
   const apiKey = options.apiKey;
   const schemaKeys = Object.keys(options.schema);
 
+  // Build a map from JS schema key (camelCase) → SQL table name (snake_case)
+  // so the client constructs URLs that match the server's registered routes.
+  const sqlTableNames: Record<string, string> = {};
+  for (const [key, value] of Object.entries(options.schema)) {
+    try {
+      const sqlName = getTableName(value as Table);
+      if (sqlName) sqlTableNames[key] = sqlName;
+    } catch {
+      // not a table — skip
+    }
+  }
+
   // When an API key is set, use bearer auth and omit cookies/CSRF
   const credentials: RequestCredentials = apiKey ? "omit" : "include";
 
@@ -138,7 +151,8 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
           `'${tableName}' is not a valid table. Available: ${schemaKeys.join(", ")}`,
         );
       }
-      const tableUrl = `${baseUrl}/api/${tableName}`;
+      const sqlName = sqlTableNames[tableName] ?? tableName;
+      const tableUrl = `${baseUrl}/api/${sqlName}`;
 
       const tableClient: TableClient<unknown, unknown> = {
         async list(params?: ListParams): Promise<ListResponse<unknown>> {

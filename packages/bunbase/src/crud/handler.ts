@@ -146,12 +146,13 @@ export function generateCrudHandlers(
   // schemaKey is the JS property name used for db.query[schemaKey]; defaults to SQL table name
   const resolvedSchemaKey = schemaKey ?? tableName;
 
-  const idColumn = columns["id"] as Column | undefined;
-  if (!idColumn) {
+  const idColumnMaybe = columns["id"] as Column | undefined;
+  if (!idColumnMaybe) {
     throw new Error(
       `BunBase: Table "${tableName}" must have an "id" column for CRUD generation`,
     );
   }
+  const idColumn: Column = idColumnMaybe;
 
   const basePath = `/api/${tableName}`;
   const itemPath = `/api/${tableName}/:id`;

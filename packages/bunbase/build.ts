@@ -9,7 +9,8 @@ if (!existsSync(outDir)) {
   mkdirSync(outDir, { recursive: true });
 }
 
-const proc = Bun.spawn([
+// Build CLI executable
+const buildProc = Bun.spawn([
   "bun",
   "build",
   "--compile",
@@ -21,9 +22,28 @@ const proc = Bun.spawn([
   stderr: "inherit",
 });
 
-const code = await proc.exited;
-if (code !== 0) {
-  process.exit(code);
+const buildCode = await buildProc.exited;
+if (buildCode !== 0) {
+  process.exit(buildCode);
 }
 
 console.log(`Built executable at ${output}`);
+
+// Generate TypeScript declaration files
+console.log("Generating type declarations...");
+const tscProc = Bun.spawn([
+  "bunx",
+  "tsc",
+  "--project",
+  "tsconfig.emit.json",
+], {
+  stdout: "inherit",
+  stderr: "inherit",
+});
+
+const tscCode = await tscProc.exited;
+if (tscCode !== 0) {
+  process.exit(tscCode);
+}
+
+console.log("Type declarations generated at ./dist/types");

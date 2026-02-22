@@ -19,7 +19,7 @@ function sendTo(ws: ServerWebSocket<RealtimeSocketData>, msg: ServerMessage): vo
 export async function handleWebSocketMessage(
   ws: ServerWebSocket<RealtimeSocketData>,
   raw: string | Buffer,
-  server: Server,
+  server: Server<unknown>,
   manager: RealtimeManager,
   presence: PresenceTracker,
 ): Promise<void> {
@@ -146,7 +146,7 @@ export async function handleWebSocketMessage(
 
 export function handleWebSocketClose(
   ws: ServerWebSocket<RealtimeSocketData>,
-  server: Server,
+  server: Server<unknown>,
   manager: RealtimeManager,
   presence: PresenceTracker,
 ): void {

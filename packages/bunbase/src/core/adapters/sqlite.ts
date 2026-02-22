@@ -91,21 +91,21 @@ export class SqliteAdapter implements DatabaseAdapter {
     sql: string,
     params?: Record<string, unknown>,
   ): Promise<T[]> {
-    return this.sqlite.query(sql).all(params ?? {}) as T[];
+    return this.sqlite.query(sql).all(params as never ?? {}) as T[];
   }
 
   async rawQueryOne<T = Record<string, unknown>>(
     sql: string,
     params?: Record<string, unknown>,
   ): Promise<T | null> {
-    return (this.sqlite.query(sql).get(params ?? {}) as T | null) ?? null;
+    return (this.sqlite.query(sql).get(params as never ?? {}) as T | null) ?? null;
   }
 
   async rawExecute(
     sql: string,
     params?: Record<string, unknown>,
   ): Promise<void> {
-    this.sqlite.query(sql).run(params ?? {});
+    this.sqlite.query(sql).run(params as never ?? {});
   }
 
   quoteIdentifier(name: string): string {

@@ -6,9 +6,18 @@
     "bunbase": "./src/cli/index.ts"
   },
   "exports": {
-    ".": "./src/index.ts",
-    "./client": "./src/client.ts",
-    "./react": "./src/react/index.tsx"
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "default": "./src/index.ts"
+    },
+    "./client": {
+      "types": "./dist/types/client.d.ts",
+      "default": "./src/client.ts"
+    },
+    "./react": {
+      "types": "./dist/types/react/index.d.ts",
+      "default": "./src/react/index.tsx"
+    }
   },
   "files": ["src", "dist", "docs", "README.md"],
   "scripts": {
