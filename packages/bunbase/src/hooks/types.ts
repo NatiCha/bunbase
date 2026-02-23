@@ -72,6 +72,7 @@ export type AfterDeleteContext<TSelect extends Record<string, unknown> = Record<
 
 export type BeforeCreateFn<TInsert extends Record<string, unknown> = Record<string, unknown>> = (
   ctx: BeforeCreateContext<TInsert>,
+  // biome-ignore lint/suspicious/noConfusingVoidType: void needed for async hooks that return nothing
 ) => TInsert | undefined | void | Promise<TInsert | undefined | void>;
 
 export type AfterCreateFn<TSelect extends Record<string, unknown> = Record<string, unknown>> = (
@@ -83,6 +84,7 @@ export type BeforeUpdateFn<
   TSelect extends Record<string, unknown> = Record<string, unknown>,
 > = (
   ctx: BeforeUpdateContext<TInsert, TSelect>,
+  // biome-ignore lint/suspicious/noConfusingVoidType: void needed for async hooks that return nothing
 ) => Partial<TInsert> | undefined | void | Promise<Partial<TInsert> | undefined | void>;
 
 export type AfterUpdateFn<TSelect extends Record<string, unknown> = Record<string, unknown>> = (

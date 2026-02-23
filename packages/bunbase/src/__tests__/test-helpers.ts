@@ -7,7 +7,10 @@ import type { AnyDb } from "../core/db-types.ts";
 import type { InternalSchema } from "../core/internal-schema.ts";
 import { getInternalSchema } from "../core/internal-schema.ts";
 
-type DeepPartialResolvedConfig = Omit<Partial<ResolvedConfig>, "auth" | "storage" | "cors" | "realtime"> & {
+type DeepPartialResolvedConfig = Omit<
+  Partial<ResolvedConfig>,
+  "auth" | "storage" | "cors" | "realtime"
+> & {
   auth?: Partial<ResolvedConfig["auth"]>;
   storage?: Partial<ResolvedConfig["storage"]>;
   cors?: Partial<ResolvedConfig["cors"]>;
@@ -30,7 +33,10 @@ export function makeResolvedConfig(overrides: DeepPartialResolvedConfig = {}): R
       tokenExpiry: authOverrides.tokenExpiry ?? 60 * 60,
       email: authOverrides.email,
       oauth: authOverrides.oauth,
-      apiKeys: authOverrides.apiKeys ?? { defaultExpirationDays: 365, maxExpirationDays: undefined },
+      apiKeys: authOverrides.apiKeys ?? {
+        defaultExpirationDays: 365,
+        maxExpirationDays: undefined,
+      },
     },
     storage: {
       driver: storageOverrides.driver ?? "local",

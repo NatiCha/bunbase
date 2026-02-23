@@ -60,7 +60,7 @@ function createWsHelper(ws: WebSocket) {
     // assert absence of duplicates without also seeing the expected events.
     for (let i = 0; i < waiters.length; i++) {
       if (waiters[i]!.predicate(msg)) {
-        const [{ resolve, timer }] = waiters.splice(i, 1) as [typeof waiters[0]];
+        const [{ resolve, timer }] = waiters.splice(i, 1) as [(typeof waiters)[0]];
         clearTimeout(timer);
         resolve(msg);
         return; // consumed — do NOT add to buffer

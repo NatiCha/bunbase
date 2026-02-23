@@ -51,9 +51,12 @@ export type AfterEmailVerifyContext = {
   userId: string;
 };
 
-export type BeforeRegisterFn = (
-  ctx: BeforeRegisterContext,
-) => Record<string, unknown> | undefined | void | Promise<Record<string, unknown> | undefined | void>;
+export type BeforeRegisterFn = (ctx: BeforeRegisterContext) =>
+  | Record<string, unknown>
+  | undefined
+  | void
+  // biome-ignore lint/suspicious/noConfusingVoidType: void needed for async hooks that return nothing
+  | Promise<Record<string, unknown> | undefined | void>;
 
 export type AfterRegisterFn = (ctx: AfterRegisterContext) => void | Promise<void>;
 

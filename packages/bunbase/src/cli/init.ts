@@ -3,6 +3,8 @@ import { join, resolve } from "node:path";
 import { clack, closePrompts, multiSelect, select, text } from "./prompts.ts";
 import { printSummary } from "./summary.ts";
 import {
+  AGENTS_MD,
+  CLAUDE_MD,
   DATABASE_OPTIONS,
   type DatabaseDriver,
   getTemplate,
@@ -10,8 +12,6 @@ import {
   type OAuthProvider,
   slugifyDbName,
   TEMPLATE_OPTIONS,
-  CLAUDE_MD,
-  AGENTS_MD,
   type TemplateType,
 } from "./templates.ts";
 

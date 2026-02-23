@@ -318,9 +318,7 @@ test("callback redirects with ACCOUNT_LINK_REQUIRED when email collision and pro
   expect(response.headers.get("Set-Cookie") ?? "").not.toContain("bunbase_session=");
 
   // No new OAuth account row created
-  const count = sqlite
-    .query<{ n: number }, []>("SELECT COUNT(*) as n FROM _oauth_accounts")
-    .get();
+  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM _oauth_accounts").get();
   expect(count?.n).toBe(0);
 
   sqlite.close();
@@ -383,9 +381,7 @@ test("callback reuses existing OAuth account without creating a new link", async
   expect(response.status).toBe(302);
 
   // No new oauth accounts created
-  const count = sqlite
-    .query<{ n: number }, []>("SELECT COUNT(*) as n FROM _oauth_accounts")
-    .get();
+  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM _oauth_accounts").get();
   expect(count?.n).toBe(1);
 
   sqlite.close();

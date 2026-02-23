@@ -167,7 +167,9 @@ test("GET /api/posts applies sort order", async () => {
     .run({ $id: "p3", $title: "C", $authorId: "u1", $score: 20 });
 
   const { exact } = generateCrudHandlers(posts, db, mockAuth(), openRules);
-  const res = await exact["/api/posts"]!.GET!(makeRequest("GET", "/api/posts?sort=score&order=asc"));
+  const res = await exact["/api/posts"]!.GET!(
+    makeRequest("GET", "/api/posts?sort=score&order=asc"),
+  );
   const body = (await res.json()) as any;
   expect(body.data.map((r: any) => r.id)).toEqual(["p2", "p3", "p1"]);
   sqlite.close();

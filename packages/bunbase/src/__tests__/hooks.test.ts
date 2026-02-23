@@ -278,7 +278,9 @@ test("afterUpdate: receives updated record", async () => {
       captured = record;
     },
   });
-  await pattern["/api/tasks/:id"]!.PATCH!(makeRequest("PATCH", "/api/tasks/t1", { title: "After" }));
+  await pattern["/api/tasks/:id"]!.PATCH!(
+    makeRequest("PATCH", "/api/tasks/t1", { title: "After" }),
+  );
   expect((captured as any)?.title).toBe("After");
   sqlite.close();
 });
@@ -400,7 +402,9 @@ test("no hooks defined — CRUD works normally", async () => {
   expect(updateRes.status).toBe(200);
 
   // Delete
-  const deleteRes = await pattern["/api/tasks/:id"]!.DELETE!(makeRequest("DELETE", "/api/tasks/t1"));
+  const deleteRes = await pattern["/api/tasks/:id"]!.DELETE!(
+    makeRequest("DELETE", "/api/tasks/t1"),
+  );
   const deleteBody = (await deleteRes.json()) as any;
   expect(deleteBody.deleted).toBe(true);
 
