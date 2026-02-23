@@ -71,6 +71,16 @@ Use `server.adapter.rawExecute(sql)` to seed data directly.
 - `bunbase/react` — React hooks (`createBunBaseReact`)
 - `bunbase/testing` — test utilities (`createTestServer`)
 
+### BunBase Docs Index
+
+IMPORTANT: Before implementing or modifying a BunBase feature, read the relevant doc file.
+
+```
+[BunBase Docs]|root: ./packages/bunbase/docs
+|:{index.md,quickstart.md,schema.md,rules.md,hooks.md,client.md,configuration.md,deployment.md,extending.md,jobs.md,realtime.md,testing.md}
+|api:{auth.md,crud.md,files.md,api-keys.md}
+```
+
 ---
 
 Default to using Bun instead of Node.js.

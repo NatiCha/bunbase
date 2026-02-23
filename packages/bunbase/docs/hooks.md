@@ -6,30 +6,47 @@ Hooks run custom code before or after CRUD operations and auth events — modify
 
 ## Defining hooks
 
-Use `defineHooks` to declare per-table callbacks:
+`defineHooks` has two overloads.
+
+### Typed overload (preferred)
+
+Pass the Drizzle table as the first argument to get full type inference on `data` and `record`:
 
 ```ts
 // src/hooks.ts
 import { defineHooks, ApiError } from "bunbase";
+import { tasks } from "./schema";
 
-export const hooks = defineHooks({
-  tasks: {
+export const hooks = {
+  tasks: defineHooks(tasks, {
     beforeCreate: async ({ data, auth }) => {
-      // Stamp the owner automatically
+      // `data` is typed as TaskInsert — autocomplete works
       return { ...data, ownerId: auth?.id };
     },
 
     afterCreate: async ({ record }) => {
-      // Fire-and-forget side effect
+      // `record` is typed as Task
       await sendSlackNotification(`New task: ${record.title}`);
     },
 
     beforeDelete: ({ record }) => {
-      // Abort with a descriptive error
       if (record.priority === "critical") {
         throw new ApiError("FORBIDDEN", "Cannot delete critical tasks", 403);
       }
     },
+  }),
+};
+```
+
+### Multi-table untyped overload
+
+Pass a record of table name → hooks object. Types fall back to `Record<string, unknown>`:
+
+```ts
+export const hooks = defineHooks({
+  tasks: {
+    beforeCreate: async ({ data, auth }) => ({ ...data, ownerId: auth?.id }),
+    afterCreate: async ({ record }) => { /* record: Record<string, unknown> */ },
   },
 });
 ```
@@ -57,7 +74,16 @@ Rules run first. If a rule denies a request, hooks are never called.
 
 ## Hook context
 
-Each hook receives a context object with the relevant information for that operation.
+Each hook receives a context object with the relevant information for that operation. All contexts include a `request` field with the originating HTTP request details.
+
+```ts
+type HookRequest = {
+  method: string;
+  path: string;
+  ip: string | null; // client IP (respects X-Forwarded-For when trustedProxies is set)
+  headers: Headers;
+};
+```
 
 ### `beforeCreate`
 
@@ -66,13 +92,14 @@ type BeforeCreateContext = {
   data: Record<string, unknown>; // incoming fields (after column mapping)
   auth: AuthUser | null;         // current user
   tableName: string;
+  request: HookRequest;
 };
 ```
 
 Return a new data object to replace the insert payload, or return nothing to pass it through unchanged:
 
 ```ts
-beforeCreate: ({ data, auth }) => {
+beforeCreate: ({ data, auth, request }) => {
   return { ...data, createdBy: auth?.id };
 },
 ```
@@ -84,6 +111,7 @@ type AfterCreateContext = {
   record: Record<string, unknown>; // the newly created row
   auth: AuthUser | null;
   tableName: string;
+  request: HookRequest;
 };
 ```
 
@@ -96,6 +124,7 @@ type BeforeUpdateContext = {
   existing: Record<string, unknown>; // current row (pre-update)
   auth: AuthUser | null;
   tableName: string;
+  request: HookRequest;
 };
 ```
 
@@ -104,7 +133,7 @@ type BeforeUpdateContext = {
 Return a new data object to replace the update payload, or return nothing to pass it through unchanged:
 
 ```ts
-beforeUpdate: ({ data, existing }) => {
+beforeUpdate: ({ data, existing, request }) => {
   // Prevent downgrading a priority
   if (existing.priority === "high" && data.priority === "low") {
     return { ...data, priority: "high" };
@@ -120,6 +149,7 @@ type AfterUpdateContext = {
   record: Record<string, unknown>; // the updated row
   auth: AuthUser | null;
   tableName: string;
+  request: HookRequest;
 };
 ```
 
@@ -131,6 +161,7 @@ type BeforeDeleteContext = {
   record: Record<string, unknown>; // the row about to be deleted
   auth: AuthUser | null;
   tableName: string;
+  request: HookRequest;
 };
 ```
 
@@ -142,6 +173,7 @@ type AfterDeleteContext = {
   record: Record<string, unknown>; // the row that was deleted
   auth: AuthUser | null;
   tableName: string;
+  request: HookRequest;
 };
 ```
 

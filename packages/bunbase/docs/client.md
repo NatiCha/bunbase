@@ -16,12 +16,21 @@ import { createBunBaseClient } from "bunbase/client";
 
 ```ts
 import { createBunBaseClient } from "bunbase/client";
-import type * as schema from "../server/src/schema"; // your Drizzle schema
+import * as schema from "../server/src/schema"; // your Drizzle schema
 
-const client = createBunBaseClient<typeof schema>({
+const client = createBunBaseClient({
   url: "http://localhost:3000",
+  schema, // enables typed client.api.tableName.*
 });
 ```
+
+Options:
+
+| Option | Type | Description |
+|---|---|---|
+| `url` | `string` | Base URL of your BunBase server |
+| `schema` | `Record<string, Table>` | Your Drizzle schema — drives type inference for `client.api.*` |
+| `apiKey` | `string` (optional) | Bearer API key for server-side / CLI usage. Disables cookies and CSRF. |
 
 The client has four namespaces: `api`, `auth`, `files`, and `realtime`.
 
@@ -55,6 +64,9 @@ const updated = await client.api.posts.update("post-id", {
 
 // Delete a post
 const result = await client.api.posts.delete("post-id");
+
+// Fetch ALL records matching a filter in one request (no pagination loop needed)
+const allDrafts = await client.api.posts.listAll({ filter: { status: "draft" } });
 ```
 
 CSRF tokens are handled automatically — the client reads the `csrf_token` cookie and sends it as the `X-CSRF-Token` header on every mutation request. Cookies are sent with `credentials: "include"`.

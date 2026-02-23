@@ -13,8 +13,12 @@ const config = defineConfig({
   // Development mode (default: NODE_ENV !== "production")
   development: true,
 
-  // SQLite database path (default: "./data/db.sqlite")
-  dbPath: "./data/db.sqlite",
+  // Database — SQLite by default, Postgres and MySQL also supported
+  database: {
+    driver: "sqlite",          // "sqlite" | "postgres" | "mysql"
+    path: "./data/db.sqlite",  // SQLite only
+    // url: "postgres://...",  // connection string (alternative to path/host/…)
+  },
 
   // Drizzle migrations directory (default: "./drizzle")
   migrationsPath: "./drizzle",
@@ -45,6 +49,13 @@ const config = defineConfig({
         clientId: "...",
         clientSecret: "...",
       },
+    },
+
+    apiKeys: {
+      // Default TTL for new keys in days. 0 = no expiration by default. (default: 365)
+      defaultExpirationDays: 90,
+      // Hard cap on TTL. null = no cap. (default: null)
+      maxExpirationDays: 365,
     },
   },
 
@@ -100,11 +111,110 @@ When `true`, BunBase runs in development mode:
 
 Default: `process.env.NODE_ENV !== "production"`
 
-### `dbPath`
+### `database`
 
-Path to the SQLite database file. The directory is created automatically if it doesn't exist.
+Selects the database driver and connection. Three drivers are supported: `"sqlite"` (default), `"postgres"`, and `"mysql"`.
 
-Default: `"./data/db.sqlite"`
+#### SQLite (default)
+
+```ts
+database: {
+  driver: "sqlite",
+  path: "./data/db.sqlite", // default
+}
+```
+
+The directory is created automatically if it doesn't exist.
+
+#### PostgreSQL
+
+```ts
+database: {
+  driver: "postgres",
+  url: "postgres://user:pass@localhost:5432/mydb",
+}
+```
+
+Or use individual fields instead of a connection string:
+
+```ts
+database: {
+  driver: "postgres",
+  host: "localhost",
+  port: 5432,       // default
+  user: "myuser",
+  password: "secret",
+  dbName: "mydb",
+}
+```
+
+BunBase automatically creates the database if it doesn't exist (connects to the `postgres` maintenance database to run `CREATE DATABASE`).
+
+Your schema must use `pgTable` from `drizzle-orm/pg-core`:
+
+```ts
+import { pgTable, text } from "drizzle-orm/pg-core";
+
+export const posts = pgTable("posts", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+});
+```
+
+Update `drizzle.config.ts` to use the `postgresql` dialect:
+
+```ts
+export default defineConfig({
+  dialect: "postgresql",
+  schema: "./src/schema.ts",
+  dbCredentials: { url: process.env.DATABASE_URL! },
+});
+```
+
+#### MySQL
+
+```ts
+database: {
+  driver: "mysql",
+  url: "mysql://user:pass@localhost:3306/mydb",
+}
+```
+
+Or use individual fields:
+
+```ts
+database: {
+  driver: "mysql",
+  host: "localhost",
+  port: 3306,       // default
+  user: "root",
+  password: "secret",
+  dbName: "mydb",
+}
+```
+
+BunBase automatically creates the database if it doesn't exist (connects to the `mysql` system database to run `CREATE DATABASE IF NOT EXISTS`).
+
+Your schema must use `mysqlTable` from `drizzle-orm/mysql-core`:
+
+```ts
+import { mysqlTable, varchar } from "drizzle-orm/mysql-core";
+
+export const posts = mysqlTable("posts", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  title: varchar("title", { length: 255 }).notNull(),
+});
+```
+
+Update `drizzle.config.ts` to use the `mysql` dialect:
+
+```ts
+export default defineConfig({
+  dialect: "mysql",
+  schema: "./src/schema.ts",
+  dbCredentials: { url: process.env.DATABASE_URL! },
+});
+```
 
 ### `migrationsPath`
 
@@ -138,6 +248,17 @@ Your webhook should send the actual email with a reset link containing the token
 Configure OAuth providers. Each provider needs a `clientId` and `clientSecret` from the provider's developer console.
 
 `redirectUrl` is the base URL for OAuth callbacks. In development, this defaults to `http://localhost:3000`. **Required in production** if any OAuth provider is configured.
+
+### `auth.apiKeys`
+
+Controls expiration policy for user-generated API keys.
+
+| Option | Default | Description |
+|---|---|---|
+| `defaultExpirationDays` | `365` | TTL when no `expiresInDays` is passed at key creation. `0` = keys never expire by default. |
+| `maxExpirationDays` | `null` | Hard ceiling. Keys cannot be created with a longer TTL. `null` = no cap. |
+
+`defaultExpirationDays` cannot exceed `maxExpirationDays` — BunBase throws on startup if misconfigured. See the [API Keys](/api/api-keys/) guide for endpoint details.
 
 ### `storage.driver`
 
@@ -198,5 +319,6 @@ Bun automatically loads `.env` files — no dotenv needed.
 
 ## Next steps
 
+- [API Keys](/api/api-keys/) — user-generated bearer tokens
 - [Extending](/extending/) — add custom REST routes
 - [Deployment](/deployment/) — production checklist
