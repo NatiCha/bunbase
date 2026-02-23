@@ -7,23 +7,30 @@ import type { AnyDb } from "../core/db-types.ts";
 import type { InternalSchema } from "../core/internal-schema.ts";
 import { getInternalSchema } from "../core/internal-schema.ts";
 
-export function makeResolvedConfig(overrides: Partial<ResolvedConfig> = {}): ResolvedConfig {
-  const authOverrides = (overrides.auth ?? {}) as Partial<ResolvedConfig["auth"]>;
-  const storageOverrides = (overrides.storage ?? {}) as Partial<ResolvedConfig["storage"]>;
-  const corsOverrides = (overrides.cors ?? {}) as Partial<ResolvedConfig["cors"]>;
+type DeepPartialResolvedConfig = Omit<Partial<ResolvedConfig>, "auth" | "storage" | "cors" | "realtime"> & {
+  auth?: Partial<ResolvedConfig["auth"]>;
+  storage?: Partial<ResolvedConfig["storage"]>;
+  cors?: Partial<ResolvedConfig["cors"]>;
+  realtime?: Partial<ResolvedConfig["realtime"]>;
+};
+
+export function makeResolvedConfig(overrides: DeepPartialResolvedConfig = {}): ResolvedConfig {
+  const authOverrides = overrides.auth ?? {};
+  const storageOverrides = overrides.storage ?? {};
+  const corsOverrides = overrides.cors ?? {};
   const databaseOverrides = overrides.database ?? {
     driver: "sqlite" as const,
     url: overrides.dbPath ?? "./data/db.sqlite",
   };
 
-  const realtimeOverrides = (overrides.realtime ?? {}) as Partial<ResolvedConfig["realtime"]>;
+  const realtimeOverrides = overrides.realtime ?? {};
 
   return {
     auth: {
       tokenExpiry: authOverrides.tokenExpiry ?? 60 * 60,
       email: authOverrides.email,
       oauth: authOverrides.oauth,
-      apiKeys: authOverrides.apiKeys ?? { defaultExpirationDays: 365, maxExpirationDays: null },
+      apiKeys: authOverrides.apiKeys ?? { defaultExpirationDays: 365, maxExpirationDays: undefined },
     },
     storage: {
       driver: storageOverrides.driver ?? "local",

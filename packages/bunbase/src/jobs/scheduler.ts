@@ -44,11 +44,11 @@ export function nextCronTime(expression: string, after: Date = new Date()): Date
   }
 
   const [minuteField, hourField, domField, monthField, dowField] = fields;
-  const minute = parseCronField(minuteField, 0, 59);
-  const hour = parseCronField(hourField, 0, 23);
-  const dom = parseCronField(domField, 1, 31);
-  const month = parseCronField(monthField, 1, 12);
-  const dow = parseCronField(dowField, 0, 6);
+  const minute = parseCronField(minuteField!, 0, 59);
+  const hour = parseCronField(hourField!, 0, 23);
+  const dom = parseCronField(domField!, 1, 31);
+  const month = parseCronField(monthField!, 1, 12);
+  const dow = parseCronField(dowField!, 0, 6);
 
   // Standard cron OR semantics: if both dom and dow are restricted (not *), match either
   const domRestricted = domField !== "*";

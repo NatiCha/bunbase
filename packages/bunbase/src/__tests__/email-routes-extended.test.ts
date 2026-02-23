@@ -289,7 +289,7 @@ test("reset-password succeeds and creates a new session", async () => {
   // Token should be deleted
   const remaining = sqlite
     .query<{ n: number }, []>("SELECT COUNT(*) as n FROM _verification_tokens")
-    .get([]);
+    .get();
   expect(remaining?.n).toBe(0);
 
   sqlite.close();
@@ -423,7 +423,7 @@ test("verify-email succeeds with valid token", async () => {
   // Token should be deleted
   const remaining = sqlite
     .query<{ n: number }, []>("SELECT COUNT(*) as n FROM _verification_tokens")
-    .get([]);
+    .get();
   expect(remaining?.n).toBe(0);
 
   sqlite.close();

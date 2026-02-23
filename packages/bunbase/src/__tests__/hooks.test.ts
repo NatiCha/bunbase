@@ -58,7 +58,7 @@ test("beforeCreate: modifies data — created record reflects changes", async ()
   const { exact } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     beforeCreate: async ({ data, auth }) => ({ ...data, ownerId: auth?.id }),
   });
-  const res = await exact["/api/tasks"].POST(
+  const res = await exact["/api/tasks"]!.POST!(
     makeRequest("POST", "/api/tasks", { id: "t1", title: "My task" }),
   );
   expect(res.status).toBe(201);
@@ -74,7 +74,7 @@ test("beforeCreate: returns void — original data passes through unchanged", as
       /* intentionally return nothing */
     },
   });
-  const res = await exact["/api/tasks"].POST(
+  const res = await exact["/api/tasks"]!.POST!(
     makeRequest("POST", "/api/tasks", { id: "t1", title: "Unchanged" }),
   );
   expect(res.status).toBe(201);
@@ -90,13 +90,13 @@ test("beforeCreate: throws ApiError(403) — returns 403 and no row inserted", a
       throw new ApiError("FORBIDDEN", "Nope", 403);
     },
   });
-  const res = await exact["/api/tasks"].POST(
+  const res = await exact["/api/tasks"]!.POST!(
     makeRequest("POST", "/api/tasks", { id: "t1", title: "Blocked" }),
   );
   expect(res.status).toBe(403);
   const body = (await res.json()) as any;
   expect(body.error.code).toBe("FORBIDDEN");
-  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM tasks").get([]);
+  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM tasks").get();
   expect(count?.n).toBe(0);
   sqlite.close();
 });
@@ -108,7 +108,7 @@ test("beforeCreate: throws ApiError(409) — returns 409 conflict response", asy
       throw new ApiError("CONFLICT", "Already exists", 409);
     },
   });
-  const res = await exact["/api/tasks"].POST(
+  const res = await exact["/api/tasks"]!.POST!(
     makeRequest("POST", "/api/tasks", { id: "t1", title: "Dup" }),
   );
   expect(res.status).toBe(409);
@@ -124,7 +124,7 @@ test("beforeCreate: throws generic Error — returns 500 with HOOK_ERROR code", 
       throw new Error("Something went wrong");
     },
   });
-  const res = await exact["/api/tasks"].POST(
+  const res = await exact["/api/tasks"]!.POST!(
     makeRequest("POST", "/api/tasks", { id: "t1", title: "Fail" }),
   );
   expect(res.status).toBe(500);
@@ -141,7 +141,7 @@ test("beforeCreate: async hook works (returns a Promise)", async () => {
       return { ...data, priority: "high" };
     },
   });
-  const res = await exact["/api/tasks"].POST(
+  const res = await exact["/api/tasks"]!.POST!(
     makeRequest("POST", "/api/tasks", { id: "t1", title: "Async task" }),
   );
   expect(res.status).toBe(201);
@@ -160,7 +160,7 @@ test("afterCreate: receives created record", async () => {
       captured = record;
     },
   });
-  const res = await exact["/api/tasks"].POST(
+  const res = await exact["/api/tasks"]!.POST!(
     makeRequest("POST", "/api/tasks", { id: "t1", title: "Check" }),
   );
   expect(res.status).toBe(201);
@@ -176,7 +176,7 @@ test("afterCreate: error in hook does not affect 201 response", async () => {
       throw new Error("side-effect failed");
     },
   });
-  const res = await exact["/api/tasks"].POST(
+  const res = await exact["/api/tasks"]!.POST!(
     makeRequest("POST", "/api/tasks", { id: "t1", title: "Safe" }),
   );
   expect(res.status).toBe(201);
@@ -191,7 +191,7 @@ test("beforeUpdate: modifies data — updated record reflects changes", async ()
   const { pattern } = generateCrudHandlers(tasks, db, mockAuth(), openRules, {
     beforeUpdate: async ({ data }) => ({ ...data, priority: "high" }),
   });
-  const res = await pattern["/api/tasks/:id"].PATCH(
+  const res = await pattern["/api/tasks/:id"]!.PATCH!(
     makeRequest("PATCH", "/api/tasks/t1", { title: "New" }),
   );
   expect(res.status).toBe(200);
@@ -209,7 +209,7 @@ test("beforeUpdate: receives existing record in context", async () => {
       capturedExisting = existing;
     },
   });
-  await pattern["/api/tasks/:id"].PATCH(
+  await pattern["/api/tasks/:id"]!.PATCH!(
     makeRequest("PATCH", "/api/tasks/t1", { title: "Updated" }),
   );
   expect(capturedExisting).not.toBeNull();
@@ -225,11 +225,11 @@ test("beforeUpdate: throws ApiError(403) — returns 403, no update applied", as
       throw new ApiError("FORBIDDEN", "Cannot edit", 403);
     },
   });
-  const res = await pattern["/api/tasks/:id"].PATCH(
+  const res = await pattern["/api/tasks/:id"]!.PATCH!(
     makeRequest("PATCH", "/api/tasks/t1", { title: "Changed" }),
   );
   expect(res.status).toBe(403);
-  const row = sqlite.query<{ title: string }, []>("SELECT title FROM tasks").get([]);
+  const row = sqlite.query<{ title: string }, []>("SELECT title FROM tasks").get();
   expect(row?.title).toBe("Locked");
   sqlite.close();
 });
@@ -242,7 +242,7 @@ test("beforeUpdate: returns 404 without running hook when record does not exist"
       hookCalled = true;
     },
   });
-  const res = await pattern["/api/tasks/:id"].PATCH(
+  const res = await pattern["/api/tasks/:id"]!.PATCH!(
     makeRequest("PATCH", "/api/tasks/nonexistent", { title: "X" }),
   );
   expect(res.status).toBe(404);
@@ -258,7 +258,7 @@ test("beforeUpdate: throws generic Error — returns 500 with HOOK_ERROR", async
       throw new Error("unexpected");
     },
   });
-  const res = await pattern["/api/tasks/:id"].PATCH(
+  const res = await pattern["/api/tasks/:id"]!.PATCH!(
     makeRequest("PATCH", "/api/tasks/t1", { title: "X" }),
   );
   expect(res.status).toBe(500);
@@ -278,7 +278,7 @@ test("afterUpdate: receives updated record", async () => {
       captured = record;
     },
   });
-  await pattern["/api/tasks/:id"].PATCH(makeRequest("PATCH", "/api/tasks/t1", { title: "After" }));
+  await pattern["/api/tasks/:id"]!.PATCH!(makeRequest("PATCH", "/api/tasks/t1", { title: "After" }));
   expect((captured as any)?.title).toBe("After");
   sqlite.close();
 });
@@ -291,7 +291,7 @@ test("afterUpdate: error does not affect 200 response", async () => {
       throw new Error("notify failed");
     },
   });
-  const res = await pattern["/api/tasks/:id"].PATCH(
+  const res = await pattern["/api/tasks/:id"]!.PATCH!(
     makeRequest("PATCH", "/api/tasks/t1", { title: "New" }),
   );
   expect(res.status).toBe(200);
@@ -310,11 +310,11 @@ test("beforeDelete: throws ApiError(403) — returns 403, record not deleted", a
       }
     },
   });
-  const res = await pattern["/api/tasks/:id"].DELETE(makeRequest("DELETE", "/api/tasks/t1"));
+  const res = await pattern["/api/tasks/:id"]!.DELETE!(makeRequest("DELETE", "/api/tasks/t1"));
   expect(res.status).toBe(403);
   const body = (await res.json()) as any;
   expect(body.error.code).toBe("FORBIDDEN");
-  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM tasks").get([]);
+  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM tasks").get();
   expect(count?.n).toBe(1);
   sqlite.close();
 });
@@ -327,7 +327,7 @@ test("beforeDelete: throws generic Error — returns 500 with HOOK_ERROR", async
       throw new Error("db lookup failed");
     },
   });
-  const res = await pattern["/api/tasks/:id"].DELETE(makeRequest("DELETE", "/api/tasks/t1"));
+  const res = await pattern["/api/tasks/:id"]!.DELETE!(makeRequest("DELETE", "/api/tasks/t1"));
   expect(res.status).toBe(500);
   const body = (await res.json()) as any;
   expect(body.error.code).toBe("HOOK_ERROR");
@@ -343,10 +343,10 @@ test("beforeDelete: allows deletion when no error thrown", async () => {
       called = true;
     },
   });
-  const res = await pattern["/api/tasks/:id"].DELETE(makeRequest("DELETE", "/api/tasks/t1"));
+  const res = await pattern["/api/tasks/:id"]!.DELETE!(makeRequest("DELETE", "/api/tasks/t1"));
   expect(res.status).toBe(200);
   expect(called).toBe(true);
-  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM tasks").get([]);
+  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM tasks").get();
   expect(count?.n).toBe(0);
   sqlite.close();
 });
@@ -362,7 +362,7 @@ test("afterDelete: receives deleted record", async () => {
       captured = record;
     },
   });
-  const res = await pattern["/api/tasks/:id"].DELETE(makeRequest("DELETE", "/api/tasks/t1"));
+  const res = await pattern["/api/tasks/:id"]!.DELETE!(makeRequest("DELETE", "/api/tasks/t1"));
   expect(res.status).toBe(200);
   expect((captured as any)?.title).toBe("Gone");
   sqlite.close();
@@ -376,7 +376,7 @@ test("afterDelete: error does not affect 200 response", async () => {
       throw new Error("cleanup failed");
     },
   });
-  const res = await pattern["/api/tasks/:id"].DELETE(makeRequest("DELETE", "/api/tasks/t1"));
+  const res = await pattern["/api/tasks/:id"]!.DELETE!(makeRequest("DELETE", "/api/tasks/t1"));
   expect(res.status).toBe(200);
   sqlite.close();
 });
@@ -388,19 +388,19 @@ test("no hooks defined — CRUD works normally", async () => {
   const { exact, pattern } = generateCrudHandlers(tasks, db, noAuth, openRules);
 
   // Create
-  const createRes = await exact["/api/tasks"].POST(
+  const createRes = await exact["/api/tasks"]!.POST!(
     makeRequest("POST", "/api/tasks", { id: "t1", title: "Normal" }),
   );
   expect(createRes.status).toBe(201);
 
   // Update
-  const updateRes = await pattern["/api/tasks/:id"].PATCH(
+  const updateRes = await pattern["/api/tasks/:id"]!.PATCH!(
     makeRequest("PATCH", "/api/tasks/t1", { title: "Updated" }),
   );
   expect(updateRes.status).toBe(200);
 
   // Delete
-  const deleteRes = await pattern["/api/tasks/:id"].DELETE(makeRequest("DELETE", "/api/tasks/t1"));
+  const deleteRes = await pattern["/api/tasks/:id"]!.DELETE!(makeRequest("DELETE", "/api/tasks/t1"));
   const deleteBody = (await deleteRes.json()) as any;
   expect(deleteBody.deleted).toBe(true);
 

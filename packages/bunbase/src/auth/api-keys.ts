@@ -113,7 +113,7 @@ export function createApiKeyRoutes(deps: ApiKeyRoutesDeps) {
           }
         } else {
           // Explicit positive value — enforce cap if set
-          if (maxExpirationDays !== null && expiresInDays > maxExpirationDays) {
+          if (maxExpirationDays !== undefined && expiresInDays > maxExpirationDays) {
             return jsonError(
               "VALIDATION_ERROR",
               `Expiration exceeds maximum allowed days (${maxExpirationDays})`,
@@ -185,7 +185,7 @@ export function createApiKeyRoutes(deps: ApiKeyRoutesDeps) {
         // Extract key id from URL path
         const url = new URL(req.url);
         const pathParts = url.pathname.split("/");
-        const keyId = pathParts[pathParts.length - 1];
+        const keyId = pathParts[pathParts.length - 1]!;
 
         const rows = await (db as any)
           .select({

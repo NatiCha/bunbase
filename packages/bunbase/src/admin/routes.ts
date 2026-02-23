@@ -171,7 +171,7 @@ export async function handleAdminApi(
   // DELETE /sessions/:id
   const sessionDeleteMatch = path.match(/^\/sessions\/([^/]+)$/);
   if (sessionDeleteMatch && method === "DELETE") {
-    const id = sessionDeleteMatch[1];
+    const id = sessionDeleteMatch[1]!;
     await (db as any).delete(sessions).where(eq(sessions.id, id));
     return Response.json({ deleted: true });
   }
@@ -194,7 +194,7 @@ export async function handleAdminApi(
   // DELETE /files/:id
   const fileDeleteMatch = path.match(/^\/files\/([^/]+)$/);
   if (fileDeleteMatch && method === "DELETE") {
-    const id = fileDeleteMatch[1];
+    const id = fileDeleteMatch[1]!;
     const fileRows = await (db as any)
       .select({ storagePath: files.storagePath })
       .from(files)
@@ -246,7 +246,7 @@ export async function handleAdminApi(
   // DELETE /api-keys/:id — revoke any key (admin only)
   const apiKeyDeleteMatch = path.match(/^\/api-keys\/([^/]+)$/);
   if (apiKeyDeleteMatch && method === "DELETE") {
-    const id = apiKeyDeleteMatch[1];
+    const id = apiKeyDeleteMatch[1]!;
     await (db as any).delete(apiKeys).where(eq(apiKeys.id, id));
     return Response.json({ deleted: true });
   }
@@ -334,7 +334,7 @@ export async function handleAdminApi(
 
   // GET /records/:table — paginated, searchable, sortable
   if (recordsTableMatch && method === "GET") {
-    const tableName = recordsTableMatch[1];
+    const tableName = recordsTableMatch[1]!;
     const validTables = getSchemaTableNames(schema);
     if (!validTables.has(tableName))
       return jsonError(
@@ -394,7 +394,7 @@ export async function handleAdminApi(
 
   // POST /records/:table — create a new record
   if (recordsTableMatch && method === "POST") {
-    const tableName = recordsTableMatch[1];
+    const tableName = recordsTableMatch[1]!;
     const validTables = getSchemaTableNames(schema);
     if (!validTables.has(tableName))
       return jsonError(
@@ -442,8 +442,8 @@ export async function handleAdminApi(
 
   // PATCH /records/:table/:id — update a record (partial)
   if (recordsItemMatch && method === "PATCH") {
-    const tableName = recordsItemMatch[1];
-    const id = recordsItemMatch[2];
+    const tableName = recordsItemMatch[1]!;
+    const id = recordsItemMatch[2]!;
     const validTables = getSchemaTableNames(schema);
     if (!validTables.has(tableName))
       return jsonError(
@@ -494,8 +494,8 @@ export async function handleAdminApi(
 
   // DELETE /records/:table/:id — delete a record
   if (recordsItemMatch && method === "DELETE") {
-    const tableName = recordsItemMatch[1];
-    const id = recordsItemMatch[2];
+    const tableName = recordsItemMatch[1]!;
+    const id = recordsItemMatch[2]!;
     const validTables = getSchemaTableNames(schema);
     if (!validTables.has(tableName))
       return jsonError(

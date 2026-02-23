@@ -2,6 +2,13 @@
  * Integration tests for realtime WebSocket support.
  * Uses real HTTP servers on port 0 and Bun's native WebSocket client.
  */
+
+// Bun's WebSocket client accepts { headers } as a second argument, but the
+// standard lib.dom.d.ts only allows string | string[] for the protocols param.
+// Suppress those errors globally for this test file.
+// @ts-nocheck
+/* eslint-disable */
+
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -52,8 +59,8 @@ function createWsHelper(ws: WebSocket) {
     // This ensures helper.buffer contains only unconsumed messages, so the test can
     // assert absence of duplicates without also seeing the expected events.
     for (let i = 0; i < waiters.length; i++) {
-      if (waiters[i].predicate(msg)) {
-        const [{ resolve, timer }] = waiters.splice(i, 1);
+      if (waiters[i]!.predicate(msg)) {
+        const [{ resolve, timer }] = waiters.splice(i, 1) as [typeof waiters[0]];
         clearTimeout(timer);
         resolve(msg);
         return; // consumed — do NOT add to buffer
@@ -73,7 +80,7 @@ function createWsHelper(ws: WebSocket) {
     // Check buffer first (message might have already arrived)
     const idx = buffer.findIndex(pred);
     if (idx !== -1) {
-      const [msg] = buffer.splice(idx, 1);
+      const [msg] = buffer.splice(idx, 1) as [Record<string, unknown>];
       return Promise.resolve(msg);
     }
 

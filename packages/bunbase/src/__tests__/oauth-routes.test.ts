@@ -251,13 +251,13 @@ test("callback creates new user and redirects on first OAuth login", async () =>
   expect(cookieHeader).toContain("bunbase_session=");
 
   // User was created in DB
-  const user = sqlite.query<{ email: string }, []>("SELECT email FROM users").get([]);
+  const user = sqlite.query<{ email: string }, []>("SELECT email FROM users").get();
   expect(user?.email).toBe("newuser@gmail.com");
 
   // OAuth account was linked
   const account = sqlite
     .query<{ provider: string }, []>("SELECT provider FROM _oauth_accounts")
-    .get([]);
+    .get();
   expect(account?.provider).toBe("google");
 
   sqlite.close();
@@ -284,11 +284,11 @@ test("callback auto-links OAuth account to existing user when provider confirms 
   // OAuth account linked to the pre-existing user
   const account = sqlite
     .query<{ user_id: string }, []>("SELECT user_id FROM _oauth_accounts")
-    .get([]);
+    .get();
   expect(account?.user_id).toBe("existing-user");
 
   // No new user created
-  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM users").get([]);
+  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM users").get();
   expect(count?.n).toBe(1);
 
   sqlite.close();
@@ -320,7 +320,7 @@ test("callback redirects with ACCOUNT_LINK_REQUIRED when email collision and pro
   // No new OAuth account row created
   const count = sqlite
     .query<{ n: number }, []>("SELECT COUNT(*) as n FROM _oauth_accounts")
-    .get([]);
+    .get();
   expect(count?.n).toBe(0);
 
   sqlite.close();
@@ -385,7 +385,7 @@ test("callback reuses existing OAuth account without creating a new link", async
   // No new oauth accounts created
   const count = sqlite
     .query<{ n: number }, []>("SELECT COUNT(*) as n FROM _oauth_accounts")
-    .get([]);
+    .get();
   expect(count?.n).toBe(1);
 
   sqlite.close();
@@ -429,12 +429,12 @@ test("link callback inserts oauth account for authenticated user and redirects w
     .query<{ user_id: string; provider_account_id: string }, []>(
       "SELECT user_id, provider_account_id FROM _oauth_accounts",
     )
-    .get([]);
+    .get();
   expect(account?.user_id).toBe("linker-user");
   expect(account?.provider_account_id).toBe("g-new-link-id");
 
   // No new user created
-  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM users").get([]);
+  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM users").get();
   expect(count?.n).toBe(1);
 
   sqlite.close();
@@ -604,7 +604,7 @@ test("callback recovers from race: creates session for winning userId on unique 
   // Exactly one link row — the winning one, no duplicate
   const linkCount = sqlite
     .query<{ n: number }, []>("SELECT COUNT(*) as n FROM _oauth_accounts")
-    .get([]);
+    .get();
   expect(linkCount?.n).toBe(1);
 
   sqlite.close();

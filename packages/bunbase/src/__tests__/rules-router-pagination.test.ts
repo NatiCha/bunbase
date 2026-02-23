@@ -31,7 +31,7 @@ test("view rule is enforced for GET /:id reads", async () => {
   const db = drizzle({ client: sqlite });
   const { pattern } = generateCrudHandlers(posts, db, mockAuth(), { get: () => false });
 
-  const res = await pattern["/api/posts/:id"].GET(new Request("http://localhost/api/posts/p1"));
+  const res = await pattern["/api/posts/:id"]!.GET!(new Request("http://localhost/api/posts/p1"));
   expect(res.status).toBe(403);
   sqlite.close();
 });
@@ -46,7 +46,7 @@ test("get rule alias remains supported for reads", async () => {
   const db = drizzle({ client: sqlite });
   const { pattern } = generateCrudHandlers(posts, db, mockAuth(), { get: () => false });
 
-  const res = await pattern["/api/posts/:id"].GET(new Request("http://localhost/api/posts/p1"));
+  const res = await pattern["/api/posts/:id"]!.GET!(new Request("http://localhost/api/posts/p1"));
   expect(res.status).toBe(403);
   sqlite.close();
 });

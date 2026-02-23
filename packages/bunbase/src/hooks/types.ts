@@ -72,7 +72,7 @@ export type AfterDeleteContext<TSelect extends Record<string, unknown> = Record<
 
 export type BeforeCreateFn<TInsert extends Record<string, unknown> = Record<string, unknown>> = (
   ctx: BeforeCreateContext<TInsert>,
-) => TInsert | undefined | Promise<TInsert | undefined>;
+) => TInsert | undefined | void | Promise<TInsert | undefined | void>;
 
 export type AfterCreateFn<TSelect extends Record<string, unknown> = Record<string, unknown>> = (
   ctx: AfterCreateContext<TSelect>,
@@ -83,7 +83,7 @@ export type BeforeUpdateFn<
   TSelect extends Record<string, unknown> = Record<string, unknown>,
 > = (
   ctx: BeforeUpdateContext<TInsert, TSelect>,
-) => Partial<TInsert> | undefined | Promise<Partial<TInsert> | undefined>;
+) => Partial<TInsert> | undefined | void | Promise<Partial<TInsert> | undefined | void>;
 
 export type AfterUpdateFn<TSelect extends Record<string, unknown> = Record<string, unknown>> = (
   ctx: AfterUpdateContext<TSelect>,

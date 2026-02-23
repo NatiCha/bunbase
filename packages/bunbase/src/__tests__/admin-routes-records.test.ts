@@ -96,7 +96,7 @@ test("POST /records/:table creates a new record and returns 201", async () => {
   expect(body.title).toBe("New Post");
   expect(body.id).toBeDefined();
 
-  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM posts").get([]);
+  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM posts").get();
   expect(count?.n).toBe(1);
   sqlite.close();
 });
@@ -251,7 +251,7 @@ test("DELETE /records/:table/:id removes the record and returns deleted: true", 
   const body = (await response.json()) as { deleted: boolean };
   expect(body.deleted).toBe(true);
 
-  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM posts").get([]);
+  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM posts").get();
   expect(count?.n).toBe(0);
   sqlite.close();
 });
@@ -300,7 +300,7 @@ test("GET /records/:table with search param filters results by text columns", as
   expect(response.status).toBe(200);
   const body = (await response.json()) as { data: Array<{ id: string }> };
   expect(body.data).toHaveLength(1);
-  expect(body.data[0].id).toBe("p1");
+  expect(body.data[0]!.id).toBe("p1");
   sqlite.close();
 });
 
@@ -327,7 +327,7 @@ test("GET /records/:table with sort and order params returns sorted results", as
 
   expect(response.status).toBe(200);
   const body = (await response.json()) as { data: Array<{ title: string }> };
-  expect(body.data[0].title).toBe("Apple");
+  expect(body.data[0]!.title).toBe("Apple");
   sqlite.close();
 });
 

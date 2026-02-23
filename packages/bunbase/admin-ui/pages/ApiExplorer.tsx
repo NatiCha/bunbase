@@ -10,7 +10,7 @@ export type ApiProcedure = (typeof REST_OPERATIONS)[number];
 
 function getCsrfToken(): string {
   const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : "";
+  return match ? decodeURIComponent(match[1]!) : "";
 }
 
 function methodFor(procedure: ApiProcedure): string {

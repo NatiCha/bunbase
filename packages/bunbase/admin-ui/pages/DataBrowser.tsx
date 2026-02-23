@@ -336,7 +336,7 @@ export function DataBrowser({ tables, setTables, selectedTable, onTableSelect }:
   // Select first table when list loads and none is selected
   useEffect(() => {
     if (tables.length > 0 && !selectedTable) {
-      onTableSelect(tables[0].name);
+      onTableSelect(tables[0]!.name);
     }
   }, [tables, selectedTable, onTableSelect]);
 

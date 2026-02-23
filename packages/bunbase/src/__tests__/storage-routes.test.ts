@@ -209,6 +209,7 @@ test("POST /files: returns 400 when MIME type is not allowed", async () => {
       storage: {
         driver: "local" as const,
         localPath: storageDir,
+        maxFileSize: 10 * 1024 * 1024,
         allowedMimeTypes: ["image/png"],
       },
     }),
@@ -384,7 +385,7 @@ test("deleteRecordFiles removes all files for a record", async () => {
   // The DB record and the actual file should be gone
   const remaining = sqlite
     .query<{ n: number }, []>("SELECT COUNT(*) as n FROM _files WHERE record_id = 'rec-del'")
-    .get([]);
+    .get();
   expect(remaining?.n).toBe(0);
   expect(await storage.exists(path)).toBe(false);
 

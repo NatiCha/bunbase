@@ -142,6 +142,7 @@ export function customRouteReadsAuthUserExample({ extractAuth }: ExtendContext):
 export async function listWithFiltersPaginationExpandExample() {
   const client = createBunBaseClient<typeof schema>({
     url: "http://localhost:3000",
+    schema,
   });
 
   const page1 = await client.api.tasks.list({
@@ -171,6 +172,7 @@ export async function listWithFiltersPaginationExpandExample() {
 export async function apiKeyCreateAndUseExample() {
   const sessionClient = createBunBaseClient<typeof schema>({
     url: "http://localhost:3000",
+    schema,
   });
 
   const created = await sessionClient.auth.apiKeys.create({
@@ -181,6 +183,7 @@ export async function apiKeyCreateAndUseExample() {
   const apiKeyClient = createBunBaseClient<typeof schema>({
     url: "http://localhost:3000",
     apiKey: created.key,
+    schema,
   });
 
   return apiKeyClient.api.tasks.list({ limit: 5 });
@@ -193,6 +196,7 @@ export async function apiKeyCreateAndUseExample() {
 export function realtimeSubscriptionExample() {
   const client = createBunBaseClient<typeof schema>({
     url: "http://localhost:3000",
+    schema,
   });
 
   const unsubscribeTable = client.realtime.subscribe("tasks", (event) => {
@@ -225,6 +229,7 @@ export function realtimeSubscriptionExample() {
 export async function fileUploadAndRetrievalExample(file: File) {
   const client = createBunBaseClient<typeof schema>({
     url: "http://localhost:3000",
+    schema,
   });
 
   const uploadResult = await client.files.upload("tasks", "task-123", file);

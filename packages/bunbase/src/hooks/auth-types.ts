@@ -53,7 +53,7 @@ export type AfterEmailVerifyContext = {
 
 export type BeforeRegisterFn = (
   ctx: BeforeRegisterContext,
-) => Record<string, unknown> | undefined | Promise<Record<string, unknown> | undefined>;
+) => Record<string, unknown> | undefined | void | Promise<Record<string, unknown> | undefined | void>;
 
 export type AfterRegisterFn = (ctx: AfterRegisterContext) => void | Promise<void>;
 

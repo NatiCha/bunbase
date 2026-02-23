@@ -46,7 +46,7 @@ describe("PresenceTracker.join", () => {
     tracker.join("room:1", "user-a", { name: "Alice" }, ws1);
     tracker.join("room:1", "user-a", { status: "online" }, ws2);
     const users = tracker.getUsers("room:1");
-    expect(users[0].meta).toMatchObject({ name: "Alice", status: "online" });
+    expect(users[0]!.meta).toMatchObject({ name: "Alice", status: "online" });
   });
 });
 
@@ -130,7 +130,7 @@ describe("PresenceTracker.updateMeta", () => {
     tracker.join("room:1", "user-a", { name: "Alice", status: "away" }, ws1);
     tracker.updateMeta("room:1", "user-a", { status: "online", cursor: { x: 10 } });
     const users = tracker.getUsers("room:1");
-    expect(users[0].meta).toMatchObject({ name: "Alice", status: "online", cursor: { x: 10 } });
+    expect(users[0]!.meta).toMatchObject({ name: "Alice", status: "online", cursor: { x: 10 } });
   });
 
   test("updateMeta on unknown channel is a no-op", () => {
@@ -144,7 +144,7 @@ describe("PresenceTracker.updateMeta", () => {
     tracker.join("room:1", "user-a", {}, ws1);
     tracker.updateMeta("room:1", "user-b", { status: "online" });
     // user-a unaffected
-    expect(tracker.getUsers("room:1")[0].userId).toBe("user-a");
+    expect(tracker.getUsers("room:1")[0]!.userId).toBe("user-a");
   });
 });
 

@@ -66,10 +66,10 @@ test("evaluateRule passes full RuleArg to rule function", async () => {
     captured.push(a);
     return true;
   }, arg);
-  expect(captured[0]).toBe(arg);
-  expect(captured[0].record).toEqual({ title: "old" });
-  expect(captured[0].body).toEqual({ title: "new" });
-  expect(captured[0].method).toBe("PATCH");
+  expect(captured[0]!).toBe(arg);
+  expect(captured[0]!.record).toEqual({ title: "old" });
+  expect(captured[0]!.body).toEqual({ title: "new" });
+  expect(captured[0]!.method).toBe("PATCH");
 });
 
 // isAuthenticated

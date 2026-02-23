@@ -131,8 +131,8 @@ export interface ResolvedConfig {
     apiKeys: {
       /** Default TTL in days. 0 = new keys are infinite by default. */
       defaultExpirationDays: number;
-      /** Hard cap in days. null = no cap. */
-      maxExpirationDays: number | null;
+      /** Hard cap in days. undefined = no cap. */
+      maxExpirationDays: number | undefined;
     };
   };
   storage: {
@@ -210,7 +210,7 @@ function resolveDatabaseConfig(config?: BunBaseConfig): ResolvedDatabaseConfig {
  * Defaults:
  * - `auth.tokenExpiry`: 30 days
  * - `auth.apiKeys.defaultExpirationDays`: 365
- * - `auth.apiKeys.maxExpirationDays`: `null`
+ * - `auth.apiKeys.maxExpirationDays`: `undefined`
  * - `storage.maxFileSize`: 10MB
  */
 export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
@@ -220,16 +220,16 @@ export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
   // Validate and resolve apiKeys config
   const rawApiKeys = config?.auth?.apiKeys;
   const defaultExpirationDays = rawApiKeys?.defaultExpirationDays ?? 365;
-  const maxExpirationDays = rawApiKeys?.maxExpirationDays ?? null;
+  const maxExpirationDays = rawApiKeys?.maxExpirationDays ?? undefined;
 
   if (rawApiKeys?.defaultExpirationDays !== undefined && defaultExpirationDays < 0) {
     throw new Error("BunBase: auth.apiKeys.defaultExpirationDays must be >= 0");
   }
-  if (maxExpirationDays !== null && maxExpirationDays < 1) {
+  if (maxExpirationDays !== undefined && maxExpirationDays < 1) {
     throw new Error("BunBase: auth.apiKeys.maxExpirationDays must be >= 1");
   }
   if (
-    maxExpirationDays !== null &&
+    maxExpirationDays !== undefined &&
     defaultExpirationDays > 0 &&
     defaultExpirationDays > maxExpirationDays
   ) {

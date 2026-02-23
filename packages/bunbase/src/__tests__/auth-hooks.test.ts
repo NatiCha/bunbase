@@ -243,7 +243,7 @@ test("afterRegister receives created user", async () => {
 
   expect(res.status).toBe(201);
   expect(capturedUserId).toBeString();
-  expect(capturedEmail).toBe("dave@example.com");
+  expect(capturedEmail as unknown as string).toBe("dave@example.com");
   sqlite.close();
 });
 
@@ -544,7 +544,7 @@ test("afterEmailVerify fires after verification succeeds", async () => {
   );
 
   expect(res.status).toBe(200);
-  expect(capturedUserId).toBe("u1");
+  expect(capturedUserId as unknown as string).toBe("u1");
   sqlite.close();
 });
 
@@ -758,6 +758,6 @@ test("afterPasswordReset fires after successful reset", async () => {
   );
 
   expect(res.status).toBe(200);
-  expect(capturedUserId).toBe("u3");
+  expect(capturedUserId as unknown as string).toBe("u3");
   sqlite.close();
 });

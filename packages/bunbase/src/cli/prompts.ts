@@ -25,7 +25,7 @@ export async function select<T extends string>(
 ): Promise<T> {
   const result = await clack.select({
     message,
-    options,
+    options: options as any,
   });
   cancelIfAborted(result);
   return result as T;
@@ -37,7 +37,7 @@ export async function multiSelect<T extends string>(
 ): Promise<T[]> {
   const result = await clack.multiselect({
     message,
-    options,
+    options: options as any,
     required: false,
   });
   cancelIfAborted(result);

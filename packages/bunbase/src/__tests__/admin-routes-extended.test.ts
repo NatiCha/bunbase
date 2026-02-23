@@ -109,7 +109,7 @@ test("pushRequestLog trims to 500 most recent entries", async () => {
     });
   }
 
-  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM _request_logs").get([]);
+  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM _request_logs").get();
   expect(count?.n).toBeLessThanOrEqual(500);
   sqlite.close();
 });
@@ -279,7 +279,7 @@ test("DELETE /logs clears all request logs", async () => {
   const body = (await response.json()) as { cleared: boolean };
   expect(body.cleared).toBe(true);
 
-  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM _request_logs").get([]);
+  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM _request_logs").get();
   expect(count?.n).toBe(0);
   sqlite.close();
 });
@@ -326,7 +326,7 @@ test("GET /schema returns table column definitions", async () => {
   expect(response.status).toBe(200);
   const body = (await response.json()) as Record<string, Array<{ key: string }>>;
   expect(Array.isArray(body.posts)).toBe(true);
-  expect(body.posts.some((col) => col.key === "id")).toBe(true);
+  expect(body.posts!.some((col) => col.key === "id")).toBe(true);
 });
 
 test("GET /tables returns table names and record counts", async () => {

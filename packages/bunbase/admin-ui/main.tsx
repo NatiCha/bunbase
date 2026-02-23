@@ -252,7 +252,7 @@ function AdminApp({ user }: { user: MeUser }) {
     if (section !== "api") return;
     const userTables = Object.keys(apiSchema).filter((t) => !t.startsWith("_"));
     if (userTables.length > 0 && (!selectedTable || !userTables.includes(selectedTable))) {
-      setSelectedTable(userTables[0]);
+      setSelectedTable(userTables[0] ?? null);
     }
   }, [section, apiSchema, selectedTable]);
 

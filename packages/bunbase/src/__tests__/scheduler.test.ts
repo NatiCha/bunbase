@@ -124,8 +124,8 @@ describe("JobScheduler", () => {
     // Should have scheduled exactly one timeout
     expect(timeouts.length).toBe(1);
     // Delay should be positive (within next minute)
-    expect(timeouts[0].delay).toBeGreaterThan(0);
-    expect(timeouts[0].delay).toBeLessThanOrEqual(60_000);
+    expect(timeouts[0]!.delay).toBeGreaterThan(0);
+    expect(timeouts[0]!.delay).toBeLessThanOrEqual(60_000);
 
     globalThis.setTimeout = originalSetTimeout;
     scheduler.stop();
@@ -203,7 +203,7 @@ describe("JobScheduler", () => {
 
     // Simulate the timer firing
     if (capturedFn) {
-      await capturedFn();
+      await (capturedFn as TimerFn)();
     }
 
     expect(errors.some((e) => e.some((s: any) => String(s).includes("failing-job")))).toBe(true);
@@ -243,7 +243,7 @@ describe("JobScheduler", () => {
     ]);
 
     // First tick: job starts running (sets running=true, awaits jobBlocker)
-    const firstTickFn = capturedFns[0];
+    const firstTickFn = capturedFns[0]!;
     const firstRun = firstTickFn(); // don't await — job is blocked
 
     // Give the async machinery a tick so running=true is set
@@ -298,7 +298,7 @@ describe("JobScheduler", () => {
       },
     ]);
 
-    const firstTickFn = capturedFns[0];
+    const firstTickFn = capturedFns[0]!;
     const firstRun = firstTickFn(); // don't await — job is blocked
 
     // Restore real setTimeout before stop()
