@@ -2,13 +2,14 @@
  * Dashboard with live task feed powered by BunBase realtime WebSocket.
  * Demonstrates: client.realtime.subscribe(table, callback)
  */
-import React, { useEffect, useRef, useState } from "react";
+
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Card, CardHeader, CardTitle, CardContent } from "./ui/card.tsx";
-import { Badge } from "./ui/badge.tsx";
-import { CheckCircle, Clock, ListTodo, BarChart3, Wifi } from "lucide-react";
-import { client } from "../lib/client.ts";
 import type { TableChangeEvent } from "bunbase";
+import { BarChart3, CheckCircle, Clock, ListTodo, Wifi } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { client } from "../lib/client.ts";
+import { Badge } from "./ui/badge.tsx";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card.tsx";
 
 interface Stats {
   total: number;
@@ -126,16 +127,16 @@ export function Dashboard() {
           Live Activity
         </h3>
         {liveEvents.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Watching for task changes in real-time…
-          </p>
+          <p className="text-sm text-muted-foreground">Watching for task changes in real-time…</p>
         ) : (
           <div className="space-y-2">
             {liveEvents.map((ev) => (
-              <div key={ev.id} className="flex items-center justify-between p-2 border rounded text-sm">
+              <div
+                key={ev.id}
+                className="flex items-center justify-between p-2 border rounded text-sm"
+              >
                 <span>
-                  <span className="font-medium">{ev.title}</span>
-                  {" "}
+                  <span className="font-medium">{ev.title}</span>{" "}
                   <span className="text-muted-foreground">{actionLabel[ev.action]}</span>
                 </span>
                 <span className="text-xs text-muted-foreground">
@@ -152,7 +153,10 @@ export function Dashboard() {
           <h3 className="text-lg font-semibold mb-3">My Tasks</h3>
           <div className="space-y-2">
             {myTasks.map((task) => (
-              <div key={task.id} className="flex items-center justify-between p-3 border rounded-lg">
+              <div
+                key={task.id}
+                className="flex items-center justify-between p-3 border rounded-lg"
+              >
                 <span className="font-medium">{task.title}</span>
                 <div className="flex gap-2">
                   <Badge variant="secondary">{task.priority}</Badge>

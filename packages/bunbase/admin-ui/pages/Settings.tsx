@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
-import { api, type AdminConfig } from "../lib/api.ts";
+import type React from "react";
+import { useEffect, useState } from "react";
+import { type AdminConfig, api } from "../lib/api.ts";
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
@@ -15,13 +16,7 @@ function formatSeconds(ms: number): string {
   return `${s}s`;
 }
 
-function Badge({
-  enabled,
-  label,
-}: {
-  enabled: boolean;
-  label: string;
-}) {
+function Badge({ enabled, label }: { enabled: boolean; label: string }) {
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
@@ -40,13 +35,7 @@ function Badge({
   );
 }
 
-function SectionCard({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
       <div className="border-b border-gray-100 px-5 py-3 dark:border-gray-800">
@@ -84,9 +73,7 @@ export function Settings() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex-1 overflow-auto p-6">
-        {loading && (
-          <div className="text-sm text-gray-400">Loading config…</div>
-        )}
+        {loading && <div className="text-sm text-gray-400">Loading config…</div>}
 
         {error && (
           <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-400">
@@ -99,7 +86,10 @@ export function Settings() {
             {/* Server */}
             <SectionCard title="Server">
               <Row label="Mode">
-                <Badge enabled={config.development} label={config.development ? "Development" : "Production"} />
+                <Badge
+                  enabled={config.development}
+                  label={config.development ? "Development" : "Production"}
+                />
               </Row>
               <Row label="Note">
                 <span className="text-gray-400 dark:text-gray-500 text-xs">

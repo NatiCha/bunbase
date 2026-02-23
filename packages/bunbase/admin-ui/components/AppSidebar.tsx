@@ -1,11 +1,10 @@
-import React, { useEffect, useRef, useState } from "react";
 import {
   Activity,
   Code2,
   Database,
   HardDrive,
-  LayoutGrid,
   Layers,
+  LayoutGrid,
   LogOut,
   Monitor,
   Moon,
@@ -13,6 +12,11 @@ import {
   Sun,
   Users,
 } from "lucide-react";
+import type React from "react";
+import { useEffect, useRef, useState } from "react";
+import { type AdminUser, api, type TableInfo } from "../lib/api.ts";
+import type { ApiProcedure, ApiSchema } from "../pages/ApiExplorer.tsx";
+import type { AuthTab } from "../pages/AuthDashboard.tsx";
 import {
   Sidebar,
   SidebarContent,
@@ -24,9 +28,6 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "./ui/sidebar.tsx";
-import { api, type AdminUser, type TableInfo } from "../lib/api.ts";
-import type { ApiProcedure, ApiSchema } from "../pages/ApiExplorer.tsx";
-import type { AuthTab } from "../pages/AuthDashboard.tsx";
 
 export type NavSection = "collections" | "auth" | "logs" | "storage" | "api" | "settings";
 
@@ -38,11 +39,11 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { id: "collections", label: "Collections", icon: LayoutGrid },
-  { id: "auth",        label: "Users & Auth",  icon: Users },
-  { id: "logs",        label: "Request Log",   icon: Activity },
-  { id: "storage",     label: "Storage",       icon: HardDrive },
-  { id: "api",         label: "API Explorer",  icon: Code2 },
-  { id: "settings",    label: "Settings",      icon: Settings2 },
+  { id: "auth", label: "Users & Auth", icon: Users },
+  { id: "logs", label: "Request Log", icon: Activity },
+  { id: "storage", label: "Storage", icon: HardDrive },
+  { id: "api", label: "API Explorer", icon: Code2 },
+  { id: "settings", label: "Settings", icon: Settings2 },
 ];
 
 const sectionDescriptions: Record<Exclude<NavSection, "collections">, string> = {
@@ -154,9 +155,12 @@ export function AppSidebar({
   // Load tables when collections/API is active
   useEffect(() => {
     if (active === "collections" || active === "api") {
-      api.getTables().then(setTables).catch(() => {});
+      api
+        .getTables()
+        .then(setTables)
+        .catch(() => {});
     }
-  }, [active]);
+  }, [active, setTables]);
 
   useEffect(() => {
     if (previousActiveRef.current === active) return;
@@ -185,14 +189,22 @@ export function AppSidebar({
     : tables;
   const apiTables = Object.keys(apiSchema).filter((t) => !t.startsWith("_"));
   const activeLabel = navItems.find((n) => n.id === active)?.label ?? "";
-  const themeIcon = theme === "dark" ? <Moon className="size-4" /> : theme === "light" ? <Sun className="size-4" /> : <Monitor className="size-4" />;
+  const themeIcon =
+    theme === "dark" ? (
+      <Moon className="size-4" />
+    ) : theme === "light" ? (
+      <Sun className="size-4" />
+    ) : (
+      <Monitor className="size-4" />
+    );
 
   return (
     <Sidebar collapsible="icon" className="overflow-hidden *:data-[sidebar=sidebar]:flex-row">
-
       {/* ── Icon rail (always visible) ─────────────────────────────── */}
-      <Sidebar collapsible="none" className="w-[calc(var(--sidebar-width-icon)+1px)]! shrink-0 border-r border-sidebar-border">
-
+      <Sidebar
+        collapsible="none"
+        className="w-[calc(var(--sidebar-width-icon)+1px)]! shrink-0 border-r border-sidebar-border"
+      >
         {/* Logo */}
         <SidebarHeader className="h-14 justify-center border-b border-sidebar-border px-0">
           <div className="flex items-center justify-center">
@@ -263,7 +275,13 @@ export function AppSidebar({
                         }`}
                       >
                         <span className="shrink-0">
-                          {t === "dark" ? <Moon className="size-3.5" /> : t === "light" ? <Sun className="size-3.5" /> : <Monitor className="size-3.5" />}
+                          {t === "dark" ? (
+                            <Moon className="size-3.5" />
+                          ) : t === "light" ? (
+                            <Sun className="size-3.5" />
+                          ) : (
+                            <Monitor className="size-3.5" />
+                          )}
                         </span>
                         {t.charAt(0).toUpperCase() + t.slice(1)}
                       </button>
@@ -292,12 +310,17 @@ export function AppSidebar({
                     style={profileMenuPosition}
                   >
                     <div className="border-b border-sidebar-border px-3 py-2.5">
-                      <p className="truncate text-xs font-medium text-sidebar-foreground">{user.email}</p>
+                      <p className="truncate text-xs font-medium text-sidebar-foreground">
+                        {user.email}
+                      </p>
                       <p className="text-[10px] text-sidebar-foreground/50">Role: {user.role}</p>
                     </div>
                     <div className="p-1">
                       <button
-                        onClick={() => { setProfileOpen(false); onSignOut(); }}
+                        onClick={() => {
+                          setProfileOpen(false);
+                          onSignOut();
+                        }}
                         className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-red-500 hover:bg-red-500/10 transition-colors"
                       >
                         <LogOut className="size-3.5" />
@@ -308,169 +331,171 @@ export function AppSidebar({
                 )}
               </div>
             </SidebarMenuItem>
-
           </SidebarMenu>
         </SidebarFooter>
       </Sidebar>
 
       {/* ── Second panel (section content) ─────────────────────────── */}
       {hasExpandedSidebar(active) && (
-      <Sidebar collapsible="none" className="hidden w-auto! flex-1 md:flex border-r border-sidebar-border">
-        <SidebarHeader className="h-14 justify-center border-b border-sidebar-border px-4">
-          <p className="text-sm font-semibold text-sidebar-foreground">
-            {activeLabel}
-          </p>
-        </SidebarHeader>
+        <Sidebar
+          collapsible="none"
+          className="hidden w-auto! flex-1 md:flex border-r border-sidebar-border"
+        >
+          <SidebarHeader className="h-14 justify-center border-b border-sidebar-border px-4">
+            <p className="text-sm font-semibold text-sidebar-foreground">{activeLabel}</p>
+          </SidebarHeader>
 
-        <SidebarContent>
-          {active === "collections" && (
-            <>
-              <div className="px-3 pt-2.5">
-                <button
-                  onClick={() => handleNav("api")}
-                  className="flex w-full items-center gap-2 rounded-md border border-sidebar-border px-3 py-2 text-xs text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-colors"
-                >
-                  <Code2 className="size-3.5" />
-                  Open API Explorer
-                </button>
-              </div>
-              <div className="px-3 py-2.5">
-                <SidebarInput
-                  placeholder="Filter tables…"
-                  value={tableSearch}
-                  onChange={(e) => setTableSearch(e.target.value)}
-                />
-              </div>
-              <div className="flex-1 overflow-auto pb-2">
-                {filteredTables.length === 0 ? (
-                  <p className="px-4 py-2 text-xs text-sidebar-foreground/40">
-                    {tables.length === 0 ? "No tables found" : "No matches"}
-                  </p>
-                ) : (
-                  filteredTables.map((t) => (
-                    <button
-                      key={t.name}
-                      onClick={() => onTableSelect(t.name)}
-                      className={`flex w-full items-center justify-between px-4 py-2 text-left transition-colors ${
-                        selectedTable === t.name
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                          : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                      }`}
-                    >
-                      <span className="truncate text-sm">{t.name}</span>
-                      <span
-                        className={`ml-2 shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-medium tabular-nums ${
-                          t.type === "auth"
-                            ? "bg-purple-500/15 text-purple-400"
-                            : "bg-sidebar-accent text-sidebar-foreground/50"
-                        }`}
-                      >
-                        {t.count}
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
-            </>
-          )}
-          {active === "api" && (
-            <>
-              <div className="border-b border-sidebar-border px-3 py-2.5">
-                <select
-                  value={apiImpersonateId ?? ""}
-                  onChange={(e) => onApiImpersonateSelect(e.target.value || null)}
-                  className="w-full rounded-md border border-sidebar-border bg-sidebar px-2 py-1.5 text-xs text-sidebar-foreground focus:outline-none focus:ring-2 focus:ring-sidebar-ring"
-                >
-                  <option value="">Test as (self)</option>
-                  {apiUsers.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.email} ({u.role})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex-1 overflow-auto pb-2">
-                {apiLoading ? (
-                  <p className="px-4 py-2 text-xs text-sidebar-foreground/40">Loading schema…</p>
-                ) : apiTables.length === 0 ? (
-                  <p className="px-4 py-2 text-xs text-sidebar-foreground/40">No user tables found</p>
-                ) : (
-                  apiTables.map((table) => (
-                    <div key={table}>
+          <SidebarContent>
+            {active === "collections" && (
+              <>
+                <div className="px-3 pt-2.5">
+                  <button
+                    onClick={() => handleNav("api")}
+                    className="flex w-full items-center gap-2 rounded-md border border-sidebar-border px-3 py-2 text-xs text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-colors"
+                  >
+                    <Code2 className="size-3.5" />
+                    Open API Explorer
+                  </button>
+                </div>
+                <div className="px-3 py-2.5">
+                  <SidebarInput
+                    placeholder="Filter tables…"
+                    value={tableSearch}
+                    onChange={(e) => setTableSearch(e.target.value)}
+                  />
+                </div>
+                <div className="flex-1 overflow-auto pb-2">
+                  {filteredTables.length === 0 ? (
+                    <p className="px-4 py-2 text-xs text-sidebar-foreground/40">
+                      {tables.length === 0 ? "No tables found" : "No matches"}
+                    </p>
+                  ) : (
+                    filteredTables.map((t) => (
                       <button
-                        onClick={() => onTableSelect(table)}
-                        className={`w-full px-4 py-2 text-left text-sm font-medium transition-colors ${
-                          selectedTable === table
-                            ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                        key={t.name}
+                        onClick={() => onTableSelect(t.name)}
+                        className={`flex w-full items-center justify-between px-4 py-2 text-left transition-colors ${
+                          selectedTable === t.name
+                            ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
                             : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
                         }`}
                       >
-                        {table}
+                        <span className="truncate text-sm">{t.name}</span>
+                        <span
+                          className={`ml-2 shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-medium tabular-nums ${
+                            t.type === "auth"
+                              ? "bg-purple-500/15 text-purple-400"
+                              : "bg-sidebar-accent text-sidebar-foreground/50"
+                          }`}
+                        >
+                          {t.count}
+                        </span>
                       </button>
-                      {selectedTable === table && (
-                        <div className="bg-sidebar px-2 py-1">
-                          {API_PROCEDURES.map((p) => (
-                            <button
-                              key={p}
-                              onClick={() => onApiProcedureSelect(p)}
-                              className={`flex w-full items-center gap-2 rounded px-3 py-1.5 text-xs transition-colors ${
-                                apiSelectedProcedure === p
-                                  ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                                  : "text-sidebar-foreground/60 hover:text-sidebar-foreground"
-                              }`}
-                            >
-                              <span
-                                className={`h-1.5 w-1.5 rounded-full ${
-                                  p === "create" || p === "update" || p === "delete"
-                                    ? "bg-orange-400"
-                                    : "bg-blue-400"
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+            {active === "api" && (
+              <>
+                <div className="border-b border-sidebar-border px-3 py-2.5">
+                  <select
+                    value={apiImpersonateId ?? ""}
+                    onChange={(e) => onApiImpersonateSelect(e.target.value || null)}
+                    className="w-full rounded-md border border-sidebar-border bg-sidebar px-2 py-1.5 text-xs text-sidebar-foreground focus:outline-none focus:ring-2 focus:ring-sidebar-ring"
+                  >
+                    <option value="">Test as (self)</option>
+                    {apiUsers.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.email} ({u.role})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex-1 overflow-auto pb-2">
+                  {apiLoading ? (
+                    <p className="px-4 py-2 text-xs text-sidebar-foreground/40">Loading schema…</p>
+                  ) : apiTables.length === 0 ? (
+                    <p className="px-4 py-2 text-xs text-sidebar-foreground/40">
+                      No user tables found
+                    </p>
+                  ) : (
+                    apiTables.map((table) => (
+                      <div key={table}>
+                        <button
+                          onClick={() => onTableSelect(table)}
+                          className={`w-full px-4 py-2 text-left text-sm font-medium transition-colors ${
+                            selectedTable === table
+                              ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                              : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                          }`}
+                        >
+                          {table}
+                        </button>
+                        {selectedTable === table && (
+                          <div className="bg-sidebar px-2 py-1">
+                            {API_PROCEDURES.map((p) => (
+                              <button
+                                key={p}
+                                onClick={() => onApiProcedureSelect(p)}
+                                className={`flex w-full items-center gap-2 rounded px-3 py-1.5 text-xs transition-colors ${
+                                  apiSelectedProcedure === p
+                                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                                    : "text-sidebar-foreground/60 hover:text-sidebar-foreground"
                                 }`}
-                              />
-                              {p}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
+                              >
+                                <span
+                                  className={`h-1.5 w-1.5 rounded-full ${
+                                    p === "create" || p === "update" || p === "delete"
+                                      ? "bg-orange-400"
+                                      : "bg-blue-400"
+                                  }`}
+                                />
+                                {p}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+            {active === "auth" && (
+              <div className="px-2 py-2">
+                {AUTH_TABS.map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => onAuthTabSelect(tab.id)}
+                    className={`w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                      authTab === tab.id
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                        : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
               </div>
-            </>
-          )}
-          {active === "auth" && (
-            <div className="px-2 py-2">
-              {AUTH_TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => onAuthTabSelect(tab.id)}
-                  className={`w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
-                    authTab === tab.id
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-          )}
-          {active !== "collections" && active !== "api" && active !== "auth" && (
-            <div className="space-y-3 px-4 py-3">
-              <p className="text-xs font-medium uppercase tracking-wider text-sidebar-foreground/50">
-                {activeLabel}
-              </p>
-              <p className="text-sm leading-relaxed text-sidebar-foreground/70">
-                {sectionDescriptions[active]}
-              </p>
-              <p className="text-xs text-sidebar-foreground/50">
-                Use the icon rail to switch sections, or collapse this panel using the top-left toggle.
-              </p>
-            </div>
-          )}
-        </SidebarContent>
-      </Sidebar>
+            )}
+            {active !== "collections" && active !== "api" && active !== "auth" && (
+              <div className="space-y-3 px-4 py-3">
+                <p className="text-xs font-medium uppercase tracking-wider text-sidebar-foreground/50">
+                  {activeLabel}
+                </p>
+                <p className="text-sm leading-relaxed text-sidebar-foreground/70">
+                  {sectionDescriptions[active]}
+                </p>
+                <p className="text-xs text-sidebar-foreground/50">
+                  Use the icon rail to switch sections, or collapse this panel using the top-left
+                  toggle.
+                </p>
+              </div>
+            )}
+          </SidebarContent>
+        </Sidebar>
       )}
-
     </Sidebar>
   );
 }

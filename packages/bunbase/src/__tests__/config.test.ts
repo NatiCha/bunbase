@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { defineConfig, resolveConfig } from "../core/config.ts";
 
 // defineConfig
@@ -68,9 +68,9 @@ test("resolveConfig respects custom values", () => {
 // resolveConfig — production validation
 
 test("resolveConfig throws in production when cors.origins is empty", () => {
-  expect(() =>
-    resolveConfig({ development: false, cors: { origins: [] } }),
-  ).toThrow("cors.origins is required in production");
+  expect(() => resolveConfig({ development: false, cors: { origins: [] } })).toThrow(
+    "cors.origins is required in production",
+  );
 });
 
 test("resolveConfig throws in production when OAuth is configured without redirectUrl", () => {

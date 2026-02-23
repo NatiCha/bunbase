@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import type React from "react";
+import { useState } from "react";
 import { Button } from "./ui/button.tsx";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card.tsx";
 import { Input } from "./ui/input.tsx";
 import { Label } from "./ui/label.tsx";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "./ui/card.tsx";
 
 interface LoginFormProps {
   onLogin: (email: string, password: string) => Promise<void>;

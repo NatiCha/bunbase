@@ -1,8 +1,10 @@
 /**
  * Unit tests for the cron scheduler: nextCronTime() and JobScheduler.
  */
-import { test, expect, mock, describe, beforeEach, afterEach } from "bun:test";
-import { nextCronTime, JobScheduler } from "../jobs/scheduler.ts";
+import { describe, expect, test } from "bun:test";
+import { JobScheduler, nextCronTime } from "../jobs/scheduler.ts";
+
+type TimerFn = () => void;
 
 // ── nextCronTime ──────────────────────────────────────────────────────────────
 
@@ -97,23 +99,27 @@ describe("JobScheduler", () => {
   const fakeDb = {} as any;
 
   test("start() schedules via setTimeout at computed next time", async () => {
-    let ranCount = 0;
+    let _ranCount = 0;
     const scheduler = new JobScheduler(fakeDb);
 
     // Use a cron that would fire in the near future — we'll fast-forward
     // Instead, use mock timers approach: record setTimeout calls
     const originalSetTimeout = globalThis.setTimeout;
-    const timeouts: Array<{ fn: Function; delay: number }> = [];
-    globalThis.setTimeout = ((fn: Function, delay: number) => {
+    const timeouts: Array<{ fn: TimerFn; delay: number }> = [];
+    globalThis.setTimeout = ((fn: TimerFn, delay: number) => {
       timeouts.push({ fn, delay });
       return 999 as any;
     }) as any;
 
-    scheduler.start([{
-      name: "test-job",
-      schedule: "* * * * *",
-      run: async () => { ranCount++; },
-    }]);
+    scheduler.start([
+      {
+        name: "test-job",
+        schedule: "* * * * *",
+        run: async () => {
+          _ranCount++;
+        },
+      },
+    ]);
 
     // Should have scheduled exactly one timeout
     expect(timeouts.length).toBe(1);
@@ -129,16 +135,20 @@ describe("JobScheduler", () => {
     const scheduler = new JobScheduler(fakeDb);
     let cleared = false;
     const originalClearTimeout = globalThis.clearTimeout;
-    globalThis.clearTimeout = (id: any) => { cleared = true; };
+    globalThis.clearTimeout = (_id: any) => {
+      cleared = true;
+    };
 
     const originalSetTimeout = globalThis.setTimeout;
-    globalThis.setTimeout = ((_fn: Function, _delay: number) => 42 as any) as any;
+    globalThis.setTimeout = ((_fn: TimerFn, _delay: number) => 42 as any) as any;
 
-    scheduler.start([{
-      name: "stopper",
-      schedule: "* * * * *",
-      run: async () => {},
-    }]);
+    scheduler.start([
+      {
+        name: "stopper",
+        schedule: "* * * * *",
+        run: async () => {},
+      },
+    ]);
     scheduler.stop();
     expect(cleared).toBe(true);
 
@@ -153,7 +163,7 @@ describe("JobScheduler", () => {
     console.warn = (...args: any[]) => warnings.push(args.join(" "));
 
     const originalSetTimeout = globalThis.setTimeout;
-    globalThis.setTimeout = ((_fn: Function, _delay: number) => 1 as any) as any;
+    globalThis.setTimeout = ((_fn: TimerFn, _delay: number) => 1 as any) as any;
 
     scheduler.start([{ name: "j1", schedule: "* * * * *", run: async () => {} }]);
     scheduler.start([{ name: "j2", schedule: "* * * * *", run: async () => {} }]);
@@ -172,20 +182,24 @@ describe("JobScheduler", () => {
     console.error = (...args: any[]) => errors.push(args);
 
     const originalSetTimeout = globalThis.setTimeout;
-    let capturedFn: Function | null = null;
+    let capturedFn: TimerFn | null = null;
     // First call captures the scheduler fn; subsequent calls are no-ops
     let callCount = 0;
-    globalThis.setTimeout = ((fn: Function, _delay: number) => {
+    globalThis.setTimeout = ((fn: TimerFn, _delay: number) => {
       callCount++;
       if (callCount === 1) capturedFn = fn;
       return callCount as any;
     }) as any;
 
-    scheduler.start([{
-      name: "failing-job",
-      schedule: "* * * * *",
-      run: async () => { throw new Error("Boom!"); },
-    }]);
+    scheduler.start([
+      {
+        name: "failing-job",
+        schedule: "* * * * *",
+        run: async () => {
+          throw new Error("Boom!");
+        },
+      },
+    ]);
 
     // Simulate the timer firing
     if (capturedFn) {
@@ -206,31 +220,40 @@ describe("JobScheduler", () => {
     console.warn = (...args: any[]) => warnings.push(args.join(" "));
 
     const originalSetTimeout = globalThis.setTimeout;
-    const capturedFns: Function[] = [];
-    globalThis.setTimeout = ((fn: Function, _delay: number) => {
+    const capturedFns: TimerFn[] = [];
+    globalThis.setTimeout = ((fn: TimerFn, _delay: number) => {
       capturedFns.push(fn);
       return capturedFns.length as any;
     }) as any;
 
     // Simulate a job that blocks until we resolve it
     let resolveJob!: () => void;
-    const jobBlocker = new Promise<void>((resolve) => { resolveJob = resolve; });
+    const jobBlocker = new Promise<void>((resolve) => {
+      resolveJob = resolve;
+    });
 
-    scheduler.start([{
-      name: "slow-job",
-      schedule: "* * * * *",
-      run: async () => { await jobBlocker; },
-    }]);
+    scheduler.start([
+      {
+        name: "slow-job",
+        schedule: "* * * * *",
+        run: async () => {
+          await jobBlocker;
+        },
+      },
+    ]);
 
     // First tick: job starts running (sets running=true, awaits jobBlocker)
     const firstTickFn = capturedFns[0];
     const firstRun = firstTickFn(); // don't await — job is blocked
 
     // Give the async machinery a tick so running=true is set
-    await new Promise<void>((r) => { globalThis.setTimeout = originalSetTimeout; setTimeout(r, 10); });
+    await new Promise<void>((r) => {
+      globalThis.setTimeout = originalSetTimeout;
+      setTimeout(r, 10);
+    });
 
     // Restore the mock for the next scheduleNext call
-    globalThis.setTimeout = ((fn: Function, _delay: number) => {
+    globalThis.setTimeout = ((fn: TimerFn, _delay: number) => {
       capturedFns.push(fn);
       return capturedFns.length as any;
     }) as any;
@@ -254,20 +277,26 @@ describe("JobScheduler", () => {
     const scheduler = new JobScheduler(fakeDb);
 
     const originalSetTimeout = globalThis.setTimeout;
-    const capturedFns: Function[] = [];
-    globalThis.setTimeout = ((fn: Function, _delay: number) => {
+    const capturedFns: TimerFn[] = [];
+    globalThis.setTimeout = ((fn: TimerFn, _delay: number) => {
       capturedFns.push(fn);
       return capturedFns.length as any;
     }) as any;
 
     let resolveJob!: () => void;
-    const jobBlocker = new Promise<void>((resolve) => { resolveJob = resolve; });
+    const jobBlocker = new Promise<void>((resolve) => {
+      resolveJob = resolve;
+    });
 
-    scheduler.start([{
-      name: "in-flight-job",
-      schedule: "* * * * *",
-      run: async () => { await jobBlocker; },
-    }]);
+    scheduler.start([
+      {
+        name: "in-flight-job",
+        schedule: "* * * * *",
+        run: async () => {
+          await jobBlocker;
+        },
+      },
+    ]);
 
     const firstTickFn = capturedFns[0];
     const firstRun = firstTickFn(); // don't await — job is blocked
@@ -294,7 +323,7 @@ describe("JobScheduler", () => {
     const scheduler = new JobScheduler(fakeDb);
     const originalSetTimeout = globalThis.setTimeout;
     const timerCount = { n: 0 };
-    globalThis.setTimeout = ((_fn: Function, _delay: number) => {
+    globalThis.setTimeout = ((_fn: TimerFn, _delay: number) => {
       timerCount.n++;
       return timerCount.n as any;
     }) as any;
@@ -316,7 +345,7 @@ describe("JobScheduler", () => {
     const scheduler = new JobScheduler(fakeDb);
     const originalSetTimeout = globalThis.setTimeout;
     const timerCount = { n: 0 };
-    globalThis.setTimeout = ((_fn: Function, _delay: number) => {
+    globalThis.setTimeout = ((_fn: TimerFn, _delay: number) => {
       timerCount.n++;
       return timerCount.n as any;
     }) as any;
@@ -344,7 +373,7 @@ describe("JobScheduler", () => {
     const scheduler = new JobScheduler(fakeDb);
     const originalSetTimeout = globalThis.setTimeout;
     const timerCount = { n: 0 };
-    globalThis.setTimeout = ((_fn: Function, _delay: number) => {
+    globalThis.setTimeout = ((_fn: TimerFn, _delay: number) => {
       timerCount.n++;
       return timerCount.n as any;
     }) as any;

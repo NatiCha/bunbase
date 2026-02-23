@@ -20,10 +20,7 @@ function corsHeaders(origin: string, config: ResolvedConfig): Headers {
   return headers;
 }
 
-export function handleCorsPreflightOrNull(
-  req: Request,
-  config: ResolvedConfig,
-): Response | null {
+export function handleCorsPreflightOrNull(req: Request, config: ResolvedConfig): Response | null {
   if (req.method !== "OPTIONS") return null;
   const origin = req.headers.get("origin") ?? "";
   const headers = corsHeaders(origin, config);
@@ -36,11 +33,7 @@ export function handleCorsPreflightOrNull(
   });
 }
 
-export function addCorsHeaders(
-  response: Response,
-  req: Request,
-  config: ResolvedConfig,
-): Response {
+export function addCorsHeaders(response: Response, req: Request, config: ResolvedConfig): Response {
   const origin = req.headers.get("origin") ?? "";
   const headers = corsHeaders(origin, config);
 

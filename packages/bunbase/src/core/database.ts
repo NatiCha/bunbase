@@ -1,11 +1,11 @@
-import { mkdirSync, existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import type { DatabaseAdapter } from "./adapter.ts";
+import { MysqlAdapter } from "./adapters/mysql.ts";
+import { PostgresAdapter } from "./adapters/postgres.ts";
+import { SqliteAdapter } from "./adapters/sqlite.ts";
 import type { ResolvedConfig } from "./config.ts";
 import type { AnyDb, Dialect } from "./db-types.ts";
-import type { DatabaseAdapter } from "./adapter.ts";
-import { SqliteAdapter } from "./adapters/sqlite.ts";
-import { PostgresAdapter } from "./adapters/postgres.ts";
-import { MysqlAdapter } from "./adapters/mysql.ts";
 
 /**
  * Database bootstrapping and Drizzle integration.
@@ -22,7 +22,11 @@ export interface DatabaseResult {
   adapter: DatabaseAdapter;
 }
 
-export function createDatabase(config: ResolvedConfig, schema?: Record<string, unknown>, relations?: unknown): DatabaseResult {
+export function createDatabase(
+  config: ResolvedConfig,
+  schema?: Record<string, unknown>,
+  relations?: unknown,
+): DatabaseResult {
   if (config.database.driver === "postgres") {
     return createPostgresDatabase(config, schema, relations);
   }
@@ -32,7 +36,11 @@ export function createDatabase(config: ResolvedConfig, schema?: Record<string, u
   return createSqliteDatabase(config, schema, relations);
 }
 
-function createSqliteDatabase(config: ResolvedConfig, schema?: Record<string, unknown>, relations?: unknown): DatabaseResult {
+function createSqliteDatabase(
+  config: ResolvedConfig,
+  schema?: Record<string, unknown>,
+  relations?: unknown,
+): DatabaseResult {
   const { Database } = require("bun:sqlite") as typeof import("bun:sqlite");
   const { drizzle } = require("drizzle-orm/bun-sqlite") as typeof import("drizzle-orm/bun-sqlite");
 
@@ -57,7 +65,11 @@ function createSqliteDatabase(config: ResolvedConfig, schema?: Record<string, un
   return { db, dialect: "sqlite", adapter };
 }
 
-function createPostgresDatabase(config: ResolvedConfig, schema?: Record<string, unknown>, relations?: unknown): DatabaseResult {
+function createPostgresDatabase(
+  config: ResolvedConfig,
+  schema?: Record<string, unknown>,
+  relations?: unknown,
+): DatabaseResult {
   const { SQL } = require("bun") as typeof import("bun");
   const { drizzle } = require("drizzle-orm/bun-sql") as typeof import("drizzle-orm/bun-sql");
 
@@ -68,9 +80,14 @@ function createPostgresDatabase(config: ResolvedConfig, schema?: Record<string, 
   return { db, dialect: "postgres", adapter };
 }
 
-function createMysqlDatabase(config: ResolvedConfig, schema?: Record<string, unknown>, relations?: unknown): DatabaseResult {
+function createMysqlDatabase(
+  config: ResolvedConfig,
+  schema?: Record<string, unknown>,
+  relations?: unknown,
+): DatabaseResult {
   const { SQL } = require("bun") as typeof import("bun");
-  const { drizzle } = require("drizzle-orm/bun-sql/mysql") as typeof import("drizzle-orm/bun-sql/mysql");
+  const { drizzle } =
+    require("drizzle-orm/bun-sql/mysql") as typeof import("drizzle-orm/bun-sql/mysql");
 
   const client = new SQL(config.database.url);
   const db = drizzle({ client, schema: schema as any, relations: relations as any });
@@ -79,16 +96,17 @@ function createMysqlDatabase(config: ResolvedConfig, schema?: Record<string, unk
   return { db, dialect: "mysql", adapter };
 }
 
-export async function runUserMigrations(
-  db: AnyDb,
-  config: ResolvedConfig,
-): Promise<void> {
+export async function runUserMigrations(db: AnyDb, config: ResolvedConfig): Promise<void> {
   if (!existsSync(config.migrationsPath)) {
     if (config.development) {
-      console.warn(`BunBase: migrations folder not found at "${config.migrationsPath}". Skipping migrations in development mode.`);
+      console.warn(
+        `BunBase: migrations folder not found at "${config.migrationsPath}". Skipping migrations in development mode.`,
+      );
       return;
     }
-    throw new Error(`BunBase: migrations folder not found at "${config.migrationsPath}". Run "bun db:generate" to create migrations before deploying.`);
+    throw new Error(
+      `BunBase: migrations folder not found at "${config.migrationsPath}". Run "bun db:generate" to create migrations before deploying.`,
+    );
   }
 
   try {

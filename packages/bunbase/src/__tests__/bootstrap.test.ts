@@ -1,9 +1,6 @@
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
-import {
-  validateUsersTable,
-  getUserTableNames,
-} from "../core/bootstrap.ts";
+import { getUserTableNames, validateUsersTable } from "../core/bootstrap.ts";
 
 // validateUsersTable
 

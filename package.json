@@ -1,13 +1,25 @@
 {
   "private": true,
-  "workspaces": ["packages/*", "examples/*"],
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
   "scripts": {
+    "check": "bunx --bun biome check --write",
+    "format": "bunx --bun biome format --write",
+    "lint": "bunx --bun biome lint --write",
     "dev": "bun run --filter bunbase dev",
     "dev:example": "bun run --filter task-manager dev",
+    "dev:full": "bun run --parallel dev dev:example",
     "test": "bun run --filter bunbase test",
     "build": "bun run --filter bunbase build",
+    "build:all": "bun run --parallel build docs:build",
+    "type": "bun run --parallel --filter '*' --if-present type",
     "db:generate": "bun run --filter task-manager db:generate",
     "docs": "cd docs && bun run dev",
     "docs:build": "cd docs && bun run build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.4"
   }
 }

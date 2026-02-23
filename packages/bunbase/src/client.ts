@@ -1,4 +1,4 @@
-import type { Table, InferSelectModel, InferInsertModel } from "drizzle-orm";
+import type { InferInsertModel, InferSelectModel, Table } from "drizzle-orm";
 import { getTableName } from "drizzle-orm";
 import type { BunBaseErrorCode, BunBaseErrorEnvelope } from "./api/types.ts";
 
@@ -32,7 +32,11 @@ export interface ListResponse<T> {
 
 type ExpandKeys<TSelect> = Extract<keyof TSelect, string>;
 
-export interface TableClient<TSelect, TInsert, TExpand extends string = ExpandKeys<TSelect> | string> {
+export interface TableClient<
+  TSelect,
+  TInsert,
+  TExpand extends string = ExpandKeys<TSelect> | string,
+> {
   list(params?: ListParams<TExpand>): Promise<ListResponse<TSelect>>;
   /**
    * Fetch all records matching `params` in a single request.
@@ -73,14 +77,12 @@ export interface BunBaseClientError extends Error {
 
 function getCsrfToken(): string {
   if (typeof document === "undefined") return "";
-  const match = document.cookie
-    .split(";")
-    .find((c) => c.trim().startsWith("csrf_token="));
+  const match = document.cookie.split(";").find((c) => c.trim().startsWith("csrf_token="));
   return match?.split("=")[1]?.trim() ?? "";
 }
 
 async function throwApiError(res: Response, fallback: string): Promise<never> {
-  const parsed = await res.json().catch(() => ({} as Partial<BunBaseErrorEnvelope>));
+  const parsed = await res.json().catch(() => ({}) as Partial<BunBaseErrorEnvelope>);
   const message = parsed?.error?.message ?? fallback;
   const err = new Error(message) as BunBaseClientError;
   err.code = parsed?.error?.code;
@@ -144,12 +146,11 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
       // Pass through symbol accesses (JS internals)
       if (typeof tableName !== "string") return undefined;
       // Pass through Promise/thenable protocol checks
-      if (tableName === "then" || tableName === "catch" || tableName === "finally") return undefined;
+      if (tableName === "then" || tableName === "catch" || tableName === "finally")
+        return undefined;
       // Validate table name at access time when schema is available
       if (schemaKeys.length > 0 && !schemaKeys.includes(tableName)) {
-        throw new Error(
-          `'${tableName}' is not a valid table. Available: ${schemaKeys.join(", ")}`,
-        );
+        throw new Error(`'${tableName}' is not a valid table. Available: ${schemaKeys.join(", ")}`);
       }
       const sqlName = sqlTableNames[tableName] ?? tableName;
       const tableUrl = `${baseUrl}/api/${sqlName}`;
@@ -229,10 +230,12 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
   });
 
   const auth = {
-    async register(data: Record<string, unknown> & {
-      email: string;
-      password: string;
-    }) {
+    async register(
+      data: Record<string, unknown> & {
+        email: string;
+        password: string;
+      },
+    ) {
       const res = await fetch(`${baseUrl}/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -330,15 +333,17 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
           credentials,
           headers: authHeaders(),
         });
-        return res.json() as Promise<Array<{
-          id: string;
-          userId: string;
-          keyPrefix: string;
-          name: string;
-          expiresAt: number | null;
-          lastUsedAt: string | null;
-          createdAt: string;
-        }>>;
+        return res.json() as Promise<
+          Array<{
+            id: string;
+            userId: string;
+            keyPrefix: string;
+            name: string;
+            expiresAt: number | null;
+            lastUsedAt: string | null;
+            createdAt: string;
+          }>
+        >;
       },
 
       async delete(id: string) {
@@ -358,15 +363,12 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
     async upload(collection: string, recordId: string, file: File) {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch(
-        `${baseUrl}/files/${collection}/${recordId}`,
-        {
-          method: "POST",
-          credentials,
-          headers: authHeaders(),
-          body: formData,
-        },
-      );
+      const res = await fetch(`${baseUrl}/files/${collection}/${recordId}`, {
+        method: "POST",
+        credentials,
+        headers: authHeaders(),
+        body: formData,
+      });
       return res.json();
     },
 
@@ -408,7 +410,11 @@ export interface ChannelClient {
 }
 
 export type PresenceEvent =
-  | { type: "state"; channel: string; users: Array<{ userId: string; meta: Record<string, unknown> }> }
+  | {
+      type: "state";
+      channel: string;
+      users: Array<{ userId: string; meta: Record<string, unknown> }>;
+    }
   | { type: "join"; channel: string; user: { userId: string; meta: Record<string, unknown> } }
   | { type: "leave"; channel: string; userId: string }
   | { type: "update"; channel: string; user: { userId: string; meta: Record<string, unknown> } };
@@ -463,13 +469,14 @@ function createRealtimeClient(baseUrl: string, apiKey?: string) {
 
   function connect() {
     if (ws) return;
-    const wsUrl = baseUrl.replace(/^https?/, (m) => (m === "https" ? "wss" : "ws")) + "/realtime";
+    const wsUrl = `${baseUrl.replace(/^https?/, (m) => (m === "https" ? "wss" : "ws"))}/realtime`;
     // Bun's WebSocket supports custom headers for server-side bearer auth.
     // Browser WebSocket API does not, so the header is only passed when an apiKey
     // is configured (server-side/CLI usage). Browser clients use cookie-based WS auth.
-    ws = (apiKey && typeof Bun !== "undefined")
-      ? new WebSocket(wsUrl, { headers: { Authorization: `Bearer ${apiKey}` } } as any)
-      : new WebSocket(wsUrl);
+    ws =
+      apiKey && typeof Bun !== "undefined"
+        ? new WebSocket(wsUrl, { headers: { Authorization: `Bearer ${apiKey}` } } as any)
+        : new WebSocket(wsUrl);
 
     ws.onopen = () => {
       resubscribeAll();
@@ -497,13 +504,10 @@ function createRealtimeClient(baseUrl: string, apiKey?: string) {
     };
   }
 
-  function subscribe(
-    table: string,
-    callback: (event: TableChangeEvent) => void,
-  ): () => void {
+  function subscribe(table: string, callback: (event: TableChangeEvent) => void): () => void {
     const isNew = !tableListeners.has(table);
     if (isNew) tableListeners.set(table, new Set());
-    tableListeners.get(table)!.add(callback);
+    tableListeners.get(table)?.add(callback);
 
     connect();
     if (isNew) {
@@ -547,7 +551,7 @@ function createRealtimeClient(baseUrl: string, apiKey?: string) {
     const channelClient: InternalChannelClient = {
       on(event: string, callback: (payload: unknown) => void) {
         if (!broadcastListeners.has(event)) broadcastListeners.set(event, new Set());
-        broadcastListeners.get(event)!.add(callback);
+        broadcastListeners.get(event)?.add(callback);
         return channelClient;
       },
 

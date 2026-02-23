@@ -1,10 +1,10 @@
-import { getTableName, getColumns, eq, and } from "drizzle-orm";
-import type { SQL, Table, Column } from "drizzle-orm";
 import type { ServerWebSocket } from "bun";
+import type { Column, SQL, Table } from "drizzle-orm";
+import { and, eq, getColumns, getTableName } from "drizzle-orm";
 import type { AnyDb } from "../core/db-types.ts";
+import { evaluateRule } from "../rules/evaluator.ts";
 import type { TableRules } from "../rules/types.ts";
 import type { RealtimeSocketData, ServerMessage } from "./types.ts";
-import { evaluateRule } from "../rules/evaluator.ts";
 
 /**
  * Realtime subscription state and filtered table change broadcasting.
@@ -100,7 +100,7 @@ export class RealtimeManager {
       // DELETE and visible→invisible transitions work correctly after reconnect
       if (filtered && ruleResult.whereClause) {
         const columns = getColumns(table);
-        const idColumn = columns["id"] as Column | undefined;
+        const idColumn = columns.id as Column | undefined;
         if (idColumn) {
           const rows = await (this.db as any)
             .select({ id: idColumn })
@@ -115,17 +115,14 @@ export class RealtimeManager {
       if (!this.tableSubscribers.has(tableName)) {
         this.tableSubscribers.set(tableName, new Set());
       }
-      this.tableSubscribers.get(tableName)!.add(subscriber);
+      this.tableSubscribers.get(tableName)?.add(subscriber);
     } finally {
       inFlightSet.delete(ws);
       if (inFlightSet.size === 0) this.inFlight.delete(tableName);
     }
   }
 
-  removeTableSubscriber(
-    ws: ServerWebSocket<RealtimeSocketData>,
-    tableName: string,
-  ): void {
+  removeTableSubscriber(ws: ServerWebSocket<RealtimeSocketData>, tableName: string): void {
     const subscribers = this.tableSubscribers.get(tableName);
     if (!subscribers) return;
     for (const sub of subscribers) {
@@ -162,7 +159,7 @@ export class RealtimeManager {
     if (!subscribers || subscribers.size === 0) return;
 
     const table = this.tableMap.get(tableName);
-    const id = record["id"] != null ? String(record["id"]) : "";
+    const id = record.id != null ? String(record.id) : "";
 
     for (const sub of subscribers) {
       if (!sub.filtered) {
@@ -175,21 +172,33 @@ export class RealtimeManager {
       if (!table || !sub.whereClause) continue;
 
       const columns = getColumns(table);
-      const idColumn = columns["id"] as Column | undefined;
+      const idColumn = columns.id as Column | undefined;
       if (!idColumn) continue;
 
       if (action === "INSERT") {
         const visible = await this.checkVisibility(table, idColumn, id, sub.whereClause);
         if (visible) {
           sub.visibleIds.add(id);
-          this.sendTo(sub.ws, { type: "table:change", table: tableName, action: "INSERT", record, id });
+          this.sendTo(sub.ws, {
+            type: "table:change",
+            table: tableName,
+            action: "INSERT",
+            record,
+            id,
+          });
         }
         // else: never visible — skip (no leak)
       } else if (action === "UPDATE") {
         const visible = await this.checkVisibility(table, idColumn, id, sub.whereClause);
         if (visible) {
           sub.visibleIds.add(id);
-          this.sendTo(sub.ws, { type: "table:change", table: tableName, action: "UPDATE", record, id });
+          this.sendTo(sub.ws, {
+            type: "table:change",
+            table: tableName,
+            action: "UPDATE",
+            record,
+            id,
+          });
         } else {
           if (sub.visibleIds.has(id)) {
             // Was visible before, now gone from filter — synthetic DELETE.
@@ -203,7 +212,13 @@ export class RealtimeManager {
       } else if (action === "DELETE") {
         if (sub.visibleIds.has(id)) {
           sub.visibleIds.delete(id);
-          this.sendTo(sub.ws, { type: "table:change", table: tableName, action: "DELETE", record, id });
+          this.sendTo(sub.ws, {
+            type: "table:change",
+            table: tableName,
+            action: "DELETE",
+            record,
+            id,
+          });
         }
         // else: was never visible — skip (no leak)
       }

@@ -1,15 +1,15 @@
-import { test, expect, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { join } from "node:path";
+import { afterAll, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { handleAdminApi, pushRequestLog } from "../admin/routes.ts";
+import { createSession } from "../auth/sessions.ts";
 import { SqliteAdapter } from "../core/adapters/sqlite.ts";
 import { getInternalSchema } from "../core/internal-schema.ts";
-import { handleAdminApi, pushRequestLog } from "../admin/routes.ts";
 import { createLocalStorage } from "../storage/local.ts";
-import { createSession } from "../auth/sessions.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 
 const storageDir = join(tmpdir(), `bunbase-admin-records-test-${Date.now()}`);
@@ -18,7 +18,9 @@ mkdirSync(storageDir, { recursive: true });
 afterAll(() => {
   try {
     rmSync(storageDir, { recursive: true, force: true });
-  } catch { /* best effort */ }
+  } catch {
+    /* best effort */
+  }
 });
 
 const postsTable = sqliteTable("posts", {
@@ -41,9 +43,7 @@ function setupDb() {
   sqlite.run(
     "CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT, role TEXT NOT NULL DEFAULT 'user')",
   );
-  sqlite.run(
-    "CREATE TABLE posts (id TEXT PRIMARY KEY, title TEXT NOT NULL, author TEXT NOT NULL)",
-  );
+  sqlite.run("CREATE TABLE posts (id TEXT PRIMARY KEY, title TEXT NOT NULL, author TEXT NOT NULL)");
   const db = drizzle({ client: sqlite });
   const internalSchema = getInternalSchema("sqlite");
   return { sqlite, db, adapter, internalSchema };
@@ -56,11 +56,7 @@ async function createAdmin(sqlite: Database, db: any, internalSchema: any): Prom
   return createSession(db, internalSchema, "admin-1");
 }
 
-function adminReq(
-  path: string,
-  sessionId: string,
-  options: RequestInit = {},
-): Request {
+function adminReq(path: string, sessionId: string, options: RequestInit = {}): Request {
   return new Request(`http://localhost/_admin/api${path}`, {
     ...options,
     headers: {
@@ -96,13 +92,11 @@ test("POST /records/:table creates a new record and returns 201", async () => {
   );
 
   expect(response.status).toBe(201);
-  const body = await response.json() as { id: string; title: string };
+  const body = (await response.json()) as { id: string; title: string };
   expect(body.title).toBe("New Post");
   expect(body.id).toBeDefined();
 
-  const count = sqlite
-    .query<{ n: number }, []>("SELECT COUNT(*) as n FROM posts")
-    .get([]);
+  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM posts").get([]);
   expect(count?.n).toBe(1);
   sqlite.close();
 });
@@ -180,7 +174,7 @@ test("PATCH /records/:table/:id updates a record and returns 200", async () => {
   );
 
   expect(response.status).toBe(200);
-  const body = await response.json() as { title: string };
+  const body = (await response.json()) as { title: string };
   expect(body.title).toBe("Updated Title");
   sqlite.close();
 });
@@ -254,12 +248,10 @@ test("DELETE /records/:table/:id removes the record and returns deleted: true", 
   );
 
   expect(response.status).toBe(200);
-  const body = await response.json() as { deleted: boolean };
+  const body = (await response.json()) as { deleted: boolean };
   expect(body.deleted).toBe(true);
 
-  const count = sqlite
-    .query<{ n: number }, []>("SELECT COUNT(*) as n FROM posts")
-    .get([]);
+  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM posts").get([]);
   expect(count?.n).toBe(0);
   sqlite.close();
 });
@@ -306,7 +298,7 @@ test("GET /records/:table with search param filters results by text columns", as
   );
 
   expect(response.status).toBe(200);
-  const body = await response.json() as { data: Array<{ id: string }> };
+  const body = (await response.json()) as { data: Array<{ id: string }> };
   expect(body.data).toHaveLength(1);
   expect(body.data[0].id).toBe("p1");
   sqlite.close();
@@ -334,7 +326,7 @@ test("GET /records/:table with sort and order params returns sorted results", as
   );
 
   expect(response.status).toBe(200);
-  const body = await response.json() as { data: Array<{ title: string }> };
+  const body = (await response.json()) as { data: Array<{ title: string }> };
   expect(body.data[0].title).toBe("Apple");
   sqlite.close();
 });
@@ -357,7 +349,7 @@ test("GET /tables places users table before non-auth tables", async () => {
   );
 
   expect(response.status).toBe(200);
-  const body = await response.json() as Array<{ name: string; type: string }>;
+  const body = (await response.json()) as Array<{ name: string; type: string }>;
   const usersIndex = body.findIndex((t) => t.name === "users");
   const postsIndex = body.findIndex((t) => t.name === "posts");
   // users (auth) should come before posts (base)
@@ -402,14 +394,12 @@ test("DELETE /files/:id in admin successfully removes file and storage", async (
   );
 
   expect(response.status).toBe(200);
-  const body = await response.json() as { deleted: boolean };
+  const body = (await response.json()) as { deleted: boolean };
   expect(body.deleted).toBe(true);
 
   // DB record gone
   const row = sqlite
-    .query<{ id: string }, { $id: string }>(
-      "SELECT id FROM _files WHERE id = $id",
-    )
+    .query<{ id: string }, { $id: string }>("SELECT id FROM _files WHERE id = $id")
     .get({ $id: "file-admin-del" });
   expect(row).toBeNull();
 
@@ -441,7 +431,7 @@ test("GET /records/:table returns pagination metadata", async () => {
   );
 
   expect(response.status).toBe(200);
-  const body = await response.json() as {
+  const body = (await response.json()) as {
     data: unknown[];
     total: number;
     page: number;
@@ -469,9 +459,7 @@ test("pushRequestLog is covered by successful admin operations", async () => {
   });
 
   const row = sqlite
-    .query<{ method: string }, { $id: string }>(
-      "SELECT method FROM _request_logs WHERE id = $id",
-    )
+    .query<{ method: string }, { $id: string }>("SELECT method FROM _request_logs WHERE id = $id")
     .get({ $id: "rlog-1" });
   expect(row?.method).toBe("PATCH");
   sqlite.close();

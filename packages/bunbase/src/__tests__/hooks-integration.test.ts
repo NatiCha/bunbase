@@ -1,13 +1,13 @@
 /**
  * Integration tests for lifecycle hooks — real HTTP server on port 0.
  */
-import { test, expect, beforeAll, afterAll } from "bun:test";
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createServer } from "../core/server.ts";
+import { join } from "node:path";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { ApiError } from "../api/helpers.ts";
+import { createServer } from "../core/server.ts";
 import { defineHooks } from "../hooks/types.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 
@@ -32,7 +32,13 @@ beforeAll(async () => {
   bunbaseModify = createServer({
     schema: { items },
     rules: {
-      items: { list: () => null, get: () => null, create: () => null, update: () => null, delete: () => null },
+      items: {
+        list: () => null,
+        get: () => null,
+        create: () => null,
+        update: () => null,
+        delete: () => null,
+      },
     },
     hooks: defineHooks({
       items: {
@@ -63,7 +69,11 @@ beforeAll(async () => {
 afterAll(() => {
   serverModify?.stop();
   bunbaseModify?.adapter.close();
-  try { rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ }
+  try {
+    rmSync(root, { recursive: true, force: true });
+  } catch {
+    /* best effort */
+  }
 });
 
 test("POST with beforeCreate hook modifying data — tag is auto-set in response", async () => {
@@ -73,12 +83,12 @@ test("POST with beforeCreate hook modifying data — tag is auto-set in response
     headers: {
       "Content-Type": "application/json",
       "x-csrf-token": csrfToken,
-      "cookie": `csrf_token=${csrfToken}`,
+      cookie: `csrf_token=${csrfToken}`,
     },
     body: JSON.stringify({ id: "i1", name: "Widget" }),
   });
   expect(res.status).toBe(201);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.tag).toBe("auto-tagged");
   expect(body.name).toBe("Widget");
 });
@@ -95,7 +105,13 @@ beforeAll(async () => {
   bunbaseBlock = createServer({
     schema: { items },
     rules: {
-      items: { list: () => null, get: () => null, create: () => null, update: () => null, delete: () => null },
+      items: {
+        list: () => null,
+        get: () => null,
+        create: () => null,
+        update: () => null,
+        delete: () => null,
+      },
     },
     hooks: defineHooks({
       items: {
@@ -144,11 +160,11 @@ test("DELETE with beforeDelete hook throwing ApiError(403) — returns 403 respo
     method: "DELETE",
     headers: {
       "x-csrf-token": csrfToken,
-      "cookie": `csrf_token=${csrfToken}`,
+      cookie: `csrf_token=${csrfToken}`,
     },
   });
   expect(res.status).toBe(403);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.error.code).toBe("FORBIDDEN");
   expect(body.error.message).toBe("Cannot delete protected items");
 });
@@ -159,10 +175,10 @@ test("DELETE with beforeDelete hook allows deletion of non-protected items", asy
     method: "DELETE",
     headers: {
       "x-csrf-token": csrfToken,
-      "cookie": `csrf_token=${csrfToken}`,
+      cookie: `csrf_token=${csrfToken}`,
     },
   });
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.deleted).toBe(true);
 });

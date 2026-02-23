@@ -1,5 +1,5 @@
-import { test, expect } from "bun:test";
-import { requireAuth, ApiError, errorResponse } from "../api/helpers.ts";
+import { expect, test } from "bun:test";
+import { ApiError, errorResponse, requireAuth } from "../api/helpers.ts";
 import type { AuthUser } from "../api/types.ts";
 
 // Demonstrate declaration merging — users extend AuthUser with their own fields
@@ -54,7 +54,7 @@ test("ApiError is an instance of Error", () => {
 test("errorResponse returns correct status and JSON body", async () => {
   const res = errorResponse("FORBIDDEN", "Access denied", 403);
   expect(res.status).toBe(403);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.error.code).toBe("FORBIDDEN");
   expect(body.error.message).toBe("Access denied");
 });
@@ -62,13 +62,13 @@ test("errorResponse returns correct status and JSON body", async () => {
 test("errorResponse can produce 401 responses", async () => {
   const res = errorResponse("UNAUTHORIZED", "Not authenticated", 401);
   expect(res.status).toBe(401);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.error.code).toBe("UNAUTHORIZED");
 });
 
 test("errorResponse can produce 400 responses", async () => {
   const res = errorResponse("BAD_REQUEST", "Invalid JSON", 400);
   expect(res.status).toBe(400);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.error.code).toBe("BAD_REQUEST");
 });

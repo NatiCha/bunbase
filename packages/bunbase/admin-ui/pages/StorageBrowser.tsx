@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { api, type AdminFile } from "../lib/api.ts";
+import { useEffect, useState } from "react";
+import { type AdminFile, api } from "../lib/api.ts";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -19,7 +19,8 @@ export function StorageBrowser() {
 
   const load = () => {
     setLoading(true);
-    api.getFiles()
+    api
+      .getFiles()
       .then(setFiles)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -51,14 +52,24 @@ export function StorageBrowser() {
       {error && (
         <div className="mx-6 mt-4 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-400">
           {error}
-          <button className="ml-2 underline" onClick={() => setError(null)}>dismiss</button>
+          <button className="ml-2 underline" onClick={() => setError(null)}>
+            dismiss
+          </button>
         </div>
       )}
 
       <div className="flex-1 overflow-auto">
         {files.length === 0 ? (
           <div className="flex h-64 flex-col items-center justify-center text-gray-400 dark:text-gray-600">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="mb-3 opacity-40">
+            <svg
+              width="48"
+              height="48"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              className="mb-3 opacity-40"
+            >
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
               <polyline points="14 2 14 8 20 8" />
             </svg>
@@ -69,18 +80,33 @@ export function StorageBrowser() {
             <thead className="sticky top-0 bg-white dark:bg-gray-950">
               <tr className="border-b border-gray-100 dark:border-gray-800">
                 <th className="w-10 px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400"></th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Filename</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Collection</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Record ID</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Size</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">MIME Type</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Uploaded</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">
+                  Filename
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">
+                  Collection
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">
+                  Record ID
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">
+                  Size
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">
+                  MIME Type
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">
+                  Uploaded
+                </th>
                 <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400"></th>
               </tr>
             </thead>
             <tbody>
               {files.map((file) => (
-                <tr key={file.id} className="border-b border-gray-50 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-900">
+                <tr
+                  key={file.id}
+                  className="border-b border-gray-50 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-900"
+                >
                   <td className="px-4 py-2">
                     {isImage(file.mime_type) ? (
                       <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded bg-gray-100 dark:bg-gray-800">
@@ -95,18 +121,34 @@ export function StorageBrowser() {
                       </div>
                     ) : (
                       <div className="flex h-8 w-8 items-center justify-center rounded bg-gray-100 dark:bg-gray-800">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400 dark:text-gray-500">
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          className="text-gray-400 dark:text-gray-500"
+                        >
                           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                           <polyline points="14 2 14 8 20 8" />
                         </svg>
                       </div>
                     )}
                   </td>
-                  <td className="px-4 py-2 font-medium text-gray-800 dark:text-gray-200">{file.filename}</td>
+                  <td className="px-4 py-2 font-medium text-gray-800 dark:text-gray-200">
+                    {file.filename}
+                  </td>
                   <td className="px-4 py-2 text-gray-500 dark:text-gray-400">{file.collection}</td>
-                  <td className="px-4 py-2 font-mono text-xs text-gray-400 dark:text-gray-500">{file.record_id}</td>
-                  <td className="px-4 py-2 text-gray-500 dark:text-gray-400">{formatSize(file.size)}</td>
-                  <td className="px-4 py-2 font-mono text-xs text-gray-400 dark:text-gray-500">{file.mime_type}</td>
+                  <td className="px-4 py-2 font-mono text-xs text-gray-400 dark:text-gray-500">
+                    {file.record_id}
+                  </td>
+                  <td className="px-4 py-2 text-gray-500 dark:text-gray-400">
+                    {formatSize(file.size)}
+                  </td>
+                  <td className="px-4 py-2 font-mono text-xs text-gray-400 dark:text-gray-500">
+                    {file.mime_type}
+                  </td>
                   <td className="px-4 py-2 text-xs text-gray-400 dark:text-gray-500">
                     {new Date(file.created_at).toLocaleDateString()}
                   </td>

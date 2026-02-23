@@ -1,13 +1,11 @@
+import type { Table } from "drizzle-orm";
 import { getColumns, getTableName } from "drizzle-orm";
-import type { Column, Table } from "drizzle-orm";
 
 /**
  * Validate that the users table has the required columns.
  * Works with both SQLite and Postgres table definitions.
  */
-export function validateUsersTable(
-  schema: Record<string, unknown>,
-): Table | null {
+export function validateUsersTable(schema: Record<string, unknown>): Table | null {
   const usersTable = Object.values(schema).find((table) => {
     if (typeof table !== "object" || table === null) return false;
     try {

@@ -1,22 +1,22 @@
-import { test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
+import { expect, test } from "bun:test";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { eq } from "drizzle-orm";
 import {
-  authenticated,
   admin,
-  ownerOnly,
   adminOrOwner,
   allowAll,
-  isSet,
-  isChanged,
-  fieldLength,
+  authenticated,
   collection,
-  now,
-  todayStart,
-  todayEnd,
+  fieldLength,
+  isChanged,
+  isSet,
   monthStart,
+  now,
+  ownerOnly,
+  todayEnd,
+  todayStart,
   yearStart,
 } from "../rules/helpers.ts";
 
@@ -86,11 +86,11 @@ test("adminOrOwner returns SQL clause for non-admin user", () => {
 
 test("allowAll permits all operations (returns true)", async () => {
   const arg = { auth: null, body: {}, headers: {}, query: {}, method: "GET", db: {} as any };
-  expect(await allowAll.list!(arg)).toBe(true);
-  expect(await allowAll.get!(arg)).toBe(true);
-  expect(await allowAll.create!(arg)).toBe(true);
-  expect(await allowAll.update!(arg)).toBe(true);
-  expect(await allowAll.delete!(arg)).toBe(true);
+  expect(await allowAll.list?.(arg)).toBe(true);
+  expect(await allowAll.get?.(arg)).toBe(true);
+  expect(await allowAll.create?.(arg)).toBe(true);
+  expect(await allowAll.update?.(arg)).toBe(true);
+  expect(await allowAll.delete?.(arg)).toBe(true);
 });
 
 // ─── isSet ───────────────────────────────────────────────────────────────────

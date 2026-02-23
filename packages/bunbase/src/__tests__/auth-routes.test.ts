@@ -1,5 +1,5 @@
-import { test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
+import { expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { createAuthRoutes } from "../auth/routes.ts";
@@ -160,12 +160,8 @@ test("login and logout emit separate cookie headers", async () => {
   const loginCookies = loginResponse.headers.getSetCookie();
   expect(loginCookies.length).toBe(2);
 
-  const sessionCookie = loginCookies.find((cookie) =>
-    cookie.startsWith("bunbase_session="),
-  );
-  const csrfCookie = loginCookies.find((cookie) =>
-    cookie.startsWith("csrf_token="),
-  );
+  const sessionCookie = loginCookies.find((cookie) => cookie.startsWith("bunbase_session="));
+  const csrfCookie = loginCookies.find((cookie) => cookie.startsWith("csrf_token="));
   expect(sessionCookie).toBeDefined();
   expect(csrfCookie).toBeDefined();
 

@@ -1,21 +1,15 @@
-import { getColumns, getTableName, eq, and } from "drizzle-orm";
-import type { SQL, Column, Table } from "drizzle-orm";
-import { buildWhereConditions, type FilterInput } from "./filters.ts";
-import {
-  resolveLimit,
-  buildCursorCondition,
-  buildOrderBy,
-  buildNextCursor,
-} from "./pagination.ts";
-import { buildWithClause } from "./relations.ts";
-import { evaluateRule } from "../rules/evaluator.ts";
-import type { TableRules } from "../rules/types.ts";
-import type { RuleArg } from "../rules/types.ts";
-import type { TableHooks, HookRequest } from "../hooks/types.ts";
-import type { AnyDb } from "../core/db-types.ts";
+import type { Column, SQL, Table } from "drizzle-orm";
+import { and, eq, getColumns, getTableName } from "drizzle-orm";
+import { ApiError, errorResponse } from "../api/helpers.ts";
 import type { AuthUser } from "../api/types.ts";
-import { errorResponse, ApiError } from "../api/helpers.ts";
+import type { AnyDb } from "../core/db-types.ts";
+import type { TableHooks } from "../hooks/types.ts";
 import type { BroadcastFn } from "../realtime/manager.ts";
+import { evaluateRule } from "../rules/evaluator.ts";
+import type { RuleArg, TableRules } from "../rules/types.ts";
+import { buildWhereConditions, type FilterInput } from "./filters.ts";
+import { buildCursorCondition, buildNextCursor, buildOrderBy, resolveLimit } from "./pagination.ts";
+import { buildWithClause } from "./relations.ts";
 
 /**
  * Generated CRUD route handlers with rules, hooks, pagination, filters, and expand support.
@@ -44,9 +38,7 @@ function buildHookRequest(req: Request): import("../hooks/types.ts").HookRequest
 // Strip the auth-internal passwordHash field from any record returned by the API.
 // This field is managed by BunBase's auth system and must never appear in responses,
 // regardless of table rules. Recurses into nested objects and arrays (many-relations).
-function stripSensitiveFields(
-  row: Record<string, unknown>,
-): Record<string, unknown> {
+function stripSensitiveFields(row: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, val] of Object.entries(row)) {
     if (key === "passwordHash") continue;
@@ -158,11 +150,9 @@ export function generateCrudHandlers(
   // schemaKey is the JS property name used for db.query[schemaKey]; defaults to SQL table name
   const resolvedSchemaKey = schemaKey ?? tableName;
 
-  const idColumnMaybe = columns["id"] as Column | undefined;
+  const idColumnMaybe = columns.id as Column | undefined;
   if (!idColumnMaybe) {
-    throw new Error(
-      `BunBase: Table "${tableName}" must have an "id" column for CRUD generation`,
-    );
+    throw new Error(`BunBase: Table "${tableName}" must have an "id" column for CRUD generation`);
   }
   const idColumn: Column = idColumnMaybe;
 
@@ -172,10 +162,7 @@ export function generateCrudHandlers(
   // ── GET /api/{table} — list ──────────────────────────────────────────
   async function handleList(req: Request): Promise<Response> {
     const auth = await extractAuth(req);
-    const ruleResult = await evaluateRule(
-      tableRules?.list,
-      buildRuleArg(req, auth, { db }),
-    );
+    const ruleResult = await evaluateRule(tableRules?.list, buildRuleArg(req, auth, { db }));
     if (!ruleResult.allowed) {
       return errorResponse("FORBIDDEN", "Access denied", 403);
     }
@@ -195,9 +182,7 @@ export function generateCrudHandlers(
     const sortField = url.searchParams.get("sort") ?? undefined;
     const order = (url.searchParams.get("order") ?? "asc") as "asc" | "desc";
 
-    const sortColumn = sortField
-      ? (columns[sortField] as Column | undefined)
-      : undefined;
+    const sortColumn = sortField ? (columns[sortField] as Column | undefined) : undefined;
 
     const allConditions: (SQL | undefined)[] = [];
     allConditions.push(buildWhereConditions(filter, columns as Record<string, Column>));
@@ -211,15 +196,19 @@ export function generateCrudHandlers(
     }
 
     const conditions = allConditions.filter(Boolean) as SQL[];
-    const where =
-      conditions.length > 1 ? and(...conditions) : conditions[0] ?? undefined;
+    const where = conditions.length > 1 ? and(...conditions) : (conditions[0] ?? undefined);
 
     const orderBy = buildOrderBy(idColumn, sortColumn, order);
 
     // `expand` is comma-separated relation keys, e.g. `expand=owner,project.team`.
     // Keys beyond MAX_RELATION_DEPTH or unknown relation keys are dropped.
     const expandParam = url.searchParams.get("expand");
-    const expandFields = expandParam ? expandParam.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+    const expandFields = expandParam
+      ? expandParam
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : undefined;
     const withClause = buildWithClause(expandFields);
 
     // fetchAll branch: limit=-1 sentinel — return all rows without a LIMIT clause.
@@ -247,7 +236,7 @@ export function generateCrudHandlers(
           allRules,
           auth,
         );
-        const allIds = (allRows as Record<string, unknown>[]).map((r) => String(r["id"]));
+        const allIds = (allRows as Record<string, unknown>[]).map((r) => String(r.id));
         const expandedById = new Map<string, unknown>();
         for (let i = 0; i < allIds.length; i += 500) {
           const batchIds = allIds.slice(i, i + 500);
@@ -257,7 +246,7 @@ export function generateCrudHandlers(
           });
           for (const row of batchRows) {
             expandedById.set(
-              String((row as Record<string, unknown>)["id"]),
+              String((row as Record<string, unknown>).id),
               stripSensitiveFields(row as Record<string, unknown>),
             );
           }
@@ -301,7 +290,7 @@ export function generateCrudHandlers(
         allRules,
         auth,
       );
-      const pageIds = (rows as Record<string, unknown>[]).map((r) => String(r["id"]));
+      const pageIds = (rows as Record<string, unknown>[]).map((r) => String(r.id));
       if (pageIds.length > 0 && Object.keys(allowedWith).length > 0) {
         const expandedRows = await (db as any).query[resolvedSchemaKey].findMany({
           where: { OR: pageIds.map((id) => ({ id })) },
@@ -310,7 +299,7 @@ export function generateCrudHandlers(
         const expandedById = new Map<string, unknown>();
         for (const row of expandedRows) {
           expandedById.set(
-            String((row as Record<string, unknown>)["id"]),
+            String((row as Record<string, unknown>).id),
             stripSensitiveFields(row as Record<string, unknown>),
           );
         }
@@ -360,7 +349,12 @@ export function generateCrudHandlers(
     // beforeCreate hook
     if (tableHooks?.beforeCreate) {
       try {
-        const result = await tableHooks.beforeCreate({ data: insertData, auth, tableName, request: hookReq });
+        const result = await tableHooks.beforeCreate({
+          data: insertData,
+          auth,
+          tableName,
+          request: hookReq,
+        });
         if (result !== undefined && result !== null) {
           insertData = result as Record<string, unknown>;
         }
@@ -375,25 +369,23 @@ export function generateCrudHandlers(
 
     let createdRecord: Record<string, unknown> | null = null;
     try {
-      const returning = await (db as any)
-        .insert(table)
-        .values(insertData)
-        .returning();
+      const returning = await (db as any).insert(table).values(insertData).returning();
       createdRecord = returning[0] ?? null;
     } catch {
       // MySQL doesn't support RETURNING — fall back to select by id
-      const insertedId = insertData["id"] ?? insertData[idColumn.name];
+      const insertedId = insertData.id ?? insertData[idColumn.name];
       if (insertedId) {
-        const rows = await (db as any)
-          .select()
-          .from(table)
-          .where(eq(idColumn, insertedId));
+        const rows = await (db as any).select().from(table).where(eq(idColumn, insertedId));
         createdRecord = rows[0] ?? null;
       }
     }
 
     if (!createdRecord) {
-      return errorResponse("INTERNAL_SERVER_ERROR", "Record was created but could not be retrieved", 500);
+      return errorResponse(
+        "INTERNAL_SERVER_ERROR",
+        "Record was created but could not be retrieved",
+        500,
+      );
     }
 
     // afterCreate hook (errors are logged, never affect response)
@@ -429,7 +421,12 @@ export function generateCrudHandlers(
     const url = new URL(req.url);
     // `expand` syntax: comma-separated relation keys (dotted nesting allowed up to depth limit).
     const expandParam = url.searchParams.get("expand");
-    const expandFields = expandParam ? expandParam.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+    const expandFields = expandParam
+      ? expandParam
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : undefined;
     const withClause = buildWithClause(expandFields);
 
     // Verify record exists and is accessible (handles rule whereClause correctly)
@@ -521,7 +518,14 @@ export function generateCrudHandlers(
     // beforeUpdate hook — share already-fetched existing record (no duplicate fetch)
     if (tableHooks?.beforeUpdate) {
       try {
-        const result = await tableHooks.beforeUpdate({ id, data: filtered, existing: existingRecord, auth, tableName, request: hookReq });
+        const result = await tableHooks.beforeUpdate({
+          id,
+          data: filtered,
+          existing: existingRecord,
+          auth,
+          tableName,
+          request: hookReq,
+        });
         if (result !== undefined && result !== null) {
           filtered = result as Record<string, unknown>;
         }
@@ -590,7 +594,13 @@ export function generateCrudHandlers(
     // beforeDelete hook — share already-fetched record (no duplicate fetch)
     if (tableHooks?.beforeDelete) {
       try {
-        await tableHooks.beforeDelete({ id, record: existingRecord, auth, tableName, request: hookReq });
+        await tableHooks.beforeDelete({
+          id,
+          record: existingRecord,
+          auth,
+          tableName,
+          request: hookReq,
+        });
       } catch (err) {
         if (err instanceof ApiError) {
           return errorResponse(err.code, err.message, err.status);
@@ -605,7 +615,13 @@ export function generateCrudHandlers(
     // afterDelete hook (errors are logged, never affect response)
     if (tableHooks?.afterDelete) {
       try {
-        await tableHooks.afterDelete({ id, record: existingRecord, auth, tableName, request: hookReq });
+        await tableHooks.afterDelete({
+          id,
+          record: existingRecord,
+          auth,
+          tableName,
+          request: hookReq,
+        });
       } catch (err) {
         console.error(`[BunBase] afterDelete hook error for "${tableName}":`, err);
       }

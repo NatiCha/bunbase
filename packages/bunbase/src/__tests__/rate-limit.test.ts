@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { checkRateLimit, getClientIp } from "../auth/rate-limit.ts";
 
 // Use a counter-based unique IP per test to prevent cross-test state pollution

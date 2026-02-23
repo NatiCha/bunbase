@@ -1,7 +1,7 @@
-import { test, expect, afterEach, spyOn } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
+import { discord } from "../auth/oauth/discord.ts";
 import { github } from "../auth/oauth/github.ts";
 import { google } from "../auth/oauth/google.ts";
-import { discord } from "../auth/oauth/discord.ts";
 
 let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">>;
 
@@ -67,14 +67,8 @@ test("github.getUserInfo fetches user and emails, returns primary email", async 
 
 test("github.getUserInfo falls back to first email when none is primary", async () => {
   fetchSpy = spyOn(globalThis, "fetch")
-    .mockResolvedValueOnce(
-      Response.json({ id: 1, name: "Bob" }) as any,
-    )
-    .mockResolvedValueOnce(
-      Response.json([
-        { email: "only@example.com", primary: false },
-      ]) as any,
-    );
+    .mockResolvedValueOnce(Response.json({ id: 1, name: "Bob" }) as any)
+    .mockResolvedValueOnce(Response.json([{ email: "only@example.com", primary: false }]) as any);
 
   const info = await github.getUserInfo("gh-token");
   expect(info.email).toBe("only@example.com");

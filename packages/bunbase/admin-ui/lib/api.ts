@@ -2,7 +2,7 @@ const BASE = "/_admin/api";
 
 function getCsrfToken(): string {
   const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : "";
+  return match ? decodeURIComponent(match[1] ?? "") : "";
 }
 
 async function get<T>(path: string): Promise<T> {
@@ -140,7 +140,13 @@ export const api = {
   deleteFile: (id: string) => del<{ deleted: boolean }>(`/files/${id}`),
   getLogs: () => get<RequestLog[]>("/logs"),
   clearLogs: () => del<{ cleared: boolean }>("/logs"),
-  getSchema: () => get<Record<string, Array<{ key: string; name: string; type: string; notNull: boolean; primary: boolean }>>>("/schema"),
+  getSchema: () =>
+    get<
+      Record<
+        string,
+        Array<{ key: string; name: string; type: string; notNull: boolean; primary: boolean }>
+      >
+    >("/schema"),
   getConfig: () => get<AdminConfig>("/config"),
   getTables: () => get<TableInfo[]>("/tables"),
   getRecords: (
@@ -159,6 +165,5 @@ export const api = {
     post<Record<string, unknown>>(`/records/${table}`, data),
   updateRecord: (table: string, id: string, data: Record<string, unknown>) =>
     patch<Record<string, unknown>>(`/records/${table}/${id}`, data),
-  deleteRecord: (table: string, id: string) =>
-    del<{ deleted: boolean }>(`/records/${table}/${id}`),
+  deleteRecord: (table: string, id: string) => del<{ deleted: boolean }>(`/records/${table}/${id}`),
 };

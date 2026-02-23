@@ -1,7 +1,7 @@
 import type { Column, Table } from "drizzle-orm";
-import type { SQLiteBunDatabase } from "drizzle-orm/bun-sqlite";
-import type { BunSQLDatabase } from "drizzle-orm/bun-sql/postgres";
 import type { BunMySqlDatabase } from "drizzle-orm/bun-sql/mysql";
+import type { BunSQLDatabase } from "drizzle-orm/bun-sql/postgres";
+import type { SQLiteBunDatabase } from "drizzle-orm/bun-sqlite";
 import type { AnyRelations } from "drizzle-orm/relations";
 
 /**

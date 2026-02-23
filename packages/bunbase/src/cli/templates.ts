@@ -1,9 +1,4 @@
-export type TemplateType =
-  | "task-manager"
-  | "blog"
-  | "saas"
-  | "inventory"
-  | "empty";
+export type TemplateType = "task-manager" | "blog" | "saas" | "inventory" | "empty";
 export type OAuthProvider = "google" | "github" | "discord";
 export type DatabaseDriver = "sqlite" | "postgres" | "mysql";
 
@@ -156,11 +151,7 @@ bunbase.listen();
 // ─── .env ─────────────────────────────────────────────────────────────────────
 
 function buildEnv(driver: DatabaseDriver, providers: OAuthProvider[], dbName: string): string {
-  const lines = [
-    "# BunBase Configuration",
-    "# NODE_ENV=production",
-    "# PORT=3000",
-  ];
+  const lines = ["# BunBase Configuration", "# NODE_ENV=production", "# PORT=3000"];
   if (driver === "postgres") {
     lines.push("", "# Database");
     lines.push(`DATABASE_URL=postgres://localhost:5432/${dbName}`);
@@ -177,7 +168,7 @@ function buildEnv(driver: DatabaseDriver, providers: OAuthProvider[], dbName: st
       lines.push(`${upper}_CLIENT_SECRET=`);
     }
   }
-  return lines.join("\n") + "\n";
+  return `${lines.join("\n")}\n`;
 }
 
 // ─── Schema bodies ────────────────────────────────────────────────────────────
@@ -515,7 +506,13 @@ export function getTemplate(
 }
 
 export function slugifyDbName(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "") || "myapp";
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_|_$/g, "") || "myapp"
+  );
 }
 
 export const TEMPLATE_OPTIONS: { label: string; value: TemplateType }[] = [

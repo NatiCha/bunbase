@@ -34,10 +34,6 @@ export function requireAuth(auth: AuthUser | null): AuthUser {
  *
  * @returns `Response` with `{ error: { code, message } }`.
  */
-export function errorResponse(
-  code: string,
-  message: string,
-  status: number,
-): Response {
+export function errorResponse(code: string, message: string, status: number): Response {
   return Response.json({ error: { code, message } }, { status });
 }

@@ -1,5 +1,5 @@
-import type { AuthUser } from "../api/types.ts";
 import type { InferInsertModel, InferSelectModel, Table } from "drizzle-orm";
+import type { AuthUser } from "../api/types.ts";
 
 /**
  * CRUD lifecycle hooks for BunBase table handlers.
@@ -15,19 +15,21 @@ export interface HookRequest {
   headers: Headers;
 }
 
-export type BeforeCreateContext<TInsert extends Record<string, unknown> = Record<string, unknown>> = {
-  data: TInsert;
-  auth: AuthUser | null;
-  tableName: string;
-  request: HookRequest;
-};
+export type BeforeCreateContext<TInsert extends Record<string, unknown> = Record<string, unknown>> =
+  {
+    data: TInsert;
+    auth: AuthUser | null;
+    tableName: string;
+    request: HookRequest;
+  };
 
-export type AfterCreateContext<TSelect extends Record<string, unknown> = Record<string, unknown>> = {
-  record: TSelect;
-  auth: AuthUser | null;
-  tableName: string;
-  request: HookRequest;
-};
+export type AfterCreateContext<TSelect extends Record<string, unknown> = Record<string, unknown>> =
+  {
+    record: TSelect;
+    auth: AuthUser | null;
+    tableName: string;
+    request: HookRequest;
+  };
 
 export type BeforeUpdateContext<
   TInsert extends Record<string, unknown> = Record<string, unknown>,
@@ -41,33 +43,36 @@ export type BeforeUpdateContext<
   request: HookRequest;
 };
 
-export type AfterUpdateContext<TSelect extends Record<string, unknown> = Record<string, unknown>> = {
-  id: string;
-  record: TSelect;
-  auth: AuthUser | null;
-  tableName: string;
-  request: HookRequest;
-};
+export type AfterUpdateContext<TSelect extends Record<string, unknown> = Record<string, unknown>> =
+  {
+    id: string;
+    record: TSelect;
+    auth: AuthUser | null;
+    tableName: string;
+    request: HookRequest;
+  };
 
-export type BeforeDeleteContext<TSelect extends Record<string, unknown> = Record<string, unknown>> = {
-  id: string;
-  record: TSelect;
-  auth: AuthUser | null;
-  tableName: string;
-  request: HookRequest;
-};
+export type BeforeDeleteContext<TSelect extends Record<string, unknown> = Record<string, unknown>> =
+  {
+    id: string;
+    record: TSelect;
+    auth: AuthUser | null;
+    tableName: string;
+    request: HookRequest;
+  };
 
-export type AfterDeleteContext<TSelect extends Record<string, unknown> = Record<string, unknown>> = {
-  id: string;
-  record: TSelect;
-  auth: AuthUser | null;
-  tableName: string;
-  request: HookRequest;
-};
+export type AfterDeleteContext<TSelect extends Record<string, unknown> = Record<string, unknown>> =
+  {
+    id: string;
+    record: TSelect;
+    auth: AuthUser | null;
+    tableName: string;
+    request: HookRequest;
+  };
 
 export type BeforeCreateFn<TInsert extends Record<string, unknown> = Record<string, unknown>> = (
   ctx: BeforeCreateContext<TInsert>,
-) => TInsert | void | Promise<TInsert | void>;
+) => TInsert | undefined | Promise<TInsert | undefined>;
 
 export type AfterCreateFn<TSelect extends Record<string, unknown> = Record<string, unknown>> = (
   ctx: AfterCreateContext<TSelect>,
@@ -78,7 +83,7 @@ export type BeforeUpdateFn<
   TSelect extends Record<string, unknown> = Record<string, unknown>,
 > = (
   ctx: BeforeUpdateContext<TInsert, TSelect>,
-) => Partial<TInsert> | void | Promise<Partial<TInsert> | void>;
+) => Partial<TInsert> | undefined | Promise<Partial<TInsert> | undefined>;
 
 export type AfterUpdateFn<TSelect extends Record<string, unknown> = Record<string, unknown>> = (
   ctx: AfterUpdateContext<TSelect>,
@@ -119,7 +124,10 @@ export type Hooks = Record<string, TableHooks>;
  * }
  * ```
  */
-export function defineHooks<TTable extends Table>(table: TTable, hooks: TableHooksFor<TTable>): TableHooksFor<TTable>;
+export function defineHooks<TTable extends Table>(
+  table: TTable,
+  hooks: TableHooksFor<TTable>,
+): TableHooksFor<TTable>;
 /**
  * Define hooks for multiple tables at once (untyped records):
  *

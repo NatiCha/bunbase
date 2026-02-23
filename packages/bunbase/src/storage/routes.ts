@@ -1,16 +1,16 @@
-import { eq, and, getColumns, getTableName } from "drizzle-orm";
+import { extname } from "node:path";
 import type { Column } from "drizzle-orm";
+import { and, eq, getColumns, getTableName } from "drizzle-orm";
+import { extractAuth } from "../auth/middleware.ts";
+import type { DatabaseAdapter } from "../core/adapter.ts";
 import type { ResolvedConfig } from "../core/config.ts";
 import type { AnyDb } from "../core/db-types.ts";
 import type { InternalSchema } from "../core/internal-schema.ts";
-import type { DatabaseAdapter } from "../core/adapter.ts";
+import { evaluateRule } from "../rules/evaluator.ts";
+import type { TableRules } from "../rules/types.ts";
 import type { StorageDriver } from "./local.ts";
 import { createLocalStorage } from "./local.ts";
 import { createS3Storage } from "./s3.ts";
-import { extractAuth } from "../auth/middleware.ts";
-import { evaluateRule } from "../rules/evaluator.ts";
-import type { TableRules } from "../rules/types.ts";
-import { extname } from "node:path";
 
 /**
  * File upload/download/delete routes and storage-driver integration.
@@ -34,9 +34,13 @@ function extractHeadersAndQuery(req: Request): {
   query: Record<string, string>;
 } {
   const headers: Record<string, string> = {};
-  req.headers.forEach((v, k) => { headers[k.toLowerCase()] = v; });
+  req.headers.forEach((v, k) => {
+    headers[k.toLowerCase()] = v;
+  });
   const query: Record<string, string> = {};
-  new URL(req.url).searchParams.forEach((v, k) => { query[k] = v; });
+  new URL(req.url).searchParams.forEach((v, k) => {
+    query[k] = v;
+  });
   return { headers, query };
 }
 
@@ -117,12 +121,7 @@ export function createFileRoutes(deps: FileRouteDeps) {
     }
 
     const where = conditions.length > 1 ? and(...conditions) : conditions[0];
-    const row = await (db as any)
-      .select({ id: idColumn })
-      .from(table)
-      .where(where)
-      .limit(1)
-      ;
+    const row = await (db as any).select({ id: idColumn }).from(table).where(where).limit(1);
 
     if (row.length === 0) {
       return jsonError("FORBIDDEN", "Access denied", 403);
@@ -214,30 +213,30 @@ export function createFileRoutes(deps: FileRouteDeps) {
         await storage.write(storagePath, data);
 
         // Save file record via Drizzle
-        await (db as any)
-          .insert(files)
-          .values({
-            id,
-            collection,
-            recordId,
-            filename,
-            mimeType: file.type,
-            size: file.size,
-            storagePath,
-            createdAt: new Date().toISOString(),
-          })
-          ;
+        await (db as any).insert(files).values({
+          id,
+          collection,
+          recordId,
+          filename,
+          mimeType: file.type,
+          size: file.size,
+          storagePath,
+          createdAt: new Date().toISOString(),
+        });
 
-        return Response.json({
-          file: {
-            id,
-            collection,
-            recordId,
-            filename,
-            mimeType: file.type,
-            size: file.size,
+        return Response.json(
+          {
+            file: {
+              id,
+              collection,
+              recordId,
+              filename,
+              mimeType: file.type,
+              size: file.size,
+            },
           },
-        }, { status: 201 });
+          { status: 201 },
+        );
       },
     },
 
@@ -256,11 +255,7 @@ export function createFileRoutes(deps: FileRouteDeps) {
           return jsonError("BAD_REQUEST", "Missing file ID", 400);
         }
 
-        const fileRows = await (db as any)
-          .select()
-          .from(files)
-          .where(eq(files.id, fileId))
-          ;
+        const fileRows = await (db as any).select().from(files).where(eq(files.id, fileId));
 
         const fileRecord = fileRows[0];
         if (!fileRecord) {
@@ -306,11 +301,7 @@ export function createFileRoutes(deps: FileRouteDeps) {
           return jsonError("BAD_REQUEST", "Missing file ID", 400);
         }
 
-        const fileRows = await (db as any)
-          .select()
-          .from(files)
-          .where(eq(files.id, fileId))
-          ;
+        const fileRows = await (db as any).select().from(files).where(eq(files.id, fileId));
 
         const fileRecord = fileRows[0];
         if (!fileRecord) {
@@ -318,18 +309,15 @@ export function createFileRoutes(deps: FileRouteDeps) {
         }
 
         const { headers, query } = extractHeadersAndQuery(req);
-        const deleteRuleResult = await evaluateRule(
-          rules?.[fileRecord.collection]?.delete,
-          {
-            auth: user,
-            id: fileRecord.recordId,
-            body: {},
-            headers,
-            query,
-            method: "DELETE",
-            db,
-          },
-        );
+        const deleteRuleResult = await evaluateRule(rules?.[fileRecord.collection]?.delete, {
+          auth: user,
+          id: fileRecord.recordId,
+          body: {},
+          headers,
+          query,
+          method: "DELETE",
+          db,
+        });
         if (!deleteRuleResult.allowed) {
           return jsonError("FORBIDDEN", "Access denied", 403);
         }
@@ -355,14 +343,12 @@ export async function deleteRecordFiles(
   const fileRows = await (db as any)
     .select({ id: files.id, storagePath: files.storagePath })
     .from(files)
-    .where(and(eq(files.collection, collection), eq(files.recordId, recordId)))
-    ;
+    .where(and(eq(files.collection, collection), eq(files.recordId, recordId)));
 
   const deletions = fileRows.map((file: any) => storage.delete(file.storagePath));
   await Promise.all(deletions);
 
   await (db as any)
     .delete(files)
-    .where(and(eq(files.collection, collection), eq(files.recordId, recordId)))
-    ;
+    .where(and(eq(files.collection, collection), eq(files.recordId, recordId)));
 }

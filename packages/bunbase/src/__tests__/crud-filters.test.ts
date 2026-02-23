@@ -1,10 +1,10 @@
-import { test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { expect, test } from "bun:test";
 import { getColumns } from "drizzle-orm";
-import { buildWhereConditions } from "../crud/filters.ts";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { buildWhereConditions } from "../crud/filters.ts";
 
 const items = sqliteTable("items", {
   id: text("id").primaryKey(),
@@ -173,10 +173,7 @@ test("isNull: false operator", () => {
 
 test("multiple operators combined (AND)", () => {
   const { db, sqlite } = setupDb();
-  const where = buildWhereConditions(
-    { status: "active", score: { gte: 30 } },
-    cols,
-  );
+  const where = buildWhereConditions({ status: "active", score: { gte: 30 } }, cols);
   const results = query(db, where);
   expect(results.map((r) => r.id).sort()).toEqual(["3", "4"]);
   sqlite.close();

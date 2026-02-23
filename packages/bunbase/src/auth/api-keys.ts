@@ -1,9 +1,9 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod/v4";
+import type { AuthUser } from "../api/types.ts";
+import type { ResolvedConfig } from "../core/config.ts";
 import type { AnyDb } from "../core/db-types.ts";
 import type { InternalSchema } from "../core/internal-schema.ts";
-import type { ResolvedConfig } from "../core/config.ts";
-import type { AuthUser } from "../api/types.ts";
 import { validateCsrf } from "./csrf.ts";
 import { isBearerOnly } from "./middleware.ts";
 
@@ -17,9 +17,7 @@ export async function deleteUserApiKeys(
   schema: InternalSchema,
   userId: string,
 ): Promise<void> {
-  await (db as any)
-    .delete(schema.apiKeys)
-    .where(eq(schema.apiKeys.userId, userId));
+  await (db as any).delete(schema.apiKeys).where(eq(schema.apiKeys.userId, userId));
 }
 
 interface ApiKeyRoutesDeps {
@@ -166,8 +164,7 @@ export function createApiKeyRoutes(deps: ApiKeyRoutesDeps) {
             createdAt: internalSchema.apiKeys.createdAt,
           })
           .from(internalSchema.apiKeys)
-          .where(eq(internalSchema.apiKeys.userId, user.id))
-          ;
+          .where(eq(internalSchema.apiKeys.userId, user.id));
 
         return Response.json(rows);
       },
@@ -196,8 +193,7 @@ export function createApiKeyRoutes(deps: ApiKeyRoutesDeps) {
             userId: internalSchema.apiKeys.userId,
           })
           .from(internalSchema.apiKeys)
-          .where(eq(internalSchema.apiKeys.id, keyId))
-          ;
+          .where(eq(internalSchema.apiKeys.id, keyId));
 
         const keyRow = rows[0];
         if (!keyRow) {
@@ -211,8 +207,7 @@ export function createApiKeyRoutes(deps: ApiKeyRoutesDeps) {
 
         await (db as any)
           .delete(internalSchema.apiKeys)
-          .where(eq(internalSchema.apiKeys.id, keyId))
-          ;
+          .where(eq(internalSchema.apiKeys.id, keyId));
 
         return Response.json({ deleted: true });
       },

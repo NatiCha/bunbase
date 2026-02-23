@@ -1,19 +1,19 @@
+import type { Column } from "drizzle-orm";
 import {
+  and,
   eq,
-  ne,
   gt,
   gte,
+  inArray,
+  isNotNull,
+  isNull,
+  like,
   lt,
   lte,
-  like,
-  inArray,
+  ne,
   notInArray,
-  isNull,
-  isNotNull,
-  and,
   type SQL,
 } from "drizzle-orm";
-import type { Column } from "drizzle-orm";
 
 /**
  * Filter parser and SQL condition builder for CRUD list endpoints.
@@ -77,11 +77,7 @@ export function buildWhereConditions(
     if (!column) continue;
 
     // Direct value means eq
-    if (
-      typeof filterValue !== "object" ||
-      filterValue === null ||
-      Array.isArray(filterValue)
-    ) {
+    if (typeof filterValue !== "object" || filterValue === null || Array.isArray(filterValue)) {
       conditions.push(eq(column, filterValue));
       continue;
     }

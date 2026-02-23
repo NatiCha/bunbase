@@ -43,9 +43,7 @@ export function printSummary({
   );
 
   if (oauth.length > 0) {
-    const oauthRoutes = oauth
-      .map((p) => `GET /auth/oauth/${p}`)
-      .join("  ");
+    const oauthRoutes = oauth.map((p) => `GET /auth/oauth/${p}`).join("  ");
     lines.push(`  ${BOLD}OAuth:${RESET}      ${oauthRoutes}`);
   }
 
@@ -54,7 +52,9 @@ export function printSummary({
   lines.push(`    Email:    ${BOLD}admin@example.com${RESET}`);
   lines.push(`    Password: ${BOLD}admin${RESET}`);
   lines.push(`    ${DIM}(change this after first login)${RESET}`);
-  lines.push(`    ${DIM}In production, set BUNBASE_ADMIN_EMAIL and BUNBASE_ADMIN_PASSWORD env vars.${RESET}`);
+  lines.push(
+    `    ${DIM}In production, set BUNBASE_ADMIN_EMAIL and BUNBASE_ADMIN_PASSWORD env vars.${RESET}`,
+  );
 
   lines.push("");
   lines.push(`  ${BOLD}Try it:${RESET}`);
@@ -62,7 +62,6 @@ export function printSummary({
   lines.push(`    ${DIM}curl -X POST ${base}/auth/register \\${RESET}`);
   lines.push(`    ${DIM}  -H "Content-Type: application/json" \\${RESET}`);
   lines.push(`    ${DIM}  -d '{"email":"test@example.com","password":"password123"}'${RESET}`);
-
 
   lines.push("");
 

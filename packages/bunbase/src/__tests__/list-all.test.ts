@@ -3,11 +3,11 @@
  * Verifies that passing limit=-1 returns all records without a cursor,
  * respects filters, works with expand, and does not regress paginated defaults.
  */
-import { test, expect, beforeAll, afterAll } from "bun:test";
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { createServer } from "../core/server.ts";
 import { defineRelations } from "../crud/relations.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
@@ -112,7 +112,7 @@ afterAll(() => {
 test("GET /api/tasks?limit=-1 returns all 25 records", async () => {
   const res = await fetch(`${base}/api/tasks?limit=-1`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.data).toBeArray();
   expect(body.data.length).toBe(25);
   expect(body.nextCursor).toBeNull();
@@ -121,7 +121,7 @@ test("GET /api/tasks?limit=-1 returns all 25 records", async () => {
 
 test("GET /api/tasks?limit=-1 nextCursor is null and hasMore is false", async () => {
   const res = await fetch(`${base}/api/tasks?limit=-1`);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.nextCursor).toBeNull();
   expect(body.hasMore).toBe(false);
 });
@@ -131,7 +131,7 @@ test("GET /api/tasks?limit=-1 nextCursor is null and hasMore is false", async ()
 test("GET /api/tasks (no limit) defaults to 20 records", async () => {
   const res = await fetch(`${base}/api/tasks`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.data.length).toBe(20);
   expect(body.hasMore).toBe(true);
   expect(body.nextCursor).not.toBeNull();
@@ -139,14 +139,14 @@ test("GET /api/tasks (no limit) defaults to 20 records", async () => {
 
 test("GET /api/tasks?limit=5 returns 5 records", async () => {
   const res = await fetch(`${base}/api/tasks?limit=5`);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.data.length).toBe(5);
   expect(body.hasMore).toBe(true);
 });
 
 test("GET /api/tasks?limit=999 is capped at 100", async () => {
   const res = await fetch(`${base}/api/tasks?limit=999`);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   // Only 25 seeded tasks, so all fit within the 100 cap
   expect(body.data.length).toBe(25);
   // Verify the sentinel -1 is NOT treated as a huge positive number
@@ -161,7 +161,7 @@ test("GET /api/tasks?limit=-1&filter=... returns filtered subset", async () => {
   const filter = JSON.stringify({ done: "true" });
   const res = await fetch(`${base}/api/tasks?limit=-1&filter=${encodeURIComponent(filter)}`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.data).toBeArray();
   expect(body.data.length).toBe(12);
   expect(body.nextCursor).toBeNull();
@@ -175,7 +175,7 @@ test("GET /api/tasks?limit=-1 with filter returning no rows returns empty array"
   const filter = JSON.stringify({ title: "nonexistent-xyz-abc" });
   const res = await fetch(`${base}/api/tasks?limit=-1&filter=${encodeURIComponent(filter)}`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.data).toBeArray();
   expect(body.data.length).toBe(0);
   expect(body.nextCursor).toBeNull();
@@ -187,7 +187,7 @@ test("GET /api/tasks?limit=-1 with filter returning no rows returns empty array"
 test("GET /api/tasks?limit=-1&expand=owner returns all tasks with owner", async () => {
   const res = await fetch(`${base}/api/tasks?limit=-1&expand=owner`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.data).toBeArray();
   expect(body.data.length).toBe(25);
   expect(body.nextCursor).toBeNull();
@@ -204,7 +204,7 @@ test("GET /api/tasks?limit=-1&expand=owner returns all tasks with owner", async 
 
 test("listAll + expand assigns correct owner to each task", async () => {
   const res = await fetch(`${base}/api/tasks?limit=-1&expand=owner`);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
 
   // Even-indexed tasks (t2, t4, ...) belong to u1 (Alice); odd to u2 (Bob)
   const t1 = body.data.find((t: any) => t.id === "t1");
@@ -226,7 +226,7 @@ test("GET /api/tasks?limit=-1.0 treats numeric -1 as sentinel (all records, no c
   // hasMore:true and a non-null nextCursor even though all rows were returned.
   const res = await fetch(`${base}/api/tasks?limit=-1.0`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.data.length).toBe(25);
   expect(body.nextCursor).toBeNull();
   expect(body.hasMore).toBe(false);

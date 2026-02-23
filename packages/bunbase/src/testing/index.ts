@@ -34,15 +34,15 @@
  */
 
 import { mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { is, Table } from "drizzle-orm";
 import { getTableConfig, type SQLiteTable } from "drizzle-orm/sqlite-core";
-import { createServer } from "../core/server.ts";
-import type { AnyDb } from "../core/db-types.ts";
 import type { DatabaseAdapter } from "../core/adapter.ts";
-import type { Rules } from "../rules/types.ts";
+import type { AnyDb } from "../core/db-types.ts";
+import { createServer } from "../core/server.ts";
 import type { Hooks } from "../hooks/types.ts";
+import type { Rules } from "../rules/types.ts";
 
 export interface TestServer {
   /** Base URL of the running server, e.g. `http://localhost:54321` */
@@ -122,7 +122,11 @@ export async function createTestServer(options: CreateTestServerOptions): Promis
     cleanup(): void {
       server.stop();
       bunbase.adapter.close();
-      try { rmSync(root, { recursive: true, force: true }); } catch { /* best-effort */ }
+      try {
+        rmSync(root, { recursive: true, force: true });
+      } catch {
+        /* best-effort */
+      }
     },
   };
 }

@@ -1,23 +1,21 @@
-import React, { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FolderOpen, Plus } from "lucide-react";
+import type React from "react";
+import { useState } from "react";
 import { api } from "../lib/client.ts";
 import { Button } from "./ui/button.tsx";
-import { Input } from "./ui/input.tsx";
-import { Textarea } from "./ui/textarea.tsx";
-import { Label } from "./ui/label.tsx";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "./ui/card.tsx";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card.tsx";
 import {
   Dialog,
-  DialogTrigger,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
+  DialogTrigger,
 } from "./ui/dialog.tsx";
-import { Plus, FolderOpen } from "lucide-react";
-import type * as schema from "../../schema";
-
-type Project = typeof schema.projects.$inferSelect;
+import { Input } from "./ui/input.tsx";
+import { Label } from "./ui/label.tsx";
+import { Textarea } from "./ui/textarea.tsx";
 
 interface ProjectListProps {
   userId: string;
@@ -118,9 +116,7 @@ export function ProjectList({ userId, onSelectProject }: ProjectListProps) {
             >
               <CardHeader>
                 <CardTitle>{project.name}</CardTitle>
-                {project.description && (
-                  <CardDescription>{project.description}</CardDescription>
-                )}
+                {project.description && <CardDescription>{project.description}</CardDescription>}
               </CardHeader>
             </Card>
           ))}

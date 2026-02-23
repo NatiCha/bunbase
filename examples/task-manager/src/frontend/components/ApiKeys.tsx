@@ -3,14 +3,15 @@
  *
  * Shows the created key only once (the raw value is never stored server-side).
  */
-import React, { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check, Copy, KeyRound, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { client } from "../lib/client.ts";
-import { Button } from "./ui/button.tsx";
-import { Input } from "./ui/input.tsx";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card.tsx";
 import { Badge } from "./ui/badge.tsx";
-import { KeyRound, Trash2, Copy, Check } from "lucide-react";
+import { Button } from "./ui/button.tsx";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card.tsx";
+import { Input } from "./ui/input.tsx";
 
 interface CreatedKey {
   id: string;
@@ -97,12 +98,12 @@ export function ApiKeys() {
                 <code className="flex-1 text-xs break-all font-mono bg-white border rounded px-2 py-1">
                   {justCreated.key}
                 </code>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => handleCopy(justCreated.key)}
-                >
-                  {copied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+                <Button variant="ghost" size="icon" onClick={() => handleCopy(justCreated.key)}>
+                  {copied ? (
+                    <Check className="h-4 w-4 text-green-600" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
                 </Button>
               </div>
               <Button
@@ -126,10 +127,7 @@ export function ApiKeys() {
           <p className="text-muted-foreground text-sm">No API keys yet.</p>
         ) : (
           keys.map((key) => (
-            <div
-              key={key.id}
-              className="flex items-center justify-between p-3 border rounded-lg"
-            >
+            <div key={key.id} className="flex items-center justify-between p-3 border rounded-lg">
               <div className="space-y-0.5">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-sm">{key.name}</span>
@@ -141,7 +139,8 @@ export function ApiKeys() {
                   {key.expiresAt
                     ? `Expires ${new Date(key.expiresAt * 1000).toLocaleDateString()}`
                     : "Never expires"}
-                  {key.lastUsedAt && ` · Last used ${new Date(key.lastUsedAt).toLocaleDateString()}`}
+                  {key.lastUsedAt &&
+                    ` · Last used ${new Date(key.lastUsedAt).toLocaleDateString()}`}
                 </p>
               </div>
               <Button

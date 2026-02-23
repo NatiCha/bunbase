@@ -10,14 +10,7 @@ if (!existsSync(outDir)) {
 }
 
 // Build CLI executable
-const buildProc = Bun.spawn([
-  "bun",
-  "build",
-  "--compile",
-  "./src/index.ts",
-  "--outfile",
-  output,
-], {
+const buildProc = Bun.spawn(["bun", "build", "--compile", "./src/index.ts", "--outfile", output], {
   stdout: "inherit",
   stderr: "inherit",
 });
@@ -31,12 +24,7 @@ console.log(`Built executable at ${output}`);
 
 // Generate TypeScript declaration files
 console.log("Generating type declarations...");
-const tscProc = Bun.spawn([
-  "bunx",
-  "tsc",
-  "--project",
-  "tsconfig.emit.json",
-], {
+const tscProc = Bun.spawn(["bunx", "tsc", "--project", "tsconfig.emit.json"], {
   stdout: "inherit",
   stderr: "inherit",
 });

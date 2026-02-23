@@ -1,11 +1,11 @@
-import React, { useState } from "react";
-import { useAuth } from "./lib/client.ts";
+import { useState } from "react";
+import { ApiKeys } from "./components/ApiKeys.tsx";
+import { Dashboard } from "./components/Dashboard.tsx";
 import { Layout } from "./components/Layout.tsx";
 import { LoginForm } from "./components/LoginForm.tsx";
-import { Dashboard } from "./components/Dashboard.tsx";
-import { ProjectList } from "./components/ProjectList.tsx";
 import { ProjectDetail } from "./components/ProjectDetail.tsx";
-import { ApiKeys } from "./components/ApiKeys.tsx";
+import { ProjectList } from "./components/ProjectList.tsx";
+import { useAuth } from "./lib/client.ts";
 
 type Page =
   | { name: "dashboard" }

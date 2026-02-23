@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useState } from "react";
+import type React from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, type TableInfo } from "../lib/api.ts";
 
 type ColumnDef = { key: string; name: string; type: string; notNull: boolean; primary: boolean };
@@ -10,7 +11,7 @@ type ApiTab = "js" | "curl";
 function renderCell(value: unknown): string {
   if (value === null || value === undefined) return "";
   const str = String(value);
-  return str.length > 60 ? str.slice(0, 60) + "…" : str;
+  return str.length > 60 ? `${str.slice(0, 60)}…` : str;
 }
 
 function SortIcon({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
@@ -105,13 +106,7 @@ curl -s -b 'bunbase_session=<token>' \\
   -X DELETE '/api/${table}/record-id'`;
 }
 
-function ApiPreviewPanel({
-  table,
-  onClose,
-}: {
-  table: string;
-  onClose: () => void;
-}) {
+function ApiPreviewPanel({ table, onClose }: { table: string; onClose: () => void }) {
   const [tab, setTab] = useState<ApiTab>("js");
 
   return (
@@ -123,9 +118,7 @@ function ApiPreviewPanel({
             <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               API Preview
             </span>
-            <span className="ml-2 font-mono text-xs text-gray-400 dark:text-gray-500">
-              {table}
-            </span>
+            <span className="ml-2 font-mono text-xs text-gray-400 dark:text-gray-500">{table}</span>
           </div>
           <button
             onClick={onClose}
@@ -255,15 +248,14 @@ function RecordPanel({
                   : col.type === "SQLiteReal"
                     ? "number"
                     : "text";
-              const step = col.type === "SQLiteReal" ? "any" : col.type === "SQLiteInteger" ? "1" : undefined;
+              const step =
+                col.type === "SQLiteReal" ? "any" : col.type === "SQLiteInteger" ? "1" : undefined;
 
               return (
                 <div key={col.key}>
                   <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">
                     {col.name}
-                    {col.notNull && (
-                      <span className="ml-1 text-red-400">*</span>
-                    )}
+                    {col.notNull && <span className="ml-1 text-red-400">*</span>}
                     <span className="ml-2 font-normal text-gray-400 dark:text-gray-500">
                       {col.type.replace("SQLite", "").replace("Column", "").toLowerCase()}
                     </span>
@@ -335,7 +327,10 @@ export function DataBrowser({ tables, setTables, selectedTable, onTableSelect }:
 
   // Load schema on mount
   useEffect(() => {
-    api.getSchema().then(setSchema).catch(() => {});
+    api
+      .getSchema()
+      .then(setSchema)
+      .catch(() => {});
   }, []);
 
   // Select first table when list loads and none is selected
@@ -343,7 +338,7 @@ export function DataBrowser({ tables, setTables, selectedTable, onTableSelect }:
     if (tables.length > 0 && !selectedTable) {
       onTableSelect(tables[0].name);
     }
-  }, [tables, selectedTable]);
+  }, [tables, selectedTable, onTableSelect]);
 
   const fetchRecords = useCallback(async () => {
     if (!selectedTable) return;
@@ -371,7 +366,7 @@ export function DataBrowser({ tables, setTables, selectedTable, onTableSelect }:
     fetchRecords();
   }, [fetchRecords]);
 
-  const handleTableSelect = (name: string) => {
+  const _handleTableSelect = (name: string) => {
     onTableSelect(name);
     setSearch("");
     setSearchInput("");
@@ -400,7 +395,9 @@ export function DataBrowser({ tables, setTables, selectedTable, onTableSelect }:
     try {
       await api.deleteRecord(selectedTable, String(id));
       setTables(
-        tables.map((t) => (t.name === selectedTable ? { ...t, count: Math.max(0, t.count - 1) } : t)),
+        tables.map((t) =>
+          t.name === selectedTable ? { ...t, count: Math.max(0, t.count - 1) } : t,
+        ),
       );
       await fetchRecords();
     } catch (err: any) {
@@ -437,9 +434,7 @@ export function DataBrowser({ tables, setTables, selectedTable, onTableSelect }:
     try {
       if (panelMode === "new") {
         await api.createRecord(selectedTable, formData);
-        setTables(
-          tables.map((t) => (t.name === selectedTable ? { ...t, count: t.count + 1 } : t)),
-        );
+        setTables(tables.map((t) => (t.name === selectedTable ? { ...t, count: t.count + 1 } : t)));
       } else if (panelMode === "edit" && editRecord) {
         await api.updateRecord(selectedTable, String(editRecord.id), formData);
       }
@@ -468,7 +463,6 @@ export function DataBrowser({ tables, setTables, selectedTable, onTableSelect }:
     <div className="flex h-full overflow-hidden">
       {/* Main content */}
       <div className="flex flex-1 flex-col overflow-hidden">
-
         {error && (
           <div className="mx-6 mt-3 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-400">
             {error}
@@ -560,7 +554,9 @@ export function DataBrowser({ tables, setTables, selectedTable, onTableSelect }:
                 </div>
               ) : records.length === 0 ? (
                 <div className="flex h-40 flex-col items-center justify-center text-gray-400 dark:text-gray-600">
-                  <p className="text-sm">{search ? "No records match your search." : "No records yet."}</p>
+                  <p className="text-sm">
+                    {search ? "No records match your search." : "No records yet."}
+                  </p>
                 </div>
               ) : (
                 <table className="w-full text-sm">
@@ -598,10 +594,7 @@ export function DataBrowser({ tables, setTables, selectedTable, onTableSelect }:
                             {renderCell(record[col.name])}
                           </td>
                         ))}
-                        <td
-                          className="px-4 py-3"
-                          onClick={(e) => e.stopPropagation()}
-                        >
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                           <button
                             onClick={() => handleDelete(record.id)}
                             className="rounded p-1 text-gray-300 hover:bg-red-50 hover:text-red-500 dark:text-gray-700 dark:hover:bg-red-950 dark:hover:text-red-400"
@@ -672,10 +665,7 @@ export function DataBrowser({ tables, setTables, selectedTable, onTableSelect }:
         />
       )}
       {apiPreviewOpen && selectedTable && (
-        <ApiPreviewPanel
-          table={selectedTable}
-          onClose={() => setApiPreviewOpen(false)}
-        />
+        <ApiPreviewPanel table={selectedTable} onClose={() => setApiPreviewOpen(false)} />
       )}
     </div>
   );

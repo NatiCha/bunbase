@@ -1,9 +1,9 @@
-import { eq, and, or, isNull, lt } from "drizzle-orm";
-import { parseCookies } from "./cookies.ts";
-import { getSession } from "./sessions.ts";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 import type { AuthUser } from "../api/types.ts";
 import type { AnyDb } from "../core/db-types.ts";
 import type { InternalSchema } from "../core/internal-schema.ts";
+import { parseCookies } from "./cookies.ts";
+import { getSession } from "./sessions.ts";
 
 /**
  * Request authentication extractors and bearer/session precedence.
@@ -52,8 +52,7 @@ export async function getApiKeyUser(
   const rows = await (db as any)
     .select()
     .from(internalSchema.apiKeys)
-    .where(eq(internalSchema.apiKeys.keyHash, keyHash))
-    ;
+    .where(eq(internalSchema.apiKeys.keyHash, keyHash));
 
   const keyRow = rows[0];
   if (!keyRow) return null;
@@ -68,8 +67,7 @@ export async function getApiKeyUser(
   const userRows = await (db as any)
     .select()
     .from(usersTable)
-    .where(eq(usersTable.id, keyRow.userId))
-    ;
+    .where(eq(usersTable.id, keyRow.userId));
 
   const user = userRows[0];
   if (!user) return null;
@@ -119,8 +117,7 @@ export async function extractAuth(
       const rows = await (db as any)
         .select()
         .from(usersTable)
-        .where(eq(usersTable.id, session.user_id))
-        ;
+        .where(eq(usersTable.id, session.user_id));
 
       const user = rows[0];
       if (user) {

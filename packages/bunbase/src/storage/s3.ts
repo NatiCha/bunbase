@@ -37,13 +37,9 @@ async function sha256(data: Uint8Array<ArrayBuffer> | string): Promise<string> {
 }
 
 async function hmac(key: Uint8Array<ArrayBuffer>, msg: string): Promise<Uint8Array<ArrayBuffer>> {
-  const k = await crypto.subtle.importKey(
-    "raw",
-    key,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
+  const k = await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, [
+    "sign",
+  ]);
   return new Uint8Array(await crypto.subtle.sign("HMAC", k, enc.encode(msg)));
 }
 
@@ -84,7 +80,7 @@ async function sigv4Headers(
   ].join("\n");
 
   // Derive signing key
-  let signingKey = await hmac(enc.encode("AWS4" + config.secretAccessKey), dateStr);
+  let signingKey = await hmac(enc.encode(`AWS4${config.secretAccessKey}`), dateStr);
   signingKey = await hmac(signingKey, region);
   signingKey = await hmac(signingKey, "s3");
   signingKey = await hmac(signingKey, "aws4_request");

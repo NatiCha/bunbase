@@ -1,8 +1,6 @@
-import React from "react";
-import { Badge } from "./ui/badge.tsx";
-import { Button } from "./ui/button.tsx";
 import { Pencil, Trash2 } from "lucide-react";
 import type * as schema from "../../schema";
+import { Button } from "./ui/button.tsx";
 
 type Task = typeof schema.tasks.$inferSelect;
 
@@ -32,18 +30,20 @@ export function TaskCard({ task, assigneeName, onEdit, onDelete }: TaskCardProps
       <div className="space-y-1 flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-medium truncate">{task.title}</span>
-          {assigneeName && (
-            <span className="text-xs text-muted-foreground">→ {assigneeName}</span>
-          )}
+          {assigneeName && <span className="text-xs text-muted-foreground">→ {assigneeName}</span>}
         </div>
         {task.description && (
           <p className="text-sm text-muted-foreground line-clamp-2">{task.description}</p>
         )}
         <div className="flex gap-2 mt-2">
-          <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${statusColors[task.status] ?? ""}`}>
+          <span
+            className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${statusColors[task.status] ?? ""}`}
+          >
             {task.status.replace("_", " ")}
           </span>
-          <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${priorityColors[task.priority] ?? ""}`}>
+          <span
+            className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${priorityColors[task.priority] ?? ""}`}
+          >
             {task.priority}
           </span>
         </div>

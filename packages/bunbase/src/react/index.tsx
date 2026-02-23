@@ -1,17 +1,18 @@
-import React, { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { Table, InferSelectModel, InferInsertModel } from "drizzle-orm";
-import { AuthProvider, useAuth } from "./auth.tsx";
-import type { BunBaseReactOptions } from "./types.ts";
+import type { InferInsertModel, InferSelectModel, Table } from "drizzle-orm";
+import type React from "react";
+import { useState } from "react";
 import {
   createBunBaseClient,
   type ListParams,
   type ListResponse,
   type TableClient,
 } from "../client.ts";
+import { AuthProvider, useAuth } from "./auth.tsx";
+import type { BunBaseReactOptions } from "./types.ts";
 
-export type { BunBaseReactOptions, AuthUser, UseAuthReturn } from "./types.ts";
 export { useAuth } from "./auth.tsx";
+export type { AuthUser, BunBaseReactOptions, UseAuthReturn } from "./types.ts";
 
 // ─── Type machinery ───────────────────────────────────────────────────────────
 
@@ -43,7 +44,10 @@ interface TableQueryClient<TSelect, TInsert> {
     queryKey: (params?: Omit<ListParams, "cursor" | "limit">) => readonly unknown[];
   };
   get: {
-    queryOptions: (id: string, opts?: { expand?: string[] }) => {
+    queryOptions: (
+      id: string,
+      opts?: { expand?: string[] },
+    ) => {
       queryKey: readonly unknown[];
       queryFn: () => Promise<TSelect | null>;
     };
@@ -99,7 +103,8 @@ export function createBunBaseReact<S extends Record<string, unknown>>(
   const api = new Proxy({} as BunBaseReactAPI<S>, {
     get(_target, tableName: string | symbol) {
       if (typeof tableName !== "string") return undefined;
-      if (tableName === "then" || tableName === "catch" || tableName === "finally") return undefined;
+      if (tableName === "then" || tableName === "catch" || tableName === "finally")
+        return undefined;
       // client.api proxy validates the table name and throws if invalid
       const tableClient = (client.api as any)[tableName] as TableClient<unknown, unknown>;
 
@@ -138,7 +143,10 @@ export function createBunBaseReact<S extends Record<string, unknown>>(
           },
         },
         create: {
-          mutationOptions(opts?: { onSuccess?: (data: unknown) => void; onError?: (err: unknown) => void }) {
+          mutationOptions(opts?: {
+            onSuccess?: (data: unknown) => void;
+            onError?: (err: unknown) => void;
+          }) {
             return {
               mutationFn: (data: unknown) => tableClient.create(data),
               ...(opts?.onSuccess ? { onSuccess: opts.onSuccess } : {}),
@@ -147,7 +155,10 @@ export function createBunBaseReact<S extends Record<string, unknown>>(
           },
         },
         update: {
-          mutationOptions(opts?: { onSuccess?: (data: unknown) => void; onError?: (err: unknown) => void }) {
+          mutationOptions(opts?: {
+            onSuccess?: (data: unknown) => void;
+            onError?: (err: unknown) => void;
+          }) {
             return {
               mutationFn: ({ id, data }: { id: string; data: unknown }) =>
                 tableClient.update(id, data as Partial<unknown>),
@@ -157,7 +168,10 @@ export function createBunBaseReact<S extends Record<string, unknown>>(
           },
         },
         delete: {
-          mutationOptions(opts?: { onSuccess?: (data: { deleted: boolean }) => void; onError?: (err: unknown) => void }) {
+          mutationOptions(opts?: {
+            onSuccess?: (data: { deleted: boolean }) => void;
+            onError?: (err: unknown) => void;
+          }) {
             return {
               mutationFn: ({ id }: { id: string }) => tableClient.delete(id),
               ...(opts?.onSuccess ? { onSuccess: opts.onSuccess } : {}),

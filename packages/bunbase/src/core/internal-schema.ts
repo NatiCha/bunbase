@@ -1,6 +1,17 @@
-import { sqliteTable, text as sqliteText, integer as sqliteInteger } from "drizzle-orm/sqlite-core";
-import { pgTable, text as pgText, integer as pgInteger, bigint as pgBigint } from "drizzle-orm/pg-core";
-import { mysqlTable, text as mysqlText, int as mysqlInt, bigint as mysqlBigint, char as mysqlChar } from "drizzle-orm/mysql-core";
+import {
+  bigint as mysqlBigint,
+  char as mysqlChar,
+  int as mysqlInt,
+  mysqlTable,
+  text as mysqlText,
+} from "drizzle-orm/mysql-core";
+import {
+  bigint as pgBigint,
+  integer as pgInteger,
+  pgTable,
+  text as pgText,
+} from "drizzle-orm/pg-core";
+import { integer as sqliteInteger, sqliteTable, text as sqliteText } from "drizzle-orm/sqlite-core";
 import type { Dialect } from "./db-types.ts";
 
 // ─── SQLite Variants ───
@@ -182,7 +193,10 @@ export const mysqlApiKeys = mysqlTable("_api_keys", {
 export interface InternalSchema {
   sessions: typeof sqliteSessions | typeof pgSessions | typeof mysqlSessions;
   files: typeof sqliteFiles | typeof pgFiles | typeof mysqlFiles;
-  verificationTokens: typeof sqliteVerificationTokens | typeof pgVerificationTokens | typeof mysqlVerificationTokens;
+  verificationTokens:
+    | typeof sqliteVerificationTokens
+    | typeof pgVerificationTokens
+    | typeof mysqlVerificationTokens;
   oauthAccounts: typeof sqliteOauthAccounts | typeof pgOauthAccounts | typeof mysqlOauthAccounts;
   requestLogs: typeof sqliteRequestLogs | typeof pgRequestLogs | typeof mysqlRequestLogs;
   apiKeys: typeof sqliteApiKeys | typeof pgApiKeys | typeof mysqlApiKeys;

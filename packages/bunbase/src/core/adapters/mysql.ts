@@ -165,10 +165,7 @@ export class MysqlAdapter implements DatabaseAdapter {
     return rows[0] ?? null;
   }
 
-  async rawExecute(
-    sql: string,
-    params?: Record<string, unknown>,
-  ): Promise<void> {
+  async rawExecute(sql: string, params?: Record<string, unknown>): Promise<void> {
     const { query, values } = convertParams(sql, params);
     await this.sql.unsafe(query, values);
   }

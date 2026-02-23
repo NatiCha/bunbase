@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { buildWithClause, MAX_RELATION_DEPTH } from "../crud/relations.ts";
 
 test("buildWithClause returns undefined for undefined input", () => {

@@ -1,23 +1,23 @@
+import type { Column } from "drizzle-orm";
 import { eq, getColumns } from "drizzle-orm";
+import { z } from "zod/v4";
+import { ApiError } from "../api/helpers.ts";
 import type { ResolvedConfig } from "../core/config.ts";
 import type { AnyDb } from "../core/db-types.ts";
 import type { InternalSchema } from "../core/internal-schema.ts";
-import type { Column } from "drizzle-orm";
-import { hashPassword, verifyPassword } from "./passwords.ts";
-import { createSession, deleteSession } from "./sessions.ts";
+import type { AuthHooks } from "../hooks/auth-types.ts";
 import {
   appendResponseCookies,
+  clearClientCookie,
+  clearCookie,
   serializeCookie,
   sessionCookieOptions,
-  clearCookie,
-  clearClientCookie,
 } from "./cookies.ts";
 import { setCsrfCookie, validateCsrf } from "./csrf.ts";
-import { checkRateLimit, getClientIp } from "./rate-limit.ts";
 import { extractAuth, extractSessionId, isBearerOnly } from "./middleware.ts";
-import { z } from "zod/v4";
-import type { AuthHooks } from "../hooks/auth-types.ts";
-import { ApiError } from "../api/helpers.ts";
+import { hashPassword, verifyPassword } from "./passwords.ts";
+import { checkRateLimit, getClientIp } from "./rate-limit.ts";
+import { createSession, deleteSession } from "./sessions.ts";
 
 /**
  * Primary auth routes: register, login, logout, and me.
@@ -137,11 +137,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
       async POST(req: Request): Promise<Response> {
         return withRateLimit(req, config.trustedProxies, async () => {
           if (!usersTable) {
-            return jsonError(
-              "INTERNAL_SERVER_ERROR",
-              "BunBase users table is not configured",
-              500,
-            );
+            return jsonError("INTERNAL_SERVER_ERROR", "BunBase users table is not configured", 500);
           }
 
           let body: unknown;
@@ -181,31 +177,19 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
           const providedExtraColumns = new Set<string>();
           for (const [field, value] of extraFields) {
             if (BLOCKED_SIGNUP_FIELDS.has(field)) {
-              return jsonError(
-                "BAD_REQUEST",
-                `Field "${field}" cannot be set during signup`,
-                400,
-              );
+              return jsonError("BAD_REQUEST", `Field "${field}" cannot be set during signup`, 400);
             }
 
             const columnInfo = byInputField.get(field);
             if (!columnInfo) {
-              return jsonError(
-                "BAD_REQUEST",
-                `Unknown users field "${field}"`,
-                400,
-              );
+              return jsonError("BAD_REQUEST", `Unknown users field "${field}"`, 400);
             }
 
             if (
               BLOCKED_SIGNUP_FIELDS.has(columnInfo.key) ||
               BLOCKED_SIGNUP_FIELDS.has((columnInfo.column as any).name)
             ) {
-              return jsonError(
-                "BAD_REQUEST",
-                `Field "${field}" cannot be set during signup`,
-                400,
-              );
+              return jsonError("BAD_REQUEST", `Field "${field}" cannot be set during signup`, 400);
             }
 
             signupExtrasByKey[columnInfo.key] = value;
@@ -227,8 +211,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
           const existingRows = await (db as any)
             .select({ id: usersTable.id })
             .from(usersTable)
-            .where(eq(usersTable.email, email))
-            ;
+            .where(eq(usersTable.email, email));
 
           if (existingRows.length > 0) {
             return jsonError("CONFLICT", "Email already registered", 409);
@@ -267,8 +250,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
           const createdRows = await (db as any)
             .select()
             .from(usersTable)
-            .where(eq(usersTable.id, id))
-            ;
+            .where(eq(usersTable.id, id));
 
           const createdUser = createdRows[0];
 
@@ -278,7 +260,9 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
           if (authHooks?.afterRegister) {
             try {
               await authHooks.afterRegister({
-                user: createdUser ? stripSensitiveUserFields(createdUser) : { id, email, role: "user" },
+                user: createdUser
+                  ? stripSensitiveUserFields(createdUser)
+                  : { id, email, role: "user" },
                 userId: id,
               });
             } catch (err) {
@@ -318,11 +302,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
       async POST(req: Request): Promise<Response> {
         return withRateLimit(req, config.trustedProxies, async () => {
           if (!usersTable) {
-            return jsonError(
-              "INTERNAL_SERVER_ERROR",
-              "BunBase users table is not configured",
-              500,
-            );
+            return jsonError("INTERNAL_SERVER_ERROR", "BunBase users table is not configured", 500);
           }
 
           let body: unknown;
@@ -362,8 +342,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
           const rows = await (db as any)
             .select()
             .from(usersTable)
-            .where(eq(usersTable.email, email))
-            ;
+            .where(eq(usersTable.email, email));
 
           const user = rows[0];
           if (!user) {
@@ -389,7 +368,10 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
 
           if (authHooks?.afterLogin) {
             try {
-              await authHooks.afterLogin({ user: stripSensitiveUserFields(user), userId: String(user.id) });
+              await authHooks.afterLogin({
+                user: stripSensitiveUserFields(user),
+                userId: String(user.id),
+              });
             } catch (err) {
               console.error("[BunBase] afterLogin hook error:", err);
             }

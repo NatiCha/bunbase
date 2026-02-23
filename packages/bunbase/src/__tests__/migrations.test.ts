@@ -1,7 +1,7 @@
-import { test, expect } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createDatabase, runUserMigrations } from "../core/database.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 

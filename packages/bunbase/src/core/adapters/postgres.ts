@@ -23,7 +23,7 @@ export class PostgresAdapter implements DatabaseAdapter {
       await this.sql`SELECT 1`;
     } catch (err: any) {
       const msg: string = err?.message ?? "";
-      if (!msg.includes("does not exist") && !msg.includes("database") ) {
+      if (!msg.includes("does not exist") && !msg.includes("database")) {
         throw err; // Unrelated error — surface it
       }
 
@@ -121,11 +121,15 @@ export class PostgresAdapter implements DatabaseAdapter {
     // Indexes
     await this.sql`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON _sessions(user_id)`;
     await this.sql`CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON _sessions(expires_at)`;
-    await this.sql`CREATE INDEX IF NOT EXISTS idx_files_collection_record ON _files(collection, record_id)`;
-    await this.sql`CREATE INDEX IF NOT EXISTS idx_verification_tokens_user ON _verification_tokens(user_id)`;
+    await this
+      .sql`CREATE INDEX IF NOT EXISTS idx_files_collection_record ON _files(collection, record_id)`;
+    await this
+      .sql`CREATE INDEX IF NOT EXISTS idx_verification_tokens_user ON _verification_tokens(user_id)`;
     await this.sql`CREATE INDEX IF NOT EXISTS idx_oauth_accounts_user ON _oauth_accounts(user_id)`;
-    await this.sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_accounts_provider ON _oauth_accounts(provider, provider_account_id)`;
-    await this.sql`CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON _request_logs(timestamp)`;
+    await this
+      .sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_accounts_provider ON _oauth_accounts(provider, provider_account_id)`;
+    await this
+      .sql`CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON _request_logs(timestamp)`;
     await this.sql`CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON _api_keys(user_id)`;
     await this.sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_hash ON _api_keys(key_hash)`;
   }
@@ -148,10 +152,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     return rows[0] ?? null;
   }
 
-  async rawExecute(
-    sql: string,
-    params?: Record<string, unknown>,
-  ): Promise<void> {
+  async rawExecute(sql: string, params?: Record<string, unknown>): Promise<void> {
     const { query, values } = convertParams(sql, params);
     await this.sql.unsafe(query, values);
   }

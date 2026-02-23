@@ -2,12 +2,12 @@
  * Integration tests for realtime WebSocket support.
  * Uses real HTTP servers on port 0 and Bun's native WebSocket client.
  */
-import { test, expect, beforeAll, afterAll, describe } from "bun:test";
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { eq } from "drizzle-orm";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { eq } from "drizzle-orm";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { createServer } from "../core/server.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 
@@ -95,8 +95,22 @@ function waitForOpen(ws: WebSocket, timeout = 3000): Promise<void> {
   if (ws.readyState === WebSocket.OPEN) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("waitForOpen: timeout")), timeout);
-    ws.addEventListener("open", () => { clearTimeout(timer); resolve(); }, { once: true });
-    ws.addEventListener("error", (e) => { clearTimeout(timer); reject(e); }, { once: true });
+    ws.addEventListener(
+      "open",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+    ws.addEventListener(
+      "error",
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+      { once: true },
+    );
   });
 }
 
@@ -105,18 +119,20 @@ function waitForClose(ws: WebSocket, timeout = 3000): Promise<void> {
   if (ws.readyState === WebSocket.CLOSED) return Promise.resolve();
   return new Promise((resolve) => {
     const timer = setTimeout(resolve, timeout);
-    ws.addEventListener("close", () => { clearTimeout(timer); resolve(); }, { once: true });
+    ws.addEventListener(
+      "close",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
   });
 }
 
 // ─── DB seed helpers ──────────────────────────────────────────────────────────
 
-async function seedUser(
-  adapter: any,
-  id: string,
-  email: string,
-  sessionId: string,
-): Promise<void> {
+async function seedUser(adapter: any, id: string, email: string, sessionId: string): Promise<void> {
   // Use a dummy hash (no real password validation needed for WS auth tests)
   const hash = "$2b$10$fakehashfakehashfakehashfakehash00000000000";
   await adapter.rawExecute(
@@ -143,7 +159,7 @@ let userBSession: string;
 let latestListRuleArg: any = null;
 
 const CSRF = "rt-test-csrf";
-const csrfHeaders = { "x-csrf-token": CSRF, cookie: `csrf_token=${CSRF}` };
+const _csrfHeaders = { "x-csrf-token": CSRF, cookie: `csrf_token=${CSRF}` };
 
 function csrfHeadersWithSession(sessionId: string) {
   return { "x-csrf-token": CSRF, cookie: `csrf_token=${CSRF}; bunbase_session=${sessionId}` };
@@ -216,7 +232,11 @@ beforeAll(async () => {
 afterAll(() => {
   server?.stop(true);
   bunbase?.adapter.close();
-  try { rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ }
+  try {
+    rmSync(root, { recursive: true, force: true });
+  } catch {
+    /* best effort */
+  }
 });
 
 // ─── Test: Unauthenticated subscribe to public table ─────────────────────────
@@ -271,7 +291,8 @@ test("auth client receives INSERT, UPDATE, DELETE events for own tasks", async (
 
   // INSERT
   const insertPromise = helper.next(
-    (m) => m.type === "table:change" && (m as any).action === "INSERT" && (m as any).id === "ta-e2e-1",
+    (m) =>
+      m.type === "table:change" && (m as any).action === "INSERT" && (m as any).id === "ta-e2e-1",
   );
   const createRes = await fetch(`${base}/api/tasks`, {
     method: "POST",
@@ -285,7 +306,8 @@ test("auth client receives INSERT, UPDATE, DELETE events for own tasks", async (
 
   // UPDATE
   const updatePromise = helper.next(
-    (m) => m.type === "table:change" && (m as any).action === "UPDATE" && (m as any).id === "ta-e2e-1",
+    (m) =>
+      m.type === "table:change" && (m as any).action === "UPDATE" && (m as any).id === "ta-e2e-1",
   );
   await fetch(`${base}/api/tasks/ta-e2e-1`, {
     method: "PATCH",
@@ -298,7 +320,8 @@ test("auth client receives INSERT, UPDATE, DELETE events for own tasks", async (
 
   // DELETE
   const deletePromise = helper.next(
-    (m) => m.type === "table:change" && (m as any).action === "DELETE" && (m as any).id === "ta-e2e-1",
+    (m) =>
+      m.type === "table:change" && (m as any).action === "DELETE" && (m as any).id === "ta-e2e-1",
   );
   await fetch(`${base}/api/tasks/ta-e2e-1`, {
     method: "DELETE",
@@ -485,9 +508,7 @@ test("filtered subscriber receives DELETE id-only when previously visible task d
   ws.send(JSON.stringify({ type: "subscribe:table", table: "tasks" }));
   await delay(150); // wait for visibleIds seed
 
-  const delPromise = helper.next(
-    (m) => m.type === "table:change" && (m as any).id === "ta-del-1",
-  );
+  const delPromise = helper.next((m) => m.type === "table:change" && (m as any).id === "ta-del-1");
   await fetch(`${base}/api/tasks/ta-del-1`, {
     method: "DELETE",
     headers: csrfHeadersWithSession(userASession),
@@ -564,7 +585,12 @@ test("two auth clients subscribe to channel and receive broadcasts from each oth
   const bPromise = helperB.next((m) => m.type === "broadcast" && (m as any).event === "ping");
 
   wsA.send(
-    JSON.stringify({ type: "broadcast", channel: "room:123", event: "ping", payload: { from: "A" } }),
+    JSON.stringify({
+      type: "broadcast",
+      channel: "room:123",
+      event: "ping",
+      payload: { from: "A" },
+    }),
   );
 
   const [msgA, msgB] = await Promise.all([aPromise, bPromise]);
@@ -669,7 +695,9 @@ test("presence — join emits state to joiner and join event to others", async (
   const aStatePromise = helperA.next((m) => m.type === "presence:state");
   const bJoinPromise = helperB.next((m) => m.type === "presence:join");
 
-  wsA.send(JSON.stringify({ type: "subscribe:presence", channel: "lobby", meta: { name: "Alice" } }));
+  wsA.send(
+    JSON.stringify({ type: "subscribe:presence", channel: "lobby", meta: { name: "Alice" } }),
+  );
 
   const [stateA, joinB] = await Promise.all([aStatePromise, bJoinPromise]);
   expect((stateA as any).users.length).toBeGreaterThanOrEqual(1);
@@ -696,7 +724,7 @@ test("presence — disconnect without explicit unsubscribe emits leave to others
   });
   await Promise.all([waitForOpen(wsA), waitForOpen(wsB)]);
 
-  const helperA = createWsHelper(wsA);
+  const _helperA = createWsHelper(wsA);
   const helperB = createWsHelper(wsB);
 
   // B joins the channel to observe
@@ -834,8 +862,7 @@ test("duplicate subscribe:table messages are idempotent — exactly one event pe
   // A duplicate subscriber would leave one extra copy of each — assert none remain.
   const duplicates = helper.buffer.filter(
     (m) =>
-      m.type === "table:change" &&
-      ((m as any).id === "ta-dup-1" || (m as any).id === "ta-dup-2"),
+      m.type === "table:change" && ((m as any).id === "ta-dup-1" || (m as any).id === "ta-dup-2"),
   );
   expect(duplicates.length).toBe(0);
 

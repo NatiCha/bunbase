@@ -1,4 +1,4 @@
-import type { OAuthProvider, OAuthUserInfo, CustomOAuthProviderConfig } from "./types.ts";
+import type { CustomOAuthProviderConfig, OAuthProvider, OAuthUserInfo } from "./types.ts";
 
 /**
  * Generic OAuth provider factory used by `defineOAuthProvider`.

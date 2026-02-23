@@ -1,22 +1,18 @@
-import { eq, and } from "drizzle-orm";
-import type { ResolvedConfig, OAuthProviderConfig } from "../../core/config.ts";
+import { and, eq } from "drizzle-orm";
+import { ApiError } from "../../api/helpers.ts";
+import type { OAuthProviderConfig, ResolvedConfig } from "../../core/config.ts";
 import type { AnyDb } from "../../core/db-types.ts";
 import type { InternalSchema } from "../../core/internal-schema.ts";
-import type { OAuthProvider, CustomOAuthProviderConfig } from "./types.ts";
-import { google } from "./google.ts";
-import { github } from "./github.ts";
+import type { AuthHooks } from "../../hooks/auth-types.ts";
+import { appendResponseCookies, serializeCookie, sessionCookieOptions } from "../cookies.ts";
+import { setCsrfCookie, validateCsrf } from "../csrf.ts";
+import { extractAuth } from "../middleware.ts";
+import { createSession } from "../sessions.ts";
 import { discord } from "./discord.ts";
 import { createGenericOAuthProvider } from "./generic.ts";
-import { createSession } from "../sessions.ts";
-import {
-  appendResponseCookies,
-  serializeCookie,
-  sessionCookieOptions,
-} from "../cookies.ts";
-import { setCsrfCookie, validateCsrf } from "../csrf.ts";
-import type { AuthHooks } from "../../hooks/auth-types.ts";
-import { ApiError } from "../../api/helpers.ts";
-import { extractAuth } from "../middleware.ts";
+import { github } from "./github.ts";
+import { google } from "./google.ts";
+import type { CustomOAuthProviderConfig, OAuthProvider } from "./types.ts";
 
 /**
  * OAuth login/link route factory.
@@ -34,7 +30,8 @@ function isUniqueConstraintError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const e = err as Record<string, unknown>;
   // SQLite: "UNIQUE constraint failed: ..."
-  if (typeof e.message === "string" && e.message.toLowerCase().includes("unique constraint failed")) return true;
+  if (typeof e.message === "string" && e.message.toLowerCase().includes("unique constraint failed"))
+    return true;
   // Postgres: error code 23505
   if (e.code === "23505") return true;
   // MySQL: errno 1062 / code ER_DUP_ENTRY
@@ -69,10 +66,15 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
 
   // Unified credential lookup: built-in providers use their OAuthProviderConfig,
   // custom providers embed clientId/clientSecret in CustomOAuthProviderConfig.
-  function getProviderCredentials(name: string): { clientId: string; clientSecret: string } | undefined {
-    const builtinCfg = oauthConfig![name as keyof typeof oauthConfig] as OAuthProviderConfig | undefined;
-    if (builtinCfg && "clientId" in builtinCfg) return { clientId: builtinCfg.clientId, clientSecret: builtinCfg.clientSecret };
-    const customCfg = oauthConfig!.providers?.[name];
+  function getProviderCredentials(
+    name: string,
+  ): { clientId: string; clientSecret: string } | undefined {
+    const builtinCfg = oauthConfig?.[name as keyof typeof oauthConfig] as
+      | OAuthProviderConfig
+      | undefined;
+    if (builtinCfg && "clientId" in builtinCfg)
+      return { clientId: builtinCfg.clientId, clientSecret: builtinCfg.clientSecret };
+    const customCfg = oauthConfig?.providers?.[name];
     if (customCfg) return { clientId: customCfg.clientId, clientSecret: customCfg.clientSecret };
     return undefined;
   }
@@ -87,7 +89,9 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
   }
 
   /** Extract and parse the state cookie, supporting legacy plain-UUID format. */
-  function parseStateCookie(req: Request): { nonce: string; action: string; userId?: string } | null {
+  function parseStateCookie(
+    req: Request,
+  ): { nonce: string; action: string; userId?: string } | null {
     const cookieHeader = req.headers.get("cookie") ?? "";
     const rawPart = cookieHeader
       .split(";")
@@ -108,9 +112,7 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
     const providerConfig = getProviderCredentials(providerName);
     if (!providerConfig) continue;
 
-    const baseCallbackUrl = isDev
-      ? "http://localhost:3000"
-      : oauthConfig.redirectUrl ?? "";
+    const baseCallbackUrl = isDev ? "http://localhost:3000" : (oauthConfig.redirectUrl ?? "");
 
     const redirectUri = `${baseCallbackUrl}/auth/oauth/${providerName}/callback`;
 
@@ -192,7 +194,11 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
               if (err instanceof ApiError) {
                 return jsonError(err.code, err.message, err.status);
               }
-              return jsonError("AUTH_HOOK_ERROR", "An error occurred in beforeOAuthLogin hook", 500);
+              return jsonError(
+                "AUTH_HOOK_ERROR",
+                "An error occurred in beforeOAuthLogin hook",
+                500,
+              );
             }
           }
 
@@ -302,15 +308,13 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
             // Link OAuth account — tolerate a race where a concurrent callback
             // already inserted the same (provider, providerAccountId) pair
             try {
-              await (db as any)
-                .insert(oauthAccounts)
-                .values({
-                  id: Bun.randomUUIDv7(),
-                  userId,
-                  provider: providerName,
-                  providerAccountId: userInfo.id,
-                  createdAt: new Date().toISOString(),
-                });
+              await (db as any).insert(oauthAccounts).values({
+                id: Bun.randomUUIDv7(),
+                userId,
+                provider: providerName,
+                providerAccountId: userInfo.id,
+                createdAt: new Date().toISOString(),
+              });
             } catch (linkErr) {
               if (!isUniqueConstraintError(linkErr)) throw linkErr;
               // Unique constraint fired — a concurrent callback already linked this
@@ -340,9 +344,17 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
 
           if (authHooks?.afterOAuthLogin) {
             try {
-              const userRows = await (db as any).select().from(usersTable).where(eq(usersTable.id, userId));
+              const userRows = await (db as any)
+                .select()
+                .from(usersTable)
+                .where(eq(usersTable.id, userId));
               const oauthUser = userRows[0] ?? { id: userId };
-              await authHooks.afterOAuthLogin({ user: oauthUser, userId, provider: providerName, isNewUser });
+              await authHooks.afterOAuthLogin({
+                user: oauthUser,
+                userId,
+                provider: providerName,
+                isNewUser,
+              });
             } catch (err) {
               console.error(`[BunBase] afterOAuthLogin hook error:`, err);
             }

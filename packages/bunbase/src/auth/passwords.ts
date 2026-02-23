@@ -9,9 +9,6 @@ export async function hashPassword(password: string): Promise<string> {
 }
 
 /** Verify a plaintext password against a stored password hash. */
-export async function verifyPassword(
-  password: string,
-  hash: string,
-): Promise<boolean> {
+export async function verifyPassword(password: string, hash: string): Promise<boolean> {
   return Bun.password.verify(password, hash);
 }

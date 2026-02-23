@@ -1,7 +1,7 @@
 /**
  * Unit tests for PresenceTracker
  */
-import { test, expect, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { PresenceTracker } from "../realtime/presence.ts";
 
 // Fake WS references — just objects for identity comparison

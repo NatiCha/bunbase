@@ -1,4 +1,4 @@
-import type { SQL, InferInsertModel, InferSelectModel, Table } from "drizzle-orm";
+import type { InferInsertModel, InferSelectModel, SQL, Table } from "drizzle-orm";
 import type { AuthUser } from "../api/types.ts";
 import type { AnyDb } from "../core/db-types.ts";
 
@@ -20,13 +20,13 @@ export type RuleArg<
   TQuery extends Record<string, string> = Record<string, string>,
 > = {
   auth: AuthUser | null;
-  id?: string;                            // record id (get/update/delete)
-  record?: TRecord;                       // existing record (update/delete)
-  body: TBody;                            // request body (create/update), {} otherwise
-  headers: Record<string, string>;        // lowercased header keys
-  query: TQuery;                          // URL search params
-  method: string;                         // GET, POST, PATCH, DELETE, SUBSCRIBE
-  db: AnyDb;                              // for cross-table queries
+  id?: string; // record id (get/update/delete)
+  record?: TRecord; // existing record (update/delete)
+  body: TBody; // request body (create/update), {} otherwise
+  headers: Record<string, string>; // lowercased header keys
+  query: TQuery; // URL search params
+  method: string; // GET, POST, PATCH, DELETE, SUBSCRIBE
+  db: AnyDb; // for cross-table queries
 };
 
 /**
@@ -40,8 +40,9 @@ export type RuleArg<
 export type RuleResult = boolean | SQL | null;
 
 /** Rule function type used for table operation checks. */
-export type RuleFunction<TArg extends RuleArg = RuleArg> =
-  (arg: TArg) => RuleResult | Promise<RuleResult>;
+export type RuleFunction<TArg extends RuleArg = RuleArg> = (
+  arg: TArg,
+) => RuleResult | Promise<RuleResult>;
 
 export interface TableRules {
   list?: RuleFunction;
@@ -62,11 +63,36 @@ export type Rules = Record<string, TableRules>;
  * `record` is typed as the table's select model; `body` as a partial insert model.
  */
 export type TableRulesFor<TTable extends Table> = {
-  list?:   RuleFunction<RuleArg<InferSelectModel<TTable> & Record<string, unknown>, Partial<InferInsertModel<TTable>> & Record<string, unknown>>>;
-  get?:    RuleFunction<RuleArg<InferSelectModel<TTable> & Record<string, unknown>, Partial<InferInsertModel<TTable>> & Record<string, unknown>>>;
-  create?: RuleFunction<RuleArg<InferSelectModel<TTable> & Record<string, unknown>, Partial<InferInsertModel<TTable>> & Record<string, unknown>>>;
-  update?: RuleFunction<RuleArg<InferSelectModel<TTable> & Record<string, unknown>, Partial<InferInsertModel<TTable>> & Record<string, unknown>>>;
-  delete?: RuleFunction<RuleArg<InferSelectModel<TTable> & Record<string, unknown>, Partial<InferInsertModel<TTable>> & Record<string, unknown>>>;
+  list?: RuleFunction<
+    RuleArg<
+      InferSelectModel<TTable> & Record<string, unknown>,
+      Partial<InferInsertModel<TTable>> & Record<string, unknown>
+    >
+  >;
+  get?: RuleFunction<
+    RuleArg<
+      InferSelectModel<TTable> & Record<string, unknown>,
+      Partial<InferInsertModel<TTable>> & Record<string, unknown>
+    >
+  >;
+  create?: RuleFunction<
+    RuleArg<
+      InferSelectModel<TTable> & Record<string, unknown>,
+      Partial<InferInsertModel<TTable>> & Record<string, unknown>
+    >
+  >;
+  update?: RuleFunction<
+    RuleArg<
+      InferSelectModel<TTable> & Record<string, unknown>,
+      Partial<InferInsertModel<TTable>> & Record<string, unknown>
+    >
+  >;
+  delete?: RuleFunction<
+    RuleArg<
+      InferSelectModel<TTable> & Record<string, unknown>,
+      Partial<InferInsertModel<TTable>> & Record<string, unknown>
+    >
+  >;
 };
 
 /**
@@ -83,7 +109,10 @@ export type TableRulesFor<TTable extends Table> = {
  * }
  * ```
  */
-export function defineRules<TTable extends Table>(table: TTable, rules: TableRulesFor<TTable>): TableRulesFor<TTable>;
+export function defineRules<TTable extends Table>(
+  table: TTable,
+  rules: TableRulesFor<TTable>,
+): TableRulesFor<TTable>;
 /**
  * Define rules for multiple tables at once (untyped records):
  *

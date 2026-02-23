@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { hashPassword, verifyPassword } from "../auth/passwords.ts";
 
 test("hashPassword returns a non-empty string different from the plaintext", async () => {

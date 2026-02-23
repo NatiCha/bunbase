@@ -1,5 +1,5 @@
-import { test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
+import { expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { createAuthRoutes } from "../auth/routes.ts";
@@ -97,19 +97,27 @@ test("register returns 409 when email is already registered", async () => {
   const ip = uniqueIp(); // same IP for both requests in this test
 
   await routes["/auth/register"].POST(
-    makeReq("/auth/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: "dupe@example.com", password: "password123" }),
-    }, ip),
+    makeReq(
+      "/auth/register",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "dupe@example.com", password: "password123" }),
+      },
+      ip,
+    ),
   );
 
   const response = await routes["/auth/register"].POST(
-    makeReq("/auth/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: "dupe@example.com", password: "password123" }),
-    }, ip),
+    makeReq(
+      "/auth/register",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "dupe@example.com", password: "password123" }),
+      },
+      ip,
+    ),
   );
   expect(response.status).toBe(409);
   sqlite.close();
@@ -201,9 +209,7 @@ test("login returns 401 for wrong password", async () => {
   const { sqlite, db, internalSchema } = setupDb();
   const passwordHash = await Bun.password.hash("correctpass");
   sqlite
-    .query(
-      "INSERT INTO users (id, email, password_hash, role) VALUES ($id, $email, $hash, $role)",
-    )
+    .query("INSERT INTO users (id, email, password_hash, role) VALUES ($id, $email, $hash, $role)")
     .run({
       $id: "u1",
       $email: "wrong@example.com",
@@ -232,9 +238,7 @@ test("login returns 401 for wrong password", async () => {
 test("login returns 401 for OAuth user without password hash", async () => {
   const { sqlite, db, internalSchema } = setupDb();
   sqlite
-    .query(
-      "INSERT INTO users (id, email, password_hash, role) VALUES ($id, $email, $hash, $role)",
-    )
+    .query("INSERT INTO users (id, email, password_hash, role) VALUES ($id, $email, $hash, $role)")
     .run({
       $id: "oauth-user",
       $email: "oauth@example.com",
@@ -257,7 +261,7 @@ test("login returns 401 for OAuth user without password hash", async () => {
     }),
   );
   expect(response.status).toBe(401);
-  const body = await response.json() as { error: { message: string } };
+  const body = (await response.json()) as { error: { message: string } };
   expect(body.error.message).toBe("Invalid email or password");
   sqlite.close();
 });
@@ -291,9 +295,7 @@ test("/auth/me returns 401 when no session cookie is present", async () => {
     usersTable,
   });
 
-  const response = await routes["/auth/me"].GET(
-    new Request("http://localhost/auth/me"),
-  );
+  const response = await routes["/auth/me"].GET(new Request("http://localhost/auth/me"));
   expect(response.status).toBe(401);
   sqlite.close();
 });
@@ -345,7 +347,7 @@ test("register returns 400 when signup field maps via column name to a blocked f
     }),
   );
   expect(response.status).toBe(400);
-  const body = await response.json() as { error: { message: string } };
+  const body = (await response.json()) as { error: { message: string } };
   expect(body.error.message).toContain("cannot be set during signup");
   sqlite.close();
 });
@@ -396,7 +398,7 @@ test("register returns 400 when a required schema field is missing", async () =>
     }),
   );
   expect(response.status).toBe(400);
-  const body = await response.json() as { error: { message: string } };
+  const body = (await response.json()) as { error: { message: string } };
   expect(body.error.message).toContain("company");
   sqlite.close();
 });
@@ -418,22 +420,30 @@ test("register returns 429 after exceeding the rate limit", async () => {
   // Make 10 requests (exhausts the allowance; the 11th will be blocked)
   for (let i = 0; i < 10; i++) {
     await routes["/auth/register"].POST(
-      makeReq("/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        // Invalid JSON triggers a fast 400 with minimal overhead
-        body: "bad",
-      }, blockedIp),
+      makeReq(
+        "/auth/register",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          // Invalid JSON triggers a fast 400 with minimal overhead
+          body: "bad",
+        },
+        blockedIp,
+      ),
     );
   }
 
   // The 11th request should be rate-limited (429)
   const blocked = await routes["/auth/register"].POST(
-    makeReq("/auth/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "bad",
-    }, blockedIp),
+    makeReq(
+      "/auth/register",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "bad",
+      },
+      blockedIp,
+    ),
   );
   expect(blocked.status).toBe(429);
   sqlite.close();

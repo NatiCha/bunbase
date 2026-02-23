@@ -1,10 +1,6 @@
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
-import {
-  evaluateRule,
-  isAuthenticated,
-  isAdmin,
-} from "../rules/evaluator.ts";
+import { evaluateRule, isAdmin, isAuthenticated } from "../rules/evaluator.ts";
 import type { RuleArg } from "../rules/types.ts";
 
 const authUser = { id: "u1", email: "u1@example.com", role: "user" as const };
@@ -66,7 +62,10 @@ test("evaluateRule passes full RuleArg to rule function", async () => {
     method: "PATCH",
     db: {} as any,
   };
-  await evaluateRule((a) => { captured.push(a); return true; }, arg);
+  await evaluateRule((a) => {
+    captured.push(a);
+    return true;
+  }, arg);
   expect(captured[0]).toBe(arg);
   expect(captured[0].record).toEqual({ title: "old" });
   expect(captured[0].body).toEqual({ title: "new" });

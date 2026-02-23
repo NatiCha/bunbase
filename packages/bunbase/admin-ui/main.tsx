@@ -1,14 +1,14 @@
-import React, { createContext, useContext, useEffect, useState, type CSSProperties } from "react";
+import React, { type CSSProperties, createContext, useContext, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AppSidebar, type NavSection } from "./components/AppSidebar.tsx";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "./components/ui/sidebar.tsx";
-import { AuthDashboard, type AuthTab } from "./pages/AuthDashboard.tsx";
-import { RequestLogPage } from "./pages/RequestLog.tsx";
-import { StorageBrowser } from "./pages/StorageBrowser.tsx";
+import { type AdminUser, api, type TableInfo } from "./lib/api.ts";
 import { ApiExplorer, type ApiProcedure, type ApiSchema } from "./pages/ApiExplorer.tsx";
+import { AuthDashboard, type AuthTab } from "./pages/AuthDashboard.tsx";
 import { DataBrowser } from "./pages/DataBrowser.tsx";
+import { RequestLogPage } from "./pages/RequestLog.tsx";
 import { Settings } from "./pages/Settings.tsx";
-import { api, type AdminUser, type TableInfo } from "./lib/api.ts";
+import { StorageBrowser } from "./pages/StorageBrowser.tsx";
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 
@@ -54,11 +54,7 @@ function ThemeProvider({ children }: { children: React.ReactNode }) {
     setThemeState(t);
   };
 
-  return (
-    <ThemeContext.Provider value={{ theme, setTheme }}>
-      {children}
-    </ThemeContext.Provider>
-  );
+  return <ThemeContext.Provider value={{ theme, setTheme }}>{children}</ThemeContext.Provider>;
 }
 
 function useTheme() {
@@ -69,7 +65,14 @@ function useTheme() {
 
 function getHashSection(): NavSection {
   const hash = window.location.hash.replace("#/", "");
-  if (hash === "collections" || hash === "auth" || hash === "logs" || hash === "storage" || hash === "api" || hash === "settings") {
+  if (
+    hash === "collections" ||
+    hash === "auth" ||
+    hash === "logs" ||
+    hash === "storage" ||
+    hash === "api" ||
+    hash === "settings"
+  ) {
     return hash;
   }
   return "collections";
@@ -122,7 +125,7 @@ function LoginPrompt() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      const data = await res.json() as any;
+      const data = (await res.json()) as any;
       if (!res.ok) {
         setError(data?.error?.message ?? "Login failed");
         return;
@@ -149,10 +152,15 @@ function LoginPrompt() {
             </svg>
           </div>
           <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">BunBase Admin</h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Sign in with an admin account</p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Sign in with an admin account
+          </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <form
+          onSubmit={handleSubmit}
+          className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900"
+        >
           {error && (
             <div className="mb-4 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-400">
               {error}
@@ -160,7 +168,9 @@ function LoginPrompt() {
           )}
 
           <div className="mb-4">
-            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Email
+            </label>
             <input
               type="email"
               value={email}
@@ -172,7 +182,9 @@ function LoginPrompt() {
           </div>
 
           <div className="mb-6">
-            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">Password</label>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Password
+            </label>
             <input
               type="password"
               value={password}
@@ -221,14 +233,18 @@ function AdminApp({ user }: { user: MeUser }) {
 
     if (Object.keys(apiSchema).length === 0 && !apiSchemaLoading) {
       setApiSchemaLoading(true);
-      api.getSchema()
+      api
+        .getSchema()
         .then((schema) => setApiSchema(schema))
         .catch(() => {})
         .finally(() => setApiSchemaLoading(false));
     }
 
     if (apiUsers.length === 0) {
-      api.getUsers().then(setApiUsers).catch(() => {});
+      api
+        .getUsers()
+        .then(setApiUsers)
+        .catch(() => {});
     }
   }, [section, apiSchema, apiSchemaLoading, apiUsers.length]);
 
@@ -255,10 +271,7 @@ function AdminApp({ user }: { user: MeUser }) {
   };
 
   return (
-    <SidebarProvider
-      defaultOpen={true}
-      style={{ "--sidebar-width": "280px" } as CSSProperties}
-    >
+    <SidebarProvider defaultOpen={true} style={{ "--sidebar-width": "280px" } as CSSProperties}>
       <AppSidebar
         active={section}
         onNavigate={navigate}
@@ -292,9 +305,13 @@ function AdminApp({ user }: { user: MeUser }) {
               <div className="flex items-center gap-2 text-sm">
                 <span className="hidden text-sidebar-foreground/60 md:inline">Admin</span>
                 <span className="hidden text-sidebar-foreground/40 md:inline">/</span>
-                <span className="font-medium text-sidebar-foreground">{SECTION_LABELS[section]}</span>
+                <span className="font-medium text-sidebar-foreground">
+                  {SECTION_LABELS[section]}
+                </span>
               </div>
-              <p className="mt-1 text-xs text-sidebar-foreground/60">{SECTION_DESCRIPTIONS[section]}</p>
+              <p className="mt-1 text-xs text-sidebar-foreground/60">
+                {SECTION_DESCRIPTIONS[section]}
+              </p>
             </div>
           </div>
         </header>
@@ -330,7 +347,9 @@ function AdminApp({ user }: { user: MeUser }) {
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
 function Root() {
-  const [status, setStatus] = useState<"loading" | "unauthenticated" | "not-admin" | "ready">("loading");
+  const [status, setStatus] = useState<"loading" | "unauthenticated" | "not-admin" | "ready">(
+    "loading",
+  );
   const [user, setUser] = useState<MeUser | null>(null);
 
   useEffect(() => {
@@ -340,7 +359,7 @@ function Root() {
           setStatus("unauthenticated");
           return;
         }
-        const data = await res.json() as { user: MeUser };
+        const data = (await res.json()) as { user: MeUser };
         if (data.user.role !== "admin") {
           setStatus("not-admin");
           return;
@@ -368,7 +387,9 @@ function Root() {
       <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-950">
         <div className="max-w-sm text-center">
           <p className="font-medium text-gray-900 dark:text-gray-100">Access denied</p>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Your account does not have admin privileges.</p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Your account does not have admin privileges.
+          </p>
         </div>
       </div>
     );
@@ -381,5 +402,5 @@ const root = createRoot(document.getElementById("root")!);
 root.render(
   <ThemeProvider>
     <Root />
-  </ThemeProvider>
+  </ThemeProvider>,
 );

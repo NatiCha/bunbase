@@ -1,6 +1,25 @@
 {
   "name": "bunbase",
   "version": "0.0.1",
+  "description": "TypeScript-native Backend-as-a-Service built on Bun — REST API, auth, realtime, storage, and admin UI from a Drizzle schema",
+  "author": "NatiCha",
+  "license": "MIT",
+  "keywords": [
+    "bunbase",
+    "baas",
+    "backend",
+    "bun",
+    "drizzle",
+    "rest-api",
+    "typescript",
+    "sqlite",
+    "realtime"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NatiCha/bunbase"
+  },
+  "homepage": "https://github.com/NatiCha/bunbase#readme",
   "type": "module",
   "bin": {
     "bunbase": "./src/cli/index.ts",
@@ -24,11 +43,17 @@
       "default": "./src/testing/index.ts"
     }
   },
-  "files": ["src", "dist", "docs", "README.md"],
+  "files": [
+    "src",
+    "dist",
+    "docs",
+    "README.md"
+  ],
   "scripts": {
     "dev": "bun --hot src/index.ts",
     "start": "NODE_ENV=production bun src/index.ts",
     "build": "bun run build.ts",
+    "type": "bunx tsc --noEmit",
     "test": "bun test",
     "studio": "bunx drizzle-kit studio"
   },

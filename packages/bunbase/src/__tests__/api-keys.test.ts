@@ -4,20 +4,16 @@
  * Unit tests cover parsing helpers and direct handler calls.
  * Integration tests start a real server and exercise endpoints via fetch.
  */
-import { test, expect, beforeAll, afterAll, describe } from "bun:test";
-import { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
-import { eq } from "drizzle-orm";
-import { extractBearerToken, isBearerOnly, getApiKeyUser, extractAuth } from "../auth/middleware.ts";
+
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { createApiKeyRoutes } from "../auth/api-keys.ts";
-import { SqliteAdapter } from "../core/adapters/sqlite.ts";
-import { getInternalSchema } from "../core/internal-schema.ts";
+import { extractBearerToken, getApiKeyUser, isBearerOnly } from "../auth/middleware.ts";
 import { createServer } from "../core/server.ts";
 import { makeResolvedConfig, setupTestDb } from "./test-helpers.ts";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { mkdirSync } from "node:fs";
 
 // ─── Shared schema ────────────────────────────────────────────────────────────
 
@@ -135,8 +131,8 @@ test("getApiKeyUser returns user for valid key", async () => {
 
   const user = await getApiKeyUser(db, internalSchema, rawKey, usersTable);
   expect(user).not.toBeNull();
-  expect(user!.id).toBe("u1");
-  expect(user!.email).toBe("alice@example.com");
+  expect(user?.id).toBe("u1");
+  expect(user?.email).toBe("alice@example.com");
 
   sqlite.close();
 });
@@ -161,7 +157,15 @@ test("getApiKeyUser returns null for expired key", async () => {
 
   sqlite.run(
     "INSERT INTO _api_keys (id, user_id, key_hash, key_prefix, name, expires_at, last_used_at, created_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)",
-    ["key-expired", "u1", keyHash, "bb_live_ex", "Expired Key", expiresAt, new Date().toISOString()],
+    [
+      "key-expired",
+      "u1",
+      keyHash,
+      "bb_live_ex",
+      "Expired Key",
+      expiresAt,
+      new Date().toISOString(),
+    ],
   );
 
   const user = await getApiKeyUser(db, internalSchema, rawKey, usersTable);
@@ -210,13 +214,23 @@ test("getApiKeyUser does not update last_used_at if within 5 minutes", async () 
 
   sqlite.run(
     "INSERT INTO _api_keys (id, user_id, key_hash, key_prefix, name, expires_at, last_used_at, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
-    ["key-throttle", "u1", keyHash, "bb_live_th", "Throttle Key", recentLastUsed, new Date().toISOString()],
+    [
+      "key-throttle",
+      "u1",
+      keyHash,
+      "bb_live_th",
+      "Throttle Key",
+      recentLastUsed,
+      new Date().toISOString(),
+    ],
   );
 
   await getApiKeyUser(db, internalSchema, rawKey, usersTable);
   await new Promise((r) => setTimeout(r, 50));
 
-  const row = sqlite.query("SELECT last_used_at FROM _api_keys WHERE id = 'key-throttle'").get() as any;
+  const row = sqlite
+    .query("SELECT last_used_at FROM _api_keys WHERE id = 'key-throttle'")
+    .get() as any;
   // Should still be the original value (not updated)
   expect(row.last_used_at).toBe(recentLastUsed);
 
@@ -242,7 +256,7 @@ test("POST /auth/api-keys creates a key and returns it once", async () => {
   const { sqlite, db, internalSchema } = setupRoutesDb();
   sqlite.run("INSERT INTO users (id, email, role) VALUES ('u1', 'alice@example.com', 'user')");
 
-  let capturedUser = { id: "u1", email: "alice@example.com", role: "user" };
+  const capturedUser = { id: "u1", email: "alice@example.com", role: "user" };
   const routes = createApiKeyRoutes({
     db,
     internalSchema,
@@ -264,7 +278,7 @@ test("POST /auth/api-keys creates a key and returns it once", async () => {
   const res = await routes["/auth/api-keys"].POST(req);
   expect(res.status).toBe(201);
 
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.name).toBe("CI Pipeline");
   expect(body.key).toMatch(/^bb_live_[a-f0-9]{32}$/);
   expect(body.keyPrefix).toMatch(/^bb_live_[a-f0-9]{8}$/);
@@ -305,7 +319,7 @@ test("POST /auth/api-keys with expiresInDays sets expiry", async () => {
   });
 
   const res = await routes["/auth/api-keys"].POST(req);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1000));
 
   sqlite.close();
@@ -331,7 +345,7 @@ test("POST /auth/api-keys with expiresInDays:0 creates non-expiring key (BB-APIK
 
   const res = await routes["/auth/api-keys"].POST(req);
   expect(res.status).toBe(201);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.expiresAt).toBeNull();
 
   sqlite.close();
@@ -361,7 +375,7 @@ test("POST /auth/api-keys enforces maxExpirationDays cap (BB-APIKEY-003)", async
 
   const res = await routes["/auth/api-keys"].POST(req);
   expect(res.status).toBe(400);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.error.code).toBe("VALIDATION_ERROR");
 
   // expiresInDays within cap → 201
@@ -381,7 +395,7 @@ test("POST /auth/api-keys enforces maxExpirationDays cap (BB-APIKEY-003)", async
   });
   const res3 = await routes["/auth/api-keys"].POST(req3);
   expect(res3.status).toBe(201);
-  expect((await res3.json() as any).expiresAt).toBeNull();
+  expect(((await res3.json()) as any).expiresAt).toBeNull();
 
   sqlite.close();
 });
@@ -408,7 +422,7 @@ test("GET /auth/api-keys lists keys without raw key hash", async () => {
 
   const res = await routes["/auth/api-keys"].GET(req);
   expect(res.status).toBe(200);
-  const body = await res.json() as any[];
+  const body = (await res.json()) as any[];
   expect(body.length).toBe(1);
   expect(body[0].keyPrefix).toBe("bb_live_ab");
   expect(body[0].keyHash).toBeUndefined(); // raw hash must never be returned
@@ -439,7 +453,7 @@ test("DELETE /auth/api-keys/:id revokes own key", async () => {
 
   const res = await routes["/auth/api-keys/:id"].DELETE(req);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.deleted).toBe(true);
 
   const row = sqlite.query("SELECT id FROM _api_keys WHERE id = 'k1'").get();
@@ -598,11 +612,27 @@ beforeAll(async () => {
 
   await bunbase.adapter.rawExecute(
     "INSERT INTO _api_keys (id, user_id, key_hash, key_prefix, name, expires_at, last_used_at, created_at) VALUES ($id, $uid, $hash, $prefix, $name, $exp, NULL, $created)",
-    { $id: "admin-key-1", $uid: "admin-1", $hash: adminKeyHash, $prefix: "bb_live_ad", $name: "Admin Key", $exp: future, $created: now },
+    {
+      $id: "admin-key-1",
+      $uid: "admin-1",
+      $hash: adminKeyHash,
+      $prefix: "bb_live_ad",
+      $name: "Admin Key",
+      $exp: future,
+      $created: now,
+    },
   );
   await bunbase.adapter.rawExecute(
     "INSERT INTO _api_keys (id, user_id, key_hash, key_prefix, name, expires_at, last_used_at, created_at) VALUES ($id, $uid, $hash, $prefix, $name, $exp, NULL, $created)",
-    { $id: "user-key-1", $uid: "user-1", $hash: userKeyHash, $prefix: "bb_live_us", $name: "User Key", $exp: future, $created: now },
+    {
+      $id: "user-key-1",
+      $uid: "user-1",
+      $hash: userKeyHash,
+      $prefix: "bb_live_us",
+      $name: "User Key",
+      $exp: future,
+      $created: now,
+    },
   );
 
   integrationAdapter = bunbase.adapter;
@@ -620,7 +650,7 @@ test("integration: bearer-authenticated GET /auth/me returns user", async () => 
     credentials: "omit",
   });
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.user.id).toBe("admin-1");
   expect(body.user.role).toBe("admin");
 });
@@ -644,7 +674,7 @@ test("integration: bearer auth creates key without CSRF", async () => {
     body: JSON.stringify({ name: "New Key from Integration Test" }),
   });
   expect(res.status).toBe(201);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.key).toMatch(/^bb_live_[a-f0-9]{32}$/);
   expect(body.name).toBe("New Key from Integration Test");
 });
@@ -655,7 +685,7 @@ test("integration: GET /auth/api-keys lists own keys only", async () => {
     credentials: "omit",
   });
   expect(res.status).toBe(200);
-  const body = await res.json() as any[];
+  const body = (await res.json()) as any[];
   // user-1 has user-key-1 plus any created by earlier tests run as user-1
   expect(body.every((k: any) => k.userId === "user-1")).toBe(true);
   expect(body.some((k: any) => k.keyPrefix === "bb_live_us")).toBe(true);
@@ -689,7 +719,7 @@ test("integration: admin can delete any key via admin API", async () => {
     credentials: "omit",
     body: JSON.stringify({ name: "Throwaway Key" }),
   });
-  const created = await createRes.json() as any;
+  const created = (await createRes.json()) as any;
   const throwawayId = created.id;
 
   // Admin deletes it via the admin API endpoint
@@ -699,7 +729,7 @@ test("integration: admin can delete any key via admin API", async () => {
     credentials: "omit",
   });
   expect(delRes.status).toBe(200);
-  const body = await delRes.json() as any;
+  const body = (await delRes.json()) as any;
   expect(body.deleted).toBe(true);
 });
 

@@ -1,13 +1,13 @@
-import { test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
+import { expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
-import { createFileRoutes } from "../storage/routes.ts";
 import { SqliteAdapter } from "../core/adapters/sqlite.ts";
 import { getInternalSchema } from "../core/internal-schema.ts";
+import { createFileRoutes } from "../storage/routes.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 
 const usersTable = sqliteTable("users", {
@@ -114,9 +114,7 @@ function setupDbAndRoutes(allowView: boolean) {
 test("file download rejects unauthenticated requests", async () => {
   const { sqlite, routes, tempRoot } = setupDbAndRoutes(true);
   try {
-    const response = await routes["/files/:id"].GET(
-      new Request("http://localhost/files/file-1"),
-    );
+    const response = await routes["/files/:id"].GET(new Request("http://localhost/files/file-1"));
     expect(response.status).toBe(401);
   } finally {
     sqlite.close();

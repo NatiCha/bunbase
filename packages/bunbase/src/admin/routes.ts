@@ -1,13 +1,12 @@
-import { eq, desc } from "drizzle-orm";
+import { desc, eq, getColumns, getTableName } from "drizzle-orm";
+import type { AuthUser } from "../api/types.ts";
+import { extractAuth } from "../auth/middleware.ts";
+import type { DatabaseAdapter } from "../core/adapter.ts";
 import type { ResolvedConfig } from "../core/config.ts";
 import type { AnyDb } from "../core/db-types.ts";
 import type { InternalSchema } from "../core/internal-schema.ts";
-import type { DatabaseAdapter } from "../core/adapter.ts";
-import { extractAuth } from "../auth/middleware.ts";
-import type { AuthUser } from "../api/types.ts";
-import { createStorageDriver } from "../storage/routes.ts";
 import type { StorageDriver } from "../storage/local.ts";
-import { getTableName, getColumns } from "drizzle-orm";
+import { createStorageDriver } from "../storage/routes.ts";
 
 export interface RequestLogEntry {
   id: string;
@@ -25,18 +24,15 @@ export async function pushRequestLog(
   entry: RequestLogEntry,
 ): Promise<void> {
   const logs = internalSchema.requestLogs;
-  await (db as any)
-    .insert(logs)
-    .values({
-      id: entry.id,
-      method: entry.method,
-      path: entry.path,
-      status: entry.status,
-      durationMs: entry.durationMs,
-      userId: entry.userId,
-      timestamp: entry.timestamp,
-    })
-    ;
+  await (db as any).insert(logs).values({
+    id: entry.id,
+    method: entry.method,
+    path: entry.path,
+    status: entry.status,
+    durationMs: entry.durationMs,
+    userId: entry.userId,
+    timestamp: entry.timestamp,
+  });
 
   // Trim to 500 most recent entries — use raw SQL since subquery-based delete
   // is cleaner in raw SQL than Drizzle's API
@@ -48,8 +44,7 @@ export async function pushRequestLog(
       .from(logs)
       .orderBy(desc(logs.timestamp))
       .limit(999999)
-      .offset(500)
-      ;
+      .offset(500);
 
     if (oldRows.length > 0) {
       for (const row of oldRows) {
@@ -169,11 +164,7 @@ export async function handleAdminApi(
 
   // GET /sessions
   if (path === "/sessions" && method === "GET") {
-    const rows = await (db as any)
-      .select()
-      .from(sessions)
-      .orderBy(desc(sessions.createdAt))
-      ;
+    const rows = await (db as any).select().from(sessions).orderBy(desc(sessions.createdAt));
     return Response.json(rows);
   }
 
@@ -181,10 +172,7 @@ export async function handleAdminApi(
   const sessionDeleteMatch = path.match(/^\/sessions\/([^/]+)$/);
   if (sessionDeleteMatch && method === "DELETE") {
     const id = sessionDeleteMatch[1];
-    await (db as any)
-      .delete(sessions)
-      .where(eq(sessions.id, id))
-      ;
+    await (db as any).delete(sessions).where(eq(sessions.id, id));
     return Response.json({ deleted: true });
   }
 
@@ -193,18 +181,13 @@ export async function handleAdminApi(
     const rows = await (db as any)
       .select()
       .from(oauthAccounts)
-      .orderBy(desc(oauthAccounts.createdAt))
-      ;
+      .orderBy(desc(oauthAccounts.createdAt));
     return Response.json(rows);
   }
 
   // GET /files
   if (path === "/files" && method === "GET") {
-    const rows = await (db as any)
-      .select()
-      .from(files)
-      .orderBy(desc(files.createdAt))
-      ;
+    const rows = await (db as any).select().from(files).orderBy(desc(files.createdAt));
     return Response.json(rows);
   }
 
@@ -215,8 +198,7 @@ export async function handleAdminApi(
     const fileRows = await (db as any)
       .select({ storagePath: files.storagePath })
       .from(files)
-      .where(eq(files.id, id))
-      ;
+      .where(eq(files.id, id));
 
     const file = fileRows[0];
     if (!file) {
@@ -234,8 +216,7 @@ export async function handleAdminApi(
       .select()
       .from(requestLogs)
       .orderBy(desc(requestLogs.timestamp))
-      .limit(500)
-      ;
+      .limit(500);
     return Response.json(rows);
   }
 
@@ -258,8 +239,7 @@ export async function handleAdminApi(
         createdAt: apiKeys.createdAt,
       })
       .from(apiKeys)
-      .orderBy(desc(apiKeys.createdAt))
-      ;
+      .orderBy(desc(apiKeys.createdAt));
     return Response.json(rows);
   }
 
@@ -267,22 +247,22 @@ export async function handleAdminApi(
   const apiKeyDeleteMatch = path.match(/^\/api-keys\/([^/]+)$/);
   if (apiKeyDeleteMatch && method === "DELETE") {
     const id = apiKeyDeleteMatch[1];
-    await (db as any)
-      .delete(apiKeys)
-      .where(eq(apiKeys.id, id))
-      ;
+    await (db as any).delete(apiKeys).where(eq(apiKeys.id, id));
     return Response.json({ deleted: true });
   }
 
   // GET /schema — table names + column definitions
   if (path === "/schema" && method === "GET") {
-    const tables: Record<string, Array<{
-      key: string;
-      name: string;
-      type: string;
-      notNull: boolean;
-      primary: boolean;
-    }>> = {};
+    const tables: Record<
+      string,
+      Array<{
+        key: string;
+        name: string;
+        type: string;
+        notNull: boolean;
+        primary: boolean;
+      }>
+    > = {};
     for (const value of Object.values(schema)) {
       if (typeof value !== "object" || value === null) continue;
       try {
@@ -356,7 +336,12 @@ export async function handleAdminApi(
   if (recordsTableMatch && method === "GET") {
     const tableName = recordsTableMatch[1];
     const validTables = getSchemaTableNames(schema);
-    if (!validTables.has(tableName)) return jsonError("NOT_FOUND", `Table '${tableName}' not found. Available tables: ${Array.from(validTables).sort().join(", ")}`, 404);
+    if (!validTables.has(tableName))
+      return jsonError(
+        "NOT_FOUND",
+        `Table '${tableName}' not found. Available tables: ${Array.from(validTables).sort().join(", ")}`,
+        404,
+      );
 
     const page = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10));
     const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") ?? "20", 10)));
@@ -398,14 +383,25 @@ export async function handleAdminApi(
       return copy;
     });
 
-    return Response.json({ data: sanitized, total, page, limit, totalPages: Math.ceil(total / limit) });
+    return Response.json({
+      data: sanitized,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    });
   }
 
   // POST /records/:table — create a new record
   if (recordsTableMatch && method === "POST") {
     const tableName = recordsTableMatch[1];
     const validTables = getSchemaTableNames(schema);
-    if (!validTables.has(tableName)) return jsonError("NOT_FOUND", `Table '${tableName}' not found. Available tables: ${Array.from(validTables).sort().join(", ")}`, 404);
+    if (!validTables.has(tableName))
+      return jsonError(
+        "NOT_FOUND",
+        `Table '${tableName}' not found. Available tables: ${Array.from(validTables).sort().join(", ")}`,
+        404,
+      );
 
     const body = (await req.json()) as Record<string, unknown>;
     const columns = getSchemaColumns(schema, tableName);
@@ -437,10 +433,9 @@ export async function handleAdminApi(
       params,
     );
 
-    const created = await adapter.rawQueryOne(
-      `SELECT * FROM ${qi(tableName)} WHERE id = $id`,
-      { $id: insertData.id },
-    );
+    const created = await adapter.rawQueryOne(`SELECT * FROM ${qi(tableName)} WHERE id = $id`, {
+      $id: insertData.id,
+    });
 
     return Response.json(created, { status: 201 });
   }
@@ -450,7 +445,12 @@ export async function handleAdminApi(
     const tableName = recordsItemMatch[1];
     const id = recordsItemMatch[2];
     const validTables = getSchemaTableNames(schema);
-    if (!validTables.has(tableName)) return jsonError("NOT_FOUND", `Table '${tableName}' not found. Available tables: ${Array.from(validTables).sort().join(", ")}`, 404);
+    if (!validTables.has(tableName))
+      return jsonError(
+        "NOT_FOUND",
+        `Table '${tableName}' not found. Available tables: ${Array.from(validTables).sort().join(", ")}`,
+        404,
+      );
 
     const body = (await req.json()) as Record<string, unknown>;
     const columns = getSchemaColumns(schema, tableName);
@@ -482,10 +482,9 @@ export async function handleAdminApi(
       params,
     );
 
-    const updated = await adapter.rawQueryOne(
-      `SELECT * FROM ${qi(tableName)} WHERE id = $id`,
-      { $id: id },
-    );
+    const updated = await adapter.rawQueryOne(`SELECT * FROM ${qi(tableName)} WHERE id = $id`, {
+      $id: id,
+    });
 
     const sanitized = { ...(updated ?? {}) };
     delete (sanitized as any).password_hash;
@@ -498,12 +497,14 @@ export async function handleAdminApi(
     const tableName = recordsItemMatch[1];
     const id = recordsItemMatch[2];
     const validTables = getSchemaTableNames(schema);
-    if (!validTables.has(tableName)) return jsonError("NOT_FOUND", `Table '${tableName}' not found. Available tables: ${Array.from(validTables).sort().join(", ")}`, 404);
+    if (!validTables.has(tableName))
+      return jsonError(
+        "NOT_FOUND",
+        `Table '${tableName}' not found. Available tables: ${Array.from(validTables).sort().join(", ")}`,
+        404,
+      );
 
-    await adapter.rawExecute(
-      `DELETE FROM ${qi(tableName)} WHERE id = $id`,
-      { $id: id },
-    );
+    await adapter.rawExecute(`DELETE FROM ${qi(tableName)} WHERE id = $id`, { $id: id });
     return Response.json({ deleted: true });
   }
 

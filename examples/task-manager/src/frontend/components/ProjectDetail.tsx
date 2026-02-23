@@ -1,22 +1,15 @@
-import React, { useEffect, useRef, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, ListTodo, Plus } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import type * as schema from "../../schema";
 import { api } from "../lib/client.ts";
-import { Button } from "./ui/button.tsx";
-import { Card, CardContent } from "./ui/card.tsx";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "./ui/select.tsx";
 import { TaskCard } from "./TaskCard.tsx";
 import { TaskForm } from "./TaskForm.tsx";
-import { ArrowLeft, Plus, ListTodo } from "lucide-react";
-import type * as schema from "../../schema";
+import { Button } from "./ui/button.tsx";
+import { Card, CardContent } from "./ui/card.tsx";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select.tsx";
 
 type Task = typeof schema.tasks.$inferSelect;
-type Project = typeof schema.projects.$inferSelect;
 
 interface ProjectDetailProps {
   projectId: string;
@@ -139,9 +132,7 @@ export function ProjectDetail({ projectId, userId, onBack }: ProjectDetailProps)
         </Button>
         <div>
           <h2 className="text-2xl font-semibold">{project.name}</h2>
-          {project.description && (
-            <p className="text-muted-foreground">{project.description}</p>
-          )}
+          {project.description && <p className="text-muted-foreground">{project.description}</p>}
         </div>
       </div>
 

@@ -2,12 +2,12 @@
  * Integration tests for the expand/relations feature.
  * Verifies that ?expand=relation returns nested relational data.
  */
-import { test, expect, beforeAll, afterAll } from "bun:test";
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { eq } from "drizzle-orm";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { eq } from "drizzle-orm";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { createServer } from "../core/server.ts";
 import { defineRelations } from "../crud/relations.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
@@ -246,7 +246,7 @@ afterAll(() => {
 test("GET /api/tasks?expand=owner returns tasks with embedded owner", async () => {
   const res = await fetch(`${baseWR}/api/tasks?expand=owner`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.data).toBeArray();
   expect(body.data.length).toBe(3);
 
@@ -262,7 +262,7 @@ test("GET /api/tasks?expand=owner returns tasks with embedded owner", async () =
 test("GET /api/tasks?expand=owner returns correct owner for each task", async () => {
   const res = await fetch(`${baseWR}/api/tasks?expand=owner`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
 
   const t2 = body.data.find((t: any) => t.id === "t2");
   expect(t2.owner.id).toBe("u2");
@@ -272,7 +272,7 @@ test("GET /api/tasks?expand=owner returns correct owner for each task", async ()
 test("GET /api/tasks?expand=owner respects pagination", async () => {
   const res = await fetch(`${baseWR}/api/tasks?expand=owner&limit=2`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.data.length).toBe(2);
   expect(body.hasMore).toBe(true);
   expect(body.nextCursor).not.toBeNull();
@@ -287,7 +287,7 @@ test("GET /api/tasks?expand=owner respects pagination", async () => {
 test("GET /api/tasks without expand returns plain tasks (no owner field)", async () => {
   const res = await fetch(`${baseWR}/api/tasks`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.data).toBeArray();
 
   const t1 = body.data.find((t: any) => t.id === "t1");
@@ -298,7 +298,7 @@ test("GET /api/tasks without expand returns plain tasks (no owner field)", async
 test("GET /api/tasks?expand=owner returns 400 when no relations configured", async () => {
   const res = await fetch(`${baseNR}/api/tasks?expand=owner`);
   expect(res.status).toBe(400);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.error.message).toContain("expand is not supported");
 });
 
@@ -307,7 +307,7 @@ test("GET /api/tasks?expand=owner returns 400 when no relations configured", asy
 test("GET /api/tasks/:id?expand=owner returns task with embedded owner", async () => {
   const res = await fetch(`${baseWR}/api/tasks/t1?expand=owner`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.id).toBe("t1");
   expect(body.title).toBe("Task 1");
   expect(body.owner).toBeDefined();
@@ -318,7 +318,7 @@ test("GET /api/tasks/:id?expand=owner returns task with embedded owner", async (
 test("GET /api/tasks/:id without expand returns plain record", async () => {
   const res = await fetch(`${baseWR}/api/tasks/t1`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.id).toBe("t1");
   expect(body.owner).toBeUndefined();
 });
@@ -331,7 +331,7 @@ test("GET /api/tasks/:id?expand=owner returns 404 for nonexistent record", async
 test("GET /api/tasks/:id?expand=owner returns 400 when no relations configured", async () => {
   const res = await fetch(`${baseNR}/api/tasks/t1?expand=owner`);
   expect(res.status).toBe(400);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.error.message).toContain("expand is not supported");
 });
 
@@ -340,7 +340,7 @@ test("GET /api/tasks/:id?expand=owner returns 400 when no relations configured",
 test("expand does not return passwordHash from related user objects", async () => {
   const res = await fetch(`${baseWR}/api/tasks?expand=owner`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   for (const task of body.data) {
     if (task.owner) {
       expect(task.owner.passwordHash).toBeUndefined();
@@ -352,7 +352,7 @@ test("expand does not return passwordHash from related user objects", async () =
 test("expand on GET does not return passwordHash from related user", async () => {
   const res = await fetch(`${baseWR}/api/tasks/t1?expand=owner`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.owner).toBeDefined();
   expect(body.owner.passwordHash).toBeUndefined();
 });
@@ -361,7 +361,7 @@ test("expand respects related table list rules — denied relation is stripped",
   // tasks list is allowed, users list is denied → owner should be stripped from expanded response
   const res = await fetch(`${baseSecure}/api/tasks?expand=owner`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.data).toBeArray();
   expect(body.data.length).toBe(1);
   // owner field should not be present because users.list is denied
@@ -371,7 +371,7 @@ test("expand respects related table list rules — denied relation is stripped",
 test("expand GET respects related table list rules — denied relation is stripped", async () => {
   const res = await fetch(`${baseSecure}/api/tasks/t1?expand=owner`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.id).toBe("t1");
   // owner should not be present because users.list is denied
   expect(body.owner).toBeUndefined();
@@ -384,7 +384,7 @@ test("expand list strips relation when related table list rule returns SQL where
   // Expand cannot apply this SQL filter to nested queries, so owner must be stripped.
   const res = await fetch(`${baseFiltered}/api/tasks?expand=owner`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.data).toBeArray();
   expect(body.data.length).toBe(1);
   expect(body.data[0].owner).toBeUndefined();
@@ -393,7 +393,7 @@ test("expand list strips relation when related table list rule returns SQL where
 test("expand GET strips relation when related table list rule returns SQL whereClause", async () => {
   const res = await fetch(`${baseFiltered}/api/tasks/t1?expand=owner`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.id).toBe("t1");
   expect(body.owner).toBeUndefined();
 });
@@ -403,7 +403,7 @@ test("expand GET strips relation when related table list rule returns SQL whereC
 test("expand with unknown relation key returns 200 with plain data (no 500)", async () => {
   const res = await fetch(`${baseWR}/api/tasks?expand=nonexistent`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   // Unknown key is silently dropped — plain rows returned
   expect(body.data).toBeArray();
   expect(body.data.length).toBe(3);
@@ -413,7 +413,7 @@ test("expand with unknown relation key returns 200 with plain data (no 500)", as
 test("expand with nested/dotted key returns 200 with plain data (no 500)", async () => {
   const res = await fetch(`${baseWR}/api/tasks?expand=owner.foo`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   // Dotted key is not a valid top-level relation — dropped without error
   expect(body.data).toBeArray();
 });

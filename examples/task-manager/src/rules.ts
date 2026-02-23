@@ -1,7 +1,7 @@
 /**
  * Example rules showing public read access plus authenticated/owner/admin mutations.
  */
-import { defineRules, authenticated, ownerOnly } from "bunbase";
+import { authenticated, defineRules, ownerOnly } from "bunbase";
 import { projects } from "./schema";
 
 export const rules = defineRules({

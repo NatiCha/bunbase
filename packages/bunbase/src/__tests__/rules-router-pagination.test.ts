@@ -1,15 +1,11 @@
-import { test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { expect, test } from "bun:test";
 import { getColumns } from "drizzle-orm";
-import { generateCrudHandlers } from "../crud/handler.ts";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import type { AuthUser } from "../api/types.ts";
-import {
-  buildCursorCondition,
-  buildNextCursor,
-  buildOrderBy,
-} from "../crud/pagination.ts";
+import { generateCrudHandlers } from "../crud/handler.ts";
+import { buildCursorCondition, buildNextCursor, buildOrderBy } from "../crud/pagination.ts";
 
 const posts = sqliteTable("posts", {
   id: text("id").primaryKey(),
@@ -28,15 +24,14 @@ function mockAuth(id = "u1"): (req: Request) => Promise<AuthUser | null> {
 test("view rule is enforced for GET /:id reads", async () => {
   const sqlite = new Database(":memory:");
   sqlite.run("CREATE TABLE posts (id TEXT PRIMARY KEY, author_id TEXT NOT NULL)");
-  sqlite.query("INSERT INTO posts (id, author_id) VALUES ($id, $authorId)")
+  sqlite
+    .query("INSERT INTO posts (id, author_id) VALUES ($id, $authorId)")
     .run({ $id: "p1", $authorId: "u1" });
 
   const db = drizzle({ client: sqlite });
   const { pattern } = generateCrudHandlers(posts, db, mockAuth(), { get: () => false });
 
-  const res = await pattern["/api/posts/:id"].GET(
-    new Request("http://localhost/api/posts/p1"),
-  );
+  const res = await pattern["/api/posts/:id"].GET(new Request("http://localhost/api/posts/p1"));
   expect(res.status).toBe(403);
   sqlite.close();
 });
@@ -44,15 +39,14 @@ test("view rule is enforced for GET /:id reads", async () => {
 test("get rule alias remains supported for reads", async () => {
   const sqlite = new Database(":memory:");
   sqlite.run("CREATE TABLE posts (id TEXT PRIMARY KEY, author_id TEXT NOT NULL)");
-  sqlite.query("INSERT INTO posts (id, author_id) VALUES ($id, $authorId)")
+  sqlite
+    .query("INSERT INTO posts (id, author_id) VALUES ($id, $authorId)")
     .run({ $id: "p1", $authorId: "u1" });
 
   const db = drizzle({ client: sqlite });
   const { pattern } = generateCrudHandlers(posts, db, mockAuth(), { get: () => false });
 
-  const res = await pattern["/api/posts/:id"].GET(
-    new Request("http://localhost/api/posts/p1"),
-  );
+  const res = await pattern["/api/posts/:id"].GET(new Request("http://localhost/api/posts/p1"));
   expect(res.status).toBe(403);
   sqlite.close();
 });
@@ -99,7 +93,8 @@ test("composite cursor does not skip rows when sort values tie", () => {
     { id: "e", createdAt: 200 },
   ];
   for (const { id, createdAt } of rows) {
-    sqlite.query("INSERT INTO feed (id, created_at) VALUES ($id, $createdAt)")
+    sqlite
+      .query("INSERT INTO feed (id, created_at) VALUES ($id, $createdAt)")
       .run({ $id: id, $createdAt: createdAt });
   }
 
@@ -112,9 +107,7 @@ test("composite cursor does not skip rows when sort values tie", () => {
   let cursor: string | undefined;
   const seen: string[] = [];
   for (let i = 0; i < 10; i++) {
-    const where = cursor
-      ? buildCursorCondition(cursor, idColumn, sortColumn, "asc")
-      : undefined;
+    const where = cursor ? buildCursorCondition(cursor, idColumn, sortColumn, "asc") : undefined;
     const page = db
       .select()
       .from(feed)

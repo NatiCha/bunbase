@@ -1,30 +1,30 @@
-import React, { useState, useEffect } from "react";
+import type React from "react";
+import { useEffect, useState } from "react";
+import type * as schema from "../../schema";
 import { Button } from "./ui/button.tsx";
-import { Input } from "./ui/input.tsx";
-import { Textarea } from "./ui/textarea.tsx";
-import { Label } from "./ui/label.tsx";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "./ui/select.tsx";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from "./ui/dialog.tsx";
-import type * as schema from "../../schema";
+import { Input } from "./ui/input.tsx";
+import { Label } from "./ui/label.tsx";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select.tsx";
+import { Textarea } from "./ui/textarea.tsx";
 
 type Task = typeof schema.tasks.$inferSelect;
 
 interface TaskFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (data: { title: string; description: string | null; status: string; priority: string }) => Promise<void>;
+  onSubmit: (data: {
+    title: string;
+    description: string | null;
+    status: string;
+    priority: string;
+  }) => Promise<void>;
   initial?: Task | null;
 }
 
@@ -47,7 +47,7 @@ export function TaskForm({ open, onOpenChange, onSubmit, initial }: TaskFormProp
       setStatus("todo");
       setPriority("medium");
     }
-  }, [initial, open]);
+  }, [initial]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,7 +68,9 @@ export function TaskForm({ open, onOpenChange, onSubmit, initial }: TaskFormProp
         <DialogHeader>
           <DialogTitle>{initial ? "Edit Task" : "New Task"}</DialogTitle>
           <DialogDescription>
-            {initial ? "Update the task details below." : "Fill in the details to create a new task."}
+            {initial
+              ? "Update the task details below."
+              : "Fill in the details to create a new task."}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">

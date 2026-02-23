@@ -78,9 +78,7 @@ export function nextCronTime(expression: string, after: Date = new Date()): Date
     const w = candidate.getDay();
     const domMatch = matchesCronField(dom, d, 1);
     const dowMatch = matchesCronField(dow, w, 0);
-    const dayMatch = (domRestricted && dowRestricted)
-      ? (domMatch || dowMatch)
-      : (domMatch && dowMatch);
+    const dayMatch = domRestricted && dowRestricted ? domMatch || dowMatch : domMatch && dowMatch;
 
     if (!dayMatch) {
       candidate.setDate(candidate.getDate() + 1);

@@ -2,7 +2,9 @@
 
 @source "./**/*.{tsx,ts,html}";
 
-@variant dark (&:where(.dark, .dark *));
+@variant dark
+(
+&:where(.dark, .dark *));
 
 @theme {
   --color-background: oklch(0.985 0 0);

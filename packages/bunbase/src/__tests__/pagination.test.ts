@@ -1,10 +1,5 @@
-import { test, expect } from "bun:test";
-import {
-  encodeCursor,
-  decodeCursor,
-  resolveLimit,
-  buildNextCursor,
-} from "../crud/pagination.ts";
+import { expect, test } from "bun:test";
+import { buildNextCursor, decodeCursor, encodeCursor, resolveLimit } from "../crud/pagination.ts";
 
 // encodeCursor / decodeCursor
 

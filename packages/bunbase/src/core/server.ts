@@ -1,35 +1,35 @@
-import pkg from "../../package.json";
 import type { AnyRelations } from "drizzle-orm/relations";
-import type { BunBaseConfig } from "./config.ts";
-import { resolveConfig, type ResolvedConfig } from "./config.ts";
-import { createDatabase, runUserMigrations } from "./database.ts";
-import { validateUsersTable } from "./bootstrap.ts";
-import { getInternalSchema } from "./internal-schema.ts";
-import type { InternalSchema } from "./internal-schema.ts";
-import type { AnyDb } from "./db-types.ts";
-import type { DatabaseAdapter } from "./adapter.ts";
-import { addCorsHeaders, handleCorsPreflightOrNull } from "../cors.ts";
-import { createAuthRoutes } from "../auth/routes.ts";
-import { createEmailRoutes } from "../auth/email.ts";
-import { createOAuthRoutes } from "../auth/oauth/routes.ts";
-import { extractAuth as extractAuthFromReq, isBearerOnly } from "../auth/middleware.ts";
-import { validateCsrf, isCsrfExempt } from "../auth/csrf.ts";
-import { createApiKeyRoutes } from "../auth/api-keys.ts";
-import { generateAllCrudHandlers } from "../crud/handler.ts";
-import { createFileRoutes, createStorageDriver } from "../storage/routes.ts";
+import adminUI from "../../admin-ui/index.html";
+import pkg from "../../package.json";
 import { handleAdminApi, pushRequestLog } from "../admin/routes.ts";
-import { hashPassword } from "../auth/passwords.ts";
-import type { AuthUser } from "../api/types.ts";
 import { errorResponse } from "../api/helpers.ts";
-import type { TableRules } from "../rules/types.ts";
-import type { TableHooks } from "../hooks/types.ts";
+import type { AuthUser } from "../api/types.ts";
+import { createApiKeyRoutes } from "../auth/api-keys.ts";
+import { isCsrfExempt, validateCsrf } from "../auth/csrf.ts";
+import { createEmailRoutes } from "../auth/email.ts";
+import { extractAuth as extractAuthFromReq, isBearerOnly } from "../auth/middleware.ts";
+import { createOAuthRoutes } from "../auth/oauth/routes.ts";
+import { hashPassword } from "../auth/passwords.ts";
+import { createAuthRoutes } from "../auth/routes.ts";
+import { addCorsHeaders, handleCorsPreflightOrNull } from "../cors.ts";
+import { generateAllCrudHandlers } from "../crud/handler.ts";
 import type { AuthHooks } from "../hooks/auth-types.ts";
-import type { JobDefinition } from "../jobs/types.ts";
+import type { TableHooks } from "../hooks/types.ts";
 import { JobScheduler } from "../jobs/scheduler.ts";
+import type { JobDefinition } from "../jobs/types.ts";
+import { handleWebSocketClose, handleWebSocketMessage } from "../realtime/handler.ts";
 import { RealtimeManager } from "../realtime/manager.ts";
 import { PresenceTracker } from "../realtime/presence.ts";
-import { handleWebSocketMessage, handleWebSocketClose } from "../realtime/handler.ts";
-import adminUI from "../../admin-ui/index.html";
+import type { TableRules } from "../rules/types.ts";
+import { createFileRoutes, createStorageDriver } from "../storage/routes.ts";
+import type { DatabaseAdapter } from "./adapter.ts";
+import { validateUsersTable } from "./bootstrap.ts";
+import type { BunBaseConfig } from "./config.ts";
+import { type ResolvedConfig, resolveConfig } from "./config.ts";
+import { createDatabase, runUserMigrations } from "./database.ts";
+import type { AnyDb } from "./db-types.ts";
+import type { InternalSchema } from "./internal-schema.ts";
+import { getInternalSchema } from "./internal-schema.ts";
 
 /**
  * BunBase server composition and request orchestration.
@@ -90,10 +90,8 @@ export interface BunBaseServer {
  * ```
  */
 export function createServer(options: CreateServerOptions): BunBaseServer {
-  const tableRules =
-    options.rules as Record<string, TableRules> | undefined;
-  const tableHooks =
-    options.hooks as Record<string, TableHooks> | undefined;
+  const tableRules = options.rules as Record<string, TableRules> | undefined;
+  const tableHooks = options.hooks as Record<string, TableHooks> | undefined;
   const authHooks = options.authHooks;
 
   // Validate job names synchronously so misconfiguration is a deterministic startup error
@@ -128,8 +126,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     // accidentally seed predictable credentials.
     if (usersTable) {
       const devExplicit =
-        options.config?.development === true ||
-        process.env.NODE_ENV === "development";
+        options.config?.development === true || process.env.NODE_ENV === "development";
       await seedDefaultAdmin(db, usersTable, config.development, devExplicit);
     }
 
@@ -167,13 +164,15 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
   // Realtime manager + broadcast shim (only when realtime is enabled)
   let realtimeManager: RealtimeManager | undefined;
   let realtimePresence: PresenceTracker | undefined;
-  let broadcastFn: ((t: string, a: "INSERT" | "UPDATE" | "DELETE", r: Record<string, unknown>) => void) | undefined;
+  let broadcastFn:
+    | ((t: string, a: "INSERT" | "UPDATE" | "DELETE", r: Record<string, unknown>) => void)
+    | undefined;
 
   if (config.realtime.enabled) {
     realtimeManager = new RealtimeManager(db, options.schema, tableRules);
     realtimePresence = new PresenceTracker();
     broadcastFn = (t, a, r) => {
-      realtimeManager!.broadcastTableChange(t, a, r).catch((err) => {
+      realtimeManager?.broadcastTableChange(t, a, r).catch((err) => {
         console.error("[BunBase] Realtime broadcast error:", err);
       });
     };
@@ -190,9 +189,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
   );
 
   // Collect known CRUD table names for descriptive 404 messages
-  const knownApiTables = new Set(
-    Object.keys(crudExact).map((p) => p.replace(/^\/api\//, "")),
-  );
+  const knownApiTables = new Set(Object.keys(crudExact).map((p) => p.replace(/^\/api\//, "")));
 
   // Build auth route handlers
   const authRoutes = createAuthRoutes({
@@ -240,12 +237,16 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
   // Merge all HTTP routes into a lookup map
   const httpRoutes: RouteMap = {};
 
-  for (const routeSet of [authRoutes, emailRoutes, oauthRoutes, fileRoutes, apiKeyRoutes, crudExact]) {
+  for (const routeSet of [
+    authRoutes,
+    emailRoutes,
+    oauthRoutes,
+    fileRoutes,
+    apiKeyRoutes,
+    crudExact,
+  ]) {
     for (const [path, handlers] of Object.entries(routeSet)) {
-      httpRoutes[path] = handlers as Record<
-        string,
-        (req: Request) => Response | Promise<Response>
-      >;
+      httpRoutes[path] = handlers as Record<string, (req: Request) => Response | Promise<Response>>;
     }
   }
 
@@ -260,9 +261,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
         );
       }
       if (httpRoutes[path]) {
-        throw new Error(
-          `BunBase: Cannot merge extend routes due to path collision: ${path}`,
-        );
+        throw new Error(`BunBase: Cannot merge extend routes due to path collision: ${path}`);
       }
       if (crudPattern[path]) {
         throw new Error(
@@ -301,15 +300,10 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
   // Convert Express-style :param routes from httpRoutes to regex patterns
   for (const [path, handlers] of Object.entries(httpRoutes)) {
     if (path.includes(":")) {
-      const regex = new RegExp(
-        "^" + path.replace(/:[a-zA-Z]+/g, "([^/]+)") + "$",
-      );
+      const regex = new RegExp(`^${path.replace(/:[a-zA-Z]+/g, "([^/]+)")}$`);
       patternRoutes.push({
         pattern: regex,
-        handlers: handlers as Record<
-          string,
-          (req: Request) => Response | Promise<Response>
-        >,
+        handlers: handlers as Record<string, (req: Request) => Response | Promise<Response>>,
       });
       delete httpRoutes[path];
     }
@@ -317,9 +311,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
 
   // Add CRUD item routes (/api/{table}/:id) to patternRoutes
   for (const [path, handlers] of Object.entries(crudPattern)) {
-    const regex = new RegExp(
-      "^" + path.replace(/:[a-zA-Z]+/g, "([^/]+)") + "$",
-    );
+    const regex = new RegExp(`^${path.replace(/:[a-zA-Z]+/g, "([^/]+)")}$`);
     patternRoutes.push({ pattern: regex, handlers });
   }
 
@@ -335,7 +327,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
       (async () => {
         try {
           await bootstrapPromise;
-          scheduler!.start(options.jobs!);
+          scheduler?.start(options.jobs!);
         } catch (err) {
           console.error("[BunBase] Failed to start job scheduler:", err);
         }
@@ -345,26 +337,24 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     // Mutable server reference needed by WS handlers for server.publish()
     let bunServer: ReturnType<typeof Bun.serve>;
 
-    const websocketHandlers = realtimeManager && realtimePresence
-      ? {
-          async message(ws: any, raw: string | Buffer) {
-            await handleWebSocketMessage(ws, raw, bunServer, realtimeManager!, realtimePresence!);
-          },
-          close(ws: any) {
-            handleWebSocketClose(ws, bunServer, realtimeManager!, realtimePresence!);
-          },
-          open(_ws: any) {
-            // Connection established — nothing to do here
-          },
-        }
-      : undefined;
+    const websocketHandlers =
+      realtimeManager && realtimePresence
+        ? {
+            async message(ws: any, raw: string | Buffer) {
+              await handleWebSocketMessage(ws, raw, bunServer, realtimeManager!, realtimePresence!);
+            },
+            close(ws: any) {
+              handleWebSocketClose(ws, bunServer, realtimeManager!, realtimePresence!);
+            },
+            open(_ws: any) {
+              // Connection established — nothing to do here
+            },
+          }
+        : undefined;
 
     // Extract main request handler as a named function so the SPA catch-all
     // route forwarders can call it without duplicating the handler body in a route.
-    async function masterFetch(
-      req: Request,
-      srv: ReturnType<typeof Bun.serve>,
-    ): Promise<Response> {
+    async function masterFetch(req: Request, srv: ReturnType<typeof Bun.serve>): Promise<Response> {
       // Capture socket IP before any cloning — srv.requestIP() needs the original request.
       const socketIp = srv.requestIP(req)?.address ?? "unknown";
 
@@ -388,7 +378,9 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
       // WebSocket upgrade for /realtime — must use the original req, not a clone,
       // because srv.upgrade() requires the native Bun request handle.
       if (pathname === "/realtime" && config.realtime.enabled && realtimeManager) {
-        const auth = await extractAuthFromReq(req, db, internalSchema, usersTable).catch(() => null);
+        const auth = await extractAuthFromReq(req, db, internalSchema, usersTable).catch(
+          () => null,
+        );
         const upgraded = srv.upgrade(req, {
           data: {
             auth,
@@ -441,7 +433,9 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
           usersTable,
         );
         const durationMs = Date.now() - start;
-        const user = await extractAuthFromReq(req, db, internalSchema, usersTable).catch(() => null);
+        const user = await extractAuthFromReq(req, db, internalSchema, usersTable).catch(
+          () => null,
+        );
         await pushRequestLog(db, internalSchema, {
           id: Bun.randomUUIDv7(),
           method: req.method,
@@ -471,11 +465,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
           await logRequest(db, internalSchema, req, pathname, start, response, null);
           return addCorsHeaders(response, req, config);
         }
-        return addCorsHeaders(
-          new Response("Method Not Allowed", { status: 405 }),
-          req,
-          config,
-        );
+        return addCorsHeaders(new Response("Method Not Allowed", { status: 405 }), req, config);
       }
 
       // Pattern match HTTP routes (file routes + CRUD item routes with params)
@@ -487,11 +477,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
             await logRequest(db, internalSchema, req, pathname, start, response, null);
             return addCorsHeaders(response, req, config);
           }
-          return addCorsHeaders(
-            new Response("Method Not Allowed", { status: 405 }),
-            req,
-            config,
-          );
+          return addCorsHeaders(new Response("Method Not Allowed", { status: 405 }), req, config);
         }
       }
 
@@ -528,7 +514,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
           "/files/*": (req: Request, srv: any) => masterFetch(req, srv),
           "/realtime": (req: Request, srv: any) => masterFetch(req, srv),
           // SPA catch-all — served via Bun's HTML bundler (HMR, TSX, CSS)
-          "/*": config.frontend!.html,
+          "/*": config.frontend?.html,
         }
       : {};
 
@@ -562,7 +548,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     if (scheduler) {
       const originalStop = server.stop.bind(server);
       (server as any).stop = (closeActiveConnections?: boolean) => {
-        scheduler!.stop();
+        scheduler?.stop();
         return originalStop(closeActiveConnections);
       };
     }
@@ -596,13 +582,13 @@ async function seedDefaultAdmin(
   try {
     const { eq, getTableColumns } = await import("drizzle-orm");
     const columns = getTableColumns(usersTable);
-    if (!columns["email"] || !columns["role"]) return;
+    if (!columns.email || !columns.role) return;
 
     // Check if any admin exists
     const existing = await (db as any)
-      .select({ id: columns["id"] })
+      .select({ id: columns.id })
       .from(usersTable)
-      .where(eq(columns["role"] as any, "admin"))
+      .where(eq(columns.role as any, "admin"))
       .limit(1);
 
     if (existing.length > 0) return;
@@ -639,11 +625,13 @@ async function seedDefaultAdmin(
           passwordHash,
           role: "admin",
         });
-        console.log(`\n  \x1b[33m[BunBase]\x1b[0m Admin account created from environment variables.\n`);
+        console.log(
+          `\n  \x1b[33m[BunBase]\x1b[0m Admin account created from environment variables.\n`,
+        );
       } else {
         console.warn(
           `\n  \x1b[33m[BunBase]\x1b[0m Warning: No admin account exists and no bootstrap credentials are configured.\n` +
-          `  Set BUNBASE_ADMIN_EMAIL and BUNBASE_ADMIN_PASSWORD environment variables to create an admin on startup.\n`,
+            `  Set BUNBASE_ADMIN_EMAIL and BUNBASE_ADMIN_PASSWORD environment variables to create an admin on startup.\n`,
         );
       }
     }

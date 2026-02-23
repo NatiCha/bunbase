@@ -1,16 +1,16 @@
-import { test, expect, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { eq, getColumns } from "drizzle-orm";
-import { join } from "node:path";
+import { afterAll, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { eq, getColumns } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { createSession } from "../auth/sessions.ts";
 import { SqliteAdapter } from "../core/adapters/sqlite.ts";
 import { getInternalSchema } from "../core/internal-schema.ts";
-import { createFileRoutes, createStorageDriver } from "../storage/routes.ts";
 import { createLocalStorage } from "../storage/local.ts";
-import { createSession } from "../auth/sessions.ts";
+import { createFileRoutes, createStorageDriver } from "../storage/routes.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 
 const storageDir = join(tmpdir(), `bunbase-storage-ext-test-${Date.now()}`);
@@ -19,7 +19,9 @@ mkdirSync(storageDir, { recursive: true });
 afterAll(() => {
   try {
     rmSync(storageDir, { recursive: true, force: true });
-  } catch { /* best effort */ }
+  } catch {
+    /* best effort */
+  }
 });
 
 const usersTable = sqliteTable("users", {
@@ -203,7 +205,7 @@ test("POST /files passes method/headers/query/db in rule arg", async () => {
 // ─── POST /files — unknown collection in SQLite (line 143) ───────────────────
 
 test("POST /files returns 404 when collection table does not exist in SQLite", async () => {
-  const { sqlite, db, adapter, internalSchema } = setupDb();
+  const { sqlite, db, internalSchema } = setupDb();
   await createUser(sqlite, db, internalSchema);
 
   // Schema has "posts" but SQLite table was never created (different db)
@@ -405,7 +407,7 @@ test("GET /files returns 404 when file data is missing from storage", async () =
     }),
   );
   expect(response.status).toBe(404);
-  const body = await response.json() as { error: { message: string } };
+  const body = (await response.json()) as { error: { message: string } };
   expect(body.error.message).toContain("data not found");
   sqlite.close();
 });
@@ -638,13 +640,11 @@ test("DELETE /files successfully removes file and DB record", async () => {
     }),
   );
   expect(response.status).toBe(200);
-  const body = await response.json() as { deleted: boolean };
+  const body = (await response.json()) as { deleted: boolean };
   expect(body.deleted).toBe(true);
 
   const row = sqlite
-    .query<{ id: string }, { $id: string }>(
-      "SELECT id FROM _files WHERE id = $id",
-    )
+    .query<{ id: string }, { $id: string }>("SELECT id FROM _files WHERE id = $id")
     .get({ $id: "del-file" });
   expect(row).toBeNull();
   expect(await storage.exists(storagePath)).toBe(false);

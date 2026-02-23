@@ -9,10 +9,7 @@ export function cancelIfAborted(value: unknown) {
   }
 }
 
-export async function text(
-  message: string,
-  defaultValue?: string,
-): Promise<string> {
+export async function text(message: string, defaultValue?: string): Promise<string> {
   const result = await clack.text({
     message,
     defaultValue,
@@ -47,10 +44,7 @@ export async function multiSelect<T extends string>(
   return result as T[];
 }
 
-export async function confirm(
-  message: string,
-  defaultYes = true,
-): Promise<boolean> {
+export async function confirm(message: string, defaultYes = true): Promise<boolean> {
   const result = await clack.confirm({ message, initialValue: defaultYes });
   cancelIfAborted(result);
   return result as boolean;

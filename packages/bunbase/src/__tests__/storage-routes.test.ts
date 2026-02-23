@@ -1,15 +1,15 @@
-import { test, expect, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { join } from "node:path";
+import { afterAll, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { createSession } from "../auth/sessions.ts";
 import { SqliteAdapter } from "../core/adapters/sqlite.ts";
 import { getInternalSchema } from "../core/internal-schema.ts";
-import { createFileRoutes, deleteRecordFiles, createStorageDriver } from "../storage/routes.ts";
 import { createLocalStorage } from "../storage/local.ts";
-import { createSession } from "../auth/sessions.ts";
+import { createFileRoutes, createStorageDriver, deleteRecordFiles } from "../storage/routes.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 
 const storageDir = join(tmpdir(), `bunbase-storage-routes-test-${Date.now()}`);
@@ -18,7 +18,9 @@ mkdirSync(storageDir, { recursive: true });
 afterAll(() => {
   try {
     rmSync(storageDir, { recursive: true, force: true });
-  } catch { /* best effort */ }
+  } catch {
+    /* best effort */
+  }
 });
 
 const postsTable = sqliteTable("posts", {
@@ -37,14 +39,16 @@ function setupDb() {
   const sqlite = new Database(":memory:");
   const adapter = new SqliteAdapter(sqlite);
   adapter.bootstrapInternalTables();
-  sqlite.run("CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, role TEXT NOT NULL DEFAULT 'user')");
+  sqlite.run(
+    "CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, role TEXT NOT NULL DEFAULT 'user')",
+  );
   sqlite.run("CREATE TABLE posts (id TEXT PRIMARY KEY, title TEXT NOT NULL)");
   const db = drizzle({ client: sqlite });
   const internalSchema = getInternalSchema("sqlite");
   return { sqlite, db, adapter, internalSchema };
 }
 
-async function createAdminUser(sqlite: Database, db: any, internalSchema: any): Promise<string> {
+async function _createAdminUser(sqlite: Database, db: any, internalSchema: any): Promise<string> {
   sqlite
     .query("INSERT INTO users (id, email, role) VALUES ($id, $email, $role)")
     .run({ $id: "admin-1", $email: "admin@example.com", $role: "admin" });
@@ -184,7 +188,7 @@ test("POST /files: returns 400 when file exceeds maxFileSize", async () => {
     }),
   );
   expect(response.status).toBe(400);
-  const body = await response.json() as { error: { message: string } };
+  const body = (await response.json()) as { error: { message: string } };
   expect(body.error.message).toContain("large");
   sqlite.close();
 });
@@ -256,7 +260,7 @@ test("POST /files: successfully uploads a file and returns 201", async () => {
     }),
   );
   expect(response.status).toBe(201);
-  const body = await response.json() as { file: { id: string; filename: string } };
+  const body = (await response.json()) as { file: { id: string; filename: string } };
   expect(body.file.filename).toBe("hello.txt");
   expect(body.file.id).toBeDefined();
 
@@ -323,9 +327,7 @@ test("DELETE /files: returns 401 when not authenticated", async () => {
     usersTable,
   });
 
-  const response = await routes["/files/:id"].DELETE(
-    new Request("http://localhost/files/some-id"),
-  );
+  const response = await routes["/files/:id"].DELETE(new Request("http://localhost/files/some-id"));
   expect(response.status).toBe(401);
   sqlite.close();
 });

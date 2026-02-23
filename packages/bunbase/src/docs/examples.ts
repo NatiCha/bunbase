@@ -6,17 +6,17 @@
  */
 import { eq } from "drizzle-orm";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { createBunBaseClient } from "../client.ts";
 import {
+  authenticated,
   createServer,
   defineConfig,
   defineRelations,
   defineRules,
-  authenticated,
-  ownerOnly,
   type ExtendContext,
+  ownerOnly,
   type RouteMap,
 } from "../index.ts";
-import { createBunBaseClient } from "../client.ts";
 
 // ---------------------------------------------------------------------------
 // Shared schema used by examples

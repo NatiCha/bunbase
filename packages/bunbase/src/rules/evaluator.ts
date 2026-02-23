@@ -1,5 +1,5 @@
 import type { SQL } from "drizzle-orm";
-import type { RuleFunction, RuleResult, RuleArg } from "./types.ts";
+import type { RuleArg, RuleFunction, RuleResult } from "./types.ts";
 
 /**
  * Rule evaluation helpers.

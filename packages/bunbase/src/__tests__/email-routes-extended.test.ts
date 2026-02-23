@@ -1,10 +1,10 @@
-import { test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
+import { expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { createEmailRoutes } from "../auth/email.ts";
 import { SqliteAdapter } from "../core/adapters/sqlite.ts";
 import { getInternalSchema } from "../core/internal-schema.ts";
-import { createEmailRoutes } from "../auth/email.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 
 const usersTable = sqliteTable("users", {
@@ -243,7 +243,7 @@ test("reset-password returns 400 for invalid or expired token", async () => {
     }),
   );
   expect(response.status).toBe(400);
-  const body = await response.json() as { error: { message: string } };
+  const body = (await response.json()) as { error: { message: string } };
   expect(body.error.message).toContain("expired");
   sqlite.close();
 });
@@ -382,7 +382,9 @@ test("verify-email succeeds with valid token", async () => {
   // Add email_verified column to support the update
   try {
     sqlite.run("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0");
-  } catch { /* already exists */ }
+  } catch {
+    /* already exists */
+  }
 
   const token = "email-verify-token";
   const tokenHash = await sha256Hex(token);
@@ -415,7 +417,7 @@ test("verify-email succeeds with valid token", async () => {
     }),
   );
   expect(response.status).toBe(200);
-  const body = await response.json() as { message: string };
+  const body = (await response.json()) as { message: string };
   expect(body.message).toContain("verified");
 
   // Token should be deleted

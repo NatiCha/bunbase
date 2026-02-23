@@ -31,10 +31,7 @@ export interface DatabaseAdapter {
   ): Promise<T | null>;
 
   /** Execute a dynamic statement with no return value */
-  rawExecute(
-    sql: string,
-    params?: Record<string, unknown>,
-  ): Promise<void>;
+  rawExecute(sql: string, params?: Record<string, unknown>): Promise<void>;
 
   /** Quote a table or column name for safe use in raw SQL */
   quoteIdentifier(name: string): string;

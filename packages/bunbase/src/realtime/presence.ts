@@ -35,11 +35,7 @@ export class PresenceTracker {
     return { isNew };
   }
 
-  leave(
-    channel: string,
-    userId: string,
-    wsRef: unknown,
-  ): { isEmpty: boolean } {
+  leave(channel: string, userId: string, wsRef: unknown): { isEmpty: boolean } {
     const channelMap = this.state.get(channel);
     if (!channelMap) return { isEmpty: true };
 
@@ -74,11 +70,7 @@ export class PresenceTracker {
     return results;
   }
 
-  updateMeta(
-    channel: string,
-    userId: string,
-    meta: Record<string, unknown>,
-  ): void {
+  updateMeta(channel: string, userId: string, meta: Record<string, unknown>): void {
     const channelMap = this.state.get(channel);
     if (!channelMap) return;
     const entry = channelMap.get(userId);

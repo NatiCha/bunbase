@@ -1,15 +1,15 @@
-import { test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
+import { expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { getInternalSchema } from "../core/internal-schema.ts";
-import { SqliteAdapter } from "../core/adapters/sqlite.ts";
 import {
+  cleanupExpiredSessions,
   createSession,
-  getSession,
   deleteSession,
   deleteUserSessions,
-  cleanupExpiredSessions,
+  getSession,
 } from "../auth/sessions.ts";
+import { SqliteAdapter } from "../core/adapters/sqlite.ts";
+import { getInternalSchema } from "../core/internal-schema.ts";
 
 function setupDb() {
   const sqlite = new Database(":memory:");
@@ -65,9 +65,7 @@ test("getSession returns null and removes expired session", async () => {
 
   // Confirm the expired row was deleted
   const row = sqlite
-    .query<{ id: string }, { $id: string }>(
-      "SELECT id FROM _sessions WHERE id = $id",
-    )
+    .query<{ id: string }, { $id: string }>("SELECT id FROM _sessions WHERE id = $id")
     .get({ $id: id });
   expect(row).toBeNull();
 
@@ -116,17 +114,13 @@ test("cleanupExpiredSessions removes only expired rows", async () => {
 
   // Active session should still be there (via direct query to avoid the getSession expiry check)
   const active = sqlite
-    .query<{ id: string }, { $id: string }>(
-      "SELECT id FROM _sessions WHERE id = $id",
-    )
+    .query<{ id: string }, { $id: string }>("SELECT id FROM _sessions WHERE id = $id")
     .get({ $id: activeId });
   expect(active).not.toBeNull();
 
   // Expired session should be gone
   const expired = sqlite
-    .query<{ id: string }, { $id: string }>(
-      "SELECT id FROM _sessions WHERE id = $id",
-    )
+    .query<{ id: string }, { $id: string }>("SELECT id FROM _sessions WHERE id = $id")
     .get({ $id: "old-session" });
   expect(expired).toBeNull();
 
@@ -163,9 +157,7 @@ test("getSession triggers lazy cleanup after ~100 calls", async () => {
 
   // The expired session should have been cleaned up by the lazy cleanup
   const expiredAfter = sqlite
-    .query<{ id: string }, { $id: string }>(
-      "SELECT id FROM _sessions WHERE id = $id",
-    )
+    .query<{ id: string }, { $id: string }>("SELECT id FROM _sessions WHERE id = $id")
     .get({ $id: "old-expired" });
   expect(expiredAfter).toBeNull();
 

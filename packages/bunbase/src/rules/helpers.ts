@@ -1,5 +1,5 @@
-import { eq, and, type SQL } from "drizzle-orm";
 import type { Column, Table } from "drizzle-orm";
+import { eq, type SQL } from "drizzle-orm";
 import type { AuthUser } from "../api/types.ts";
 import type { AnyDb } from "../core/db-types.ts";
 import type { TableRules } from "./types.ts";
@@ -17,19 +17,13 @@ export function admin(auth: AuthUser | null): boolean {
 }
 
 /** Allow only the record owner (match column value to auth user id) */
-export function ownerOnly(
-  ownerColumn: Column,
-  auth: AuthUser | null,
-): SQL | boolean {
+export function ownerOnly(ownerColumn: Column, auth: AuthUser | null): SQL | boolean {
   if (!auth) return false;
   return eq(ownerColumn, auth.id);
 }
 
 /** Allow admins or the record owner */
-export function adminOrOwner(
-  ownerColumn: Column,
-  auth: AuthUser | null,
-): SQL | boolean {
+export function adminOrOwner(ownerColumn: Column, auth: AuthUser | null): SQL | boolean {
   if (!auth) return false;
   if (auth.role === "admin") return true;
   return eq(ownerColumn, auth.id);
@@ -75,10 +69,7 @@ export function isChanged(
  * Return the length of an array field on an existing record.
  * Returns 0 if the record is missing or the field is not an array.
  */
-export function fieldLength(
-  record: Record<string, unknown> | undefined,
-  field: string,
-): number {
+export function fieldLength(record: Record<string, unknown> | undefined, field: string): number {
   if (!record) return 0;
   const val = record[field];
   if (Array.isArray(val)) return val.length;

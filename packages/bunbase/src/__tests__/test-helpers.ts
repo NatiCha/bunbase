@@ -1,20 +1,20 @@
-import type { ResolvedConfig } from "../core/config.ts";
-import type { InternalSchema } from "../core/internal-schema.ts";
-import { getInternalSchema } from "../core/internal-schema.ts";
-import { SqliteAdapter } from "../core/adapters/sqlite.ts";
-import type { DatabaseAdapter } from "../core/adapter.ts";
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import type { DatabaseAdapter } from "../core/adapter.ts";
+import { SqliteAdapter } from "../core/adapters/sqlite.ts";
+import type { ResolvedConfig } from "../core/config.ts";
 import type { AnyDb } from "../core/db-types.ts";
+import type { InternalSchema } from "../core/internal-schema.ts";
+import { getInternalSchema } from "../core/internal-schema.ts";
 
-export function makeResolvedConfig(
-  overrides: Partial<ResolvedConfig> = {},
-): ResolvedConfig {
+export function makeResolvedConfig(overrides: Partial<ResolvedConfig> = {}): ResolvedConfig {
   const authOverrides = (overrides.auth ?? {}) as Partial<ResolvedConfig["auth"]>;
-  const storageOverrides =
-    (overrides.storage ?? {}) as Partial<ResolvedConfig["storage"]>;
+  const storageOverrides = (overrides.storage ?? {}) as Partial<ResolvedConfig["storage"]>;
   const corsOverrides = (overrides.cors ?? {}) as Partial<ResolvedConfig["cors"]>;
-  const databaseOverrides = overrides.database ?? { driver: "sqlite" as const, url: overrides.dbPath ?? "./data/db.sqlite" };
+  const databaseOverrides = overrides.database ?? {
+    driver: "sqlite" as const,
+    url: overrides.dbPath ?? "./data/db.sqlite",
+  };
 
   const realtimeOverrides = (overrides.realtime ?? {}) as Partial<ResolvedConfig["realtime"]>;
 

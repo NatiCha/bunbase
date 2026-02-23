@@ -1,7 +1,7 @@
-import type { ServerWebSocket, Server } from "bun";
-import type { RealtimeSocketData, ClientMessage, ServerMessage } from "./types.ts";
+import type { Server, ServerWebSocket } from "bun";
 import type { RealtimeManager } from "./manager.ts";
 import type { PresenceTracker } from "./presence.ts";
+import type { ClientMessage, RealtimeSocketData, ServerMessage } from "./types.ts";
 
 /**
  * WebSocket message/close handlers for BunBase realtime protocol.

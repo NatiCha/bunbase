@@ -78,11 +78,21 @@ export class SqliteAdapter implements DatabaseAdapter {
     // Indexes
     this.sqlite.run("CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON _sessions(user_id)");
     this.sqlite.run("CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON _sessions(expires_at)");
-    this.sqlite.run("CREATE INDEX IF NOT EXISTS idx_files_collection_record ON _files(collection, record_id)");
-    this.sqlite.run("CREATE INDEX IF NOT EXISTS idx_verification_tokens_user ON _verification_tokens(user_id)");
-    this.sqlite.run("CREATE INDEX IF NOT EXISTS idx_oauth_accounts_user ON _oauth_accounts(user_id)");
-    this.sqlite.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_accounts_provider ON _oauth_accounts(provider, provider_account_id)");
-    this.sqlite.run("CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON _request_logs(timestamp)");
+    this.sqlite.run(
+      "CREATE INDEX IF NOT EXISTS idx_files_collection_record ON _files(collection, record_id)",
+    );
+    this.sqlite.run(
+      "CREATE INDEX IF NOT EXISTS idx_verification_tokens_user ON _verification_tokens(user_id)",
+    );
+    this.sqlite.run(
+      "CREATE INDEX IF NOT EXISTS idx_oauth_accounts_user ON _oauth_accounts(user_id)",
+    );
+    this.sqlite.run(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_accounts_provider ON _oauth_accounts(provider, provider_account_id)",
+    );
+    this.sqlite.run(
+      "CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON _request_logs(timestamp)",
+    );
     this.sqlite.run("CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON _api_keys(user_id)");
     this.sqlite.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_hash ON _api_keys(key_hash)");
   }
@@ -91,21 +101,18 @@ export class SqliteAdapter implements DatabaseAdapter {
     sql: string,
     params?: Record<string, unknown>,
   ): Promise<T[]> {
-    return this.sqlite.query(sql).all(params as never ?? {}) as T[];
+    return this.sqlite.query(sql).all((params as never) ?? {}) as T[];
   }
 
   async rawQueryOne<T = Record<string, unknown>>(
     sql: string,
     params?: Record<string, unknown>,
   ): Promise<T | null> {
-    return (this.sqlite.query(sql).get(params as never ?? {}) as T | null) ?? null;
+    return (this.sqlite.query(sql).get((params as never) ?? {}) as T | null) ?? null;
   }
 
-  async rawExecute(
-    sql: string,
-    params?: Record<string, unknown>,
-  ): Promise<void> {
-    this.sqlite.query(sql).run(params as never ?? {});
+  async rawExecute(sql: string, params?: Record<string, unknown>): Promise<void> {
+    this.sqlite.query(sql).run((params as never) ?? {});
   }
 
   quoteIdentifier(name: string): string {

@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { addCorsHeaders, handleCorsPreflightOrNull, withCors } from "../cors.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 
@@ -14,9 +14,7 @@ test("development CORS echoes origin for credentialed requests", () => {
   const preflight = handleCorsPreflightOrNull(req, config);
   expect(preflight).not.toBeNull();
   expect(preflight?.status).toBe(204);
-  expect(preflight?.headers.get("Access-Control-Allow-Origin")).toBe(
-    "http://localhost:5173",
-  );
+  expect(preflight?.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
   expect(preflight?.headers.get("Access-Control-Allow-Credentials")).toBe("true");
   expect(preflight?.headers.get("Vary")).toBe("Origin");
 });
@@ -46,9 +44,7 @@ test("response CORS headers include echoed origin when allowed", () => {
   });
 
   const response = addCorsHeaders(new Response("OK"), req, config);
-  expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
-    "http://localhost:5173",
-  );
+  expect(response.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
   expect(response.headers.get("Access-Control-Allow-Credentials")).toBe("true");
 });
 
@@ -64,9 +60,7 @@ test("withCors handles OPTIONS preflight and returns preflight response", async 
 
   const response = await handler(req);
   expect(response.status).toBe(204);
-  expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
-    "http://localhost:5173",
-  );
+  expect(response.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
 });
 
 test("withCors injects CORS headers on normal responses", async () => {
@@ -78,8 +72,6 @@ test("withCors injects CORS headers on normal responses", async () => {
 
   const response = await handler(req);
   expect(response.status).toBe(200);
-  expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
-    "http://localhost:5173",
-  );
+  expect(response.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
   expect(await response.text()).toBe("ok");
 });

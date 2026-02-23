@@ -1,9 +1,9 @@
-import { test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
+import { expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
-import { generateCrudHandlers, generateAllCrudHandlers } from "../crud/handler.ts";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import type { AuthUser } from "../api/types.ts";
+import { generateAllCrudHandlers, generateCrudHandlers } from "../crud/handler.ts";
 
 const posts = sqliteTable("posts", {
   id: text("id").primaryKey(),
@@ -80,22 +80,21 @@ function makeInvalidJsonRequest(
 
 test("generateCrudHandlers throws when table has no id column", () => {
   const { db } = setupDb();
-  expect(() => generateCrudHandlers(noIdTable, db, noAuth)).toThrow(
-    'must have an "id" column',
-  );
+  expect(() => generateCrudHandlers(noIdTable, db, noAuth)).toThrow('must have an "id" column');
 });
 
 // ─── list ────────────────────────────────────────────────────────────────────
 
 test("GET /api/posts returns all rows", async () => {
   const { sqlite, db } = setupDb();
-  sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+  sqlite
+    .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
     .run({ $id: "p1", $title: "Hello", $authorId: "u1" });
 
   const { exact } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await exact["/api/posts"].GET(makeRequest("GET", "/api/posts"));
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.data).toHaveLength(1);
   expect(body.hasMore).toBe(false);
   expect(body.nextCursor).toBeNull();
@@ -106,7 +105,7 @@ test("GET /api/posts returns empty result set", async () => {
   const { sqlite, db } = setupDb();
   const { exact } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await exact["/api/posts"].GET(makeRequest("GET", "/api/posts"));
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.data).toHaveLength(0);
   sqlite.close();
 });
@@ -114,12 +113,13 @@ test("GET /api/posts returns empty result set", async () => {
 test("GET /api/posts?limit=2 respects limit and returns nextCursor", async () => {
   const { sqlite, db } = setupDb();
   for (let i = 1; i <= 5; i++) {
-    sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+    sqlite
+      .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
       .run({ $id: `p${i}`, $title: `Post ${i}`, $authorId: "u1" });
   }
   const { exact } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await exact["/api/posts"].GET(makeRequest("GET", "/api/posts?limit=2"));
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.data).toHaveLength(2);
   expect(body.hasMore).toBe(true);
   expect(body.nextCursor).not.toBeNull();
@@ -128,14 +128,21 @@ test("GET /api/posts?limit=2 respects limit and returns nextCursor", async () =>
 
 test("GET /api/posts?filter applies filter conditions", async () => {
   const { sqlite, db } = setupDb();
-  sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)").run({ $id: "p1", $title: "Alpha", $authorId: "u1" });
-  sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)").run({ $id: "p2", $title: "Beta", $authorId: "u2" });
+  sqlite
+    .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+    .run({ $id: "p1", $title: "Alpha", $authorId: "u1" });
+  sqlite
+    .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+    .run({ $id: "p2", $title: "Beta", $authorId: "u2" });
 
   const { exact } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await exact["/api/posts"].GET(
-    makeRequest("GET", `/api/posts?filter=${encodeURIComponent(JSON.stringify({ authorId: "u1" }))}`),
+    makeRequest(
+      "GET",
+      `/api/posts?filter=${encodeURIComponent(JSON.stringify({ authorId: "u1" }))}`,
+    ),
   );
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.data).toHaveLength(1);
   expect(body.data[0].id).toBe("p1");
   sqlite.close();
@@ -143,13 +150,25 @@ test("GET /api/posts?filter applies filter conditions", async () => {
 
 test("GET /api/posts applies sort order", async () => {
   const { sqlite, db } = setupDb();
-  sqlite.query("INSERT INTO posts (id, title, author_id, score) VALUES ($id, $title, $authorId, $score)").run({ $id: "p1", $title: "A", $authorId: "u1", $score: 30 });
-  sqlite.query("INSERT INTO posts (id, title, author_id, score) VALUES ($id, $title, $authorId, $score)").run({ $id: "p2", $title: "B", $authorId: "u1", $score: 10 });
-  sqlite.query("INSERT INTO posts (id, title, author_id, score) VALUES ($id, $title, $authorId, $score)").run({ $id: "p3", $title: "C", $authorId: "u1", $score: 20 });
+  sqlite
+    .query(
+      "INSERT INTO posts (id, title, author_id, score) VALUES ($id, $title, $authorId, $score)",
+    )
+    .run({ $id: "p1", $title: "A", $authorId: "u1", $score: 30 });
+  sqlite
+    .query(
+      "INSERT INTO posts (id, title, author_id, score) VALUES ($id, $title, $authorId, $score)",
+    )
+    .run({ $id: "p2", $title: "B", $authorId: "u1", $score: 10 });
+  sqlite
+    .query(
+      "INSERT INTO posts (id, title, author_id, score) VALUES ($id, $title, $authorId, $score)",
+    )
+    .run({ $id: "p3", $title: "C", $authorId: "u1", $score: 20 });
 
   const { exact } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await exact["/api/posts"].GET(makeRequest("GET", "/api/posts?sort=score&order=asc"));
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.data.map((r: any) => r.id)).toEqual(["p2", "p3", "p1"]);
   sqlite.close();
 });
@@ -157,18 +176,19 @@ test("GET /api/posts applies sort order", async () => {
 test("list with cursor returns only subsequent rows (pagination)", async () => {
   const { sqlite, db } = setupDb();
   for (let i = 1; i <= 5; i++) {
-    sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+    sqlite
+      .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
       .run({ $id: `p${i}`, $title: `Post ${i}`, $authorId: "u1" });
   }
   const { exact } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res1 = await exact["/api/posts"].GET(makeRequest("GET", "/api/posts?limit=2"));
-  const page1 = await res1.json() as any;
+  const page1 = (await res1.json()) as any;
   expect(page1.nextCursor).not.toBeNull();
 
   const res2 = await exact["/api/posts"].GET(
     makeRequest("GET", `/api/posts?limit=2&cursor=${page1.nextCursor}`),
   );
-  const page2 = await res2.json() as any;
+  const page2 = (await res2.json()) as any;
   expect(page2.data).toHaveLength(2);
   const ids1 = page1.data.map((r: any) => r.id);
   const ids2 = page2.data.map((r: any) => r.id);
@@ -186,8 +206,12 @@ test("list returns 403 when rule denies", async () => {
 
 test("list applies rule-injected SQL whereClause", async () => {
   const { sqlite, db } = setupDb();
-  sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)").run({ $id: "p1", $title: "Mine", $authorId: "u1" });
-  sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)").run({ $id: "p2", $title: "Theirs", $authorId: "u2" });
+  sqlite
+    .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+    .run({ $id: "p1", $title: "Mine", $authorId: "u1" });
+  sqlite
+    .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+    .run({ $id: "p2", $title: "Theirs", $authorId: "u2" });
 
   const { eq } = await import("drizzle-orm");
   const { getColumns } = await import("drizzle-orm");
@@ -197,7 +221,7 @@ test("list applies rule-injected SQL whereClause", async () => {
     list: () => eq(cols.authorId, "u1"),
   });
   const res = await exact["/api/posts"].GET(makeRequest("GET", "/api/posts"));
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.data).toHaveLength(1);
   expect(body.data[0].id).toBe("p1");
   sqlite.close();
@@ -207,13 +231,14 @@ test("list applies rule-injected SQL whereClause", async () => {
 
 test("GET /api/posts/:id returns a row when it exists", async () => {
   const { sqlite, db } = setupDb();
-  sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+  sqlite
+    .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
     .run({ $id: "p1", $title: "Hello", $authorId: "u1" });
 
   const { pattern } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await pattern["/api/posts/:id"].GET(makeRequest("GET", "/api/posts/p1"));
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.title).toBe("Hello");
   sqlite.close();
 });
@@ -228,7 +253,8 @@ test("GET /api/posts/:id returns 404 when row does not exist", async () => {
 
 test("GET /api/posts/:id returns 403 when rule denies", async () => {
   const { sqlite, db } = setupDb();
-  sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+  sqlite
+    .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
     .run({ $id: "p1", $title: "Title", $authorId: "u1" });
   const { pattern } = generateCrudHandlers(posts, db, mockAuth(), { get: () => false });
   const res = await pattern["/api/posts/:id"].GET(makeRequest("GET", "/api/posts/p1"));
@@ -245,7 +271,7 @@ test("POST /api/posts inserts a row and returns 201", async () => {
     makeRequest("POST", "/api/posts", { title: "New Post", author_id: "u1" }),
   );
   expect(res.status).toBe(201);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.title).toBe("New Post");
   expect(body.id).toBeDefined();
   const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM posts").get([]);
@@ -259,7 +285,8 @@ test("POST /api/posts uses provided id if given", async () => {
   await exact["/api/posts"].POST(
     makeRequest("POST", "/api/posts", { id: "custom-id", title: "Post", author_id: "u1" }),
   );
-  const row = sqlite.query<{ id: string }, { $id: string }>("SELECT id FROM posts WHERE id = $id")
+  const row = sqlite
+    .query<{ id: string }, { $id: string }>("SELECT id FROM posts WHERE id = $id")
     .get({ $id: "custom-id" });
   expect(row?.id).toBe("custom-id");
   sqlite.close();
@@ -296,14 +323,15 @@ test("POST /api/posts returns 400 for invalid JSON before evaluating create rule
 
 test("PATCH /api/posts/:id modifies and returns the updated row", async () => {
   const { sqlite, db } = setupDb();
-  sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+  sqlite
+    .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
     .run({ $id: "p1", $title: "Old", $authorId: "u1" });
   const { pattern } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await pattern["/api/posts/:id"].PATCH(
     makeRequest("PATCH", "/api/posts/p1", { title: "New" }),
   );
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.title).toBe("New");
   sqlite.close();
 });
@@ -347,20 +375,22 @@ test("PATCH /api/posts/:id returns 400 for invalid JSON before evaluating update
 
 test("PATCH maps snake_case field names to Drizzle column keys", async () => {
   const { sqlite, db } = setupDb();
-  sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+  sqlite
+    .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
     .run({ $id: "p1", $title: "Title", $authorId: "u1" });
   const { pattern } = generateCrudHandlers(posts, db, mockAuth(), openRules);
   const res = await pattern["/api/posts/:id"].PATCH(
     makeRequest("PATCH", "/api/posts/p1", { author_id: "u2" }),
   );
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.authorId).toBe("u2");
   sqlite.close();
 });
 
 test("PATCH with whereClause rule denies access when record doesn't match", async () => {
   const { sqlite, db } = setupDb();
-  sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+  sqlite
+    .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
     .run({ $id: "p1", $title: "Title", $authorId: "u2" });
 
   const { eq, getColumns } = await import("drizzle-orm");
@@ -377,7 +407,8 @@ test("PATCH with whereClause rule denies access when record doesn't match", asyn
 
 test("PATCH succeeds when whereClause rule matches the target record", async () => {
   const { sqlite, db } = setupDb();
-  sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+  sqlite
+    .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
     .run({ $id: "p1", $title: "Original", $authorId: "u1" });
 
   const { eq, getColumns } = await import("drizzle-orm");
@@ -388,7 +419,7 @@ test("PATCH succeeds when whereClause rule matches the target record", async () 
   const res = await pattern["/api/posts/:id"].PATCH(
     makeRequest("PATCH", "/api/posts/p1", { title: "Updated" }),
   );
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.title).toBe("Updated");
   sqlite.close();
 });
@@ -397,14 +428,13 @@ test("PATCH succeeds when whereClause rule matches the target record", async () 
 
 test("DELETE /api/posts/:id removes the row and returns deleted:true", async () => {
   const { sqlite, db } = setupDb();
-  sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+  sqlite
+    .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
     .run({ $id: "p1", $title: "Post", $authorId: "u1" });
   const { pattern } = generateCrudHandlers(posts, db, mockAuth(), openRules);
-  const res = await pattern["/api/posts/:id"].DELETE(
-    makeRequest("DELETE", "/api/posts/p1"),
-  );
+  const res = await pattern["/api/posts/:id"].DELETE(makeRequest("DELETE", "/api/posts/p1"));
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.deleted).toBe(true);
   const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM posts").get([]);
   expect(count?.n).toBe(0);
@@ -417,7 +447,7 @@ test("DELETE /api/posts/:id returns deleted:false when row does not exist", asyn
   const res = await pattern["/api/posts/:id"].DELETE(
     makeRequest("DELETE", "/api/posts/no-such-row"),
   );
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.deleted).toBe(false);
   sqlite.close();
 });
@@ -425,16 +455,15 @@ test("DELETE /api/posts/:id returns deleted:false when row does not exist", asyn
 test("DELETE returns 403 when rule denies", async () => {
   const { sqlite, db } = setupDb();
   const { pattern } = generateCrudHandlers(posts, db, mockAuth(), { delete: () => false });
-  const res = await pattern["/api/posts/:id"].DELETE(
-    makeRequest("DELETE", "/api/posts/p1"),
-  );
+  const res = await pattern["/api/posts/:id"].DELETE(makeRequest("DELETE", "/api/posts/p1"));
   expect(res.status).toBe(403);
   sqlite.close();
 });
 
 test("DELETE with whereClause rule denies when record doesn't match", async () => {
   const { sqlite, db } = setupDb();
-  sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+  sqlite
+    .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
     .run({ $id: "p1", $title: "Title", $authorId: "u2" });
 
   const { eq, getColumns } = await import("drizzle-orm");
@@ -442,16 +471,15 @@ test("DELETE with whereClause rule denies when record doesn't match", async () =
   const { pattern } = generateCrudHandlers(posts, db, mockAuth(), {
     delete: () => eq(cols.authorId, "u1"),
   });
-  const res = await pattern["/api/posts/:id"].DELETE(
-    makeRequest("DELETE", "/api/posts/p1"),
-  );
+  const res = await pattern["/api/posts/:id"].DELETE(makeRequest("DELETE", "/api/posts/p1"));
   expect(res.status).toBe(403);
   sqlite.close();
 });
 
 test("DELETE succeeds when whereClause rule matches the target record", async () => {
   const { sqlite, db } = setupDb();
-  sqlite.query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
+  sqlite
+    .query("INSERT INTO posts (id, title, author_id) VALUES ($id, $title, $authorId)")
     .run({ $id: "p1", $title: "Title", $authorId: "u1" });
 
   const { eq, getColumns } = await import("drizzle-orm");
@@ -459,10 +487,8 @@ test("DELETE succeeds when whereClause rule matches the target record", async ()
   const { pattern } = generateCrudHandlers(posts, db, mockAuth(), {
     delete: () => eq(cols.authorId, "u1"),
   });
-  const res = await pattern["/api/posts/:id"].DELETE(
-    makeRequest("DELETE", "/api/posts/p1"),
-  );
-  const body = await res.json() as any;
+  const res = await pattern["/api/posts/:id"].DELETE(makeRequest("DELETE", "/api/posts/p1"));
+  const body = (await res.json()) as any;
   expect(body.deleted).toBe(true);
   const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM posts").get([]);
   expect(count?.n).toBe(0);
@@ -473,11 +499,7 @@ test("DELETE succeeds when whereClause rule matches the target record", async ()
 
 test("generateAllCrudHandlers skips internal tables and non-table values", () => {
   const { db } = setupDb();
-  const { exact } = generateAllCrudHandlers(
-    { posts, notATable: "string-value" },
-    db,
-    noAuth,
-  );
+  const { exact } = generateAllCrudHandlers({ posts, notATable: "string-value" }, db, noAuth);
   expect(Object.keys(exact)).toEqual(["/api/posts"]);
 });
 

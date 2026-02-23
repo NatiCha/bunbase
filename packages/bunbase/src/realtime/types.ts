@@ -24,7 +24,13 @@ export type ClientMessage =
 
 // Server → Client messages
 export type ServerMessage =
-  | { type: "table:change"; table: string; action: "INSERT" | "UPDATE" | "DELETE"; record?: Record<string, unknown>; id: string }
+  | {
+      type: "table:change";
+      table: string;
+      action: "INSERT" | "UPDATE" | "DELETE";
+      record?: Record<string, unknown>;
+      id: string;
+    }
   | { type: "broadcast"; channel: string; event: string; payload: unknown }
   | { type: "presence:state"; channel: string; users: PresenceUser[] }
   | { type: "presence:join"; channel: string; user: PresenceUser }

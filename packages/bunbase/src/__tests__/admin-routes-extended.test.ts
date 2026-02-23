@@ -1,18 +1,15 @@
-import { test, expect, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { join } from "node:path";
+import { afterAll, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { handleAdminApi, pushRequestLog } from "../admin/routes.ts";
+import { createSession } from "../auth/sessions.ts";
 import { SqliteAdapter } from "../core/adapters/sqlite.ts";
 import { getInternalSchema } from "../core/internal-schema.ts";
-import {
-  handleAdminApi,
-  pushRequestLog,
-} from "../admin/routes.ts";
 import { createLocalStorage } from "../storage/local.ts";
-import { createSession } from "../auth/sessions.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 
 const storageDir = join(tmpdir(), `bunbase-admin-test-${Date.now()}`);
@@ -21,7 +18,9 @@ mkdirSync(storageDir, { recursive: true });
 afterAll(() => {
   try {
     rmSync(storageDir, { recursive: true, force: true });
-  } catch { /* best effort */ }
+  } catch {
+    /* best effort */
+  }
 });
 
 const postsTable = sqliteTable("posts", {
@@ -43,9 +42,7 @@ function setupDb() {
   sqlite.run(
     "CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT, role TEXT NOT NULL DEFAULT 'user')",
   );
-  sqlite.run(
-    "CREATE TABLE posts (id TEXT PRIMARY KEY, title TEXT NOT NULL)",
-  );
+  sqlite.run("CREATE TABLE posts (id TEXT PRIMARY KEY, title TEXT NOT NULL)");
   const db = drizzle({ client: sqlite });
   const internalSchema = getInternalSchema("sqlite");
   return { sqlite, db, adapter, internalSchema };
@@ -112,9 +109,7 @@ test("pushRequestLog trims to 500 most recent entries", async () => {
     });
   }
 
-  const count = sqlite
-    .query<{ n: number }, []>("SELECT COUNT(*) as n FROM _request_logs")
-    .get([]);
+  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM _request_logs").get([]);
   expect(count?.n).toBeLessThanOrEqual(500);
   sqlite.close();
 });
@@ -175,7 +170,7 @@ test("GET /users returns a list of users (password stripped)", async () => {
     usersTable,
   );
   expect(response.status).toBe(200);
-  const users = await response.json() as Array<{ role: string; password_hash?: string }>;
+  const users = (await response.json()) as Array<{ role: string; password_hash?: string }>;
   expect(Array.isArray(users)).toBe(true);
   expect(users.some((u) => u.role === "admin")).toBe(true);
   expect(users.every((u) => !("password_hash" in u))).toBe(true);
@@ -196,7 +191,7 @@ test("GET /sessions returns all sessions", async () => {
     usersTable,
   );
   expect(response.status).toBe(200);
-  const sessions = await response.json() as Array<{ id: string }>;
+  const sessions = (await response.json()) as Array<{ id: string }>;
   expect(Array.isArray(sessions)).toBe(true);
   expect(sessions.some((s) => s.id === sessionId)).toBe(true);
 });
@@ -218,7 +213,7 @@ test("DELETE /sessions/:id removes a session", async () => {
     usersTable,
   );
   expect(response.status).toBe(200);
-  const body = await response.json() as { deleted: boolean };
+  const body = (await response.json()) as { deleted: boolean };
   expect(body.deleted).toBe(true);
 
   const row = sqlite
@@ -252,7 +247,7 @@ test("GET /logs returns request logs", async () => {
     usersTable,
   );
   expect(response.status).toBe(200);
-  const logs = await response.json() as Array<{ method: string }>;
+  const logs = (await response.json()) as Array<{ method: string }>;
   expect(Array.isArray(logs)).toBe(true);
   expect(logs.some((l) => l.method === "POST")).toBe(true);
 });
@@ -281,12 +276,10 @@ test("DELETE /logs clears all request logs", async () => {
     usersTable,
   );
   expect(response.status).toBe(200);
-  const body = await response.json() as { cleared: boolean };
+  const body = (await response.json()) as { cleared: boolean };
   expect(body.cleared).toBe(true);
 
-  const count = sqlite
-    .query<{ n: number }, []>("SELECT COUNT(*) as n FROM _request_logs")
-    .get([]);
+  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM _request_logs").get([]);
   expect(count?.n).toBe(0);
   sqlite.close();
 });
@@ -306,7 +299,7 @@ test("GET /config returns sanitized configuration", async () => {
     usersTable,
   );
   expect(response.status).toBe(200);
-  const body = await response.json() as {
+  const body = (await response.json()) as {
     development: boolean;
     database: { driver: string };
     auth: { tokenExpiry: number };
@@ -331,7 +324,7 @@ test("GET /schema returns table column definitions", async () => {
     usersTable,
   );
   expect(response.status).toBe(200);
-  const body = await response.json() as Record<string, Array<{ key: string }>>;
+  const body = (await response.json()) as Record<string, Array<{ key: string }>>;
   expect(Array.isArray(body.posts)).toBe(true);
   expect(body.posts.some((col) => col.key === "id")).toBe(true);
 });
@@ -354,7 +347,7 @@ test("GET /tables returns table names and record counts", async () => {
     usersTable,
   );
   expect(response.status).toBe(200);
-  const body = await response.json() as Array<{ name: string; count: number }>;
+  const body = (await response.json()) as Array<{ name: string; count: number }>;
   const postsEntry = body.find((t) => t.name === "posts");
   expect(postsEntry?.count).toBe(1);
 });
@@ -374,7 +367,7 @@ test("GET /files returns all file records", async () => {
     usersTable,
   );
   expect(response.status).toBe(200);
-  const files = await response.json() as unknown[];
+  const files = (await response.json()) as unknown[];
   expect(Array.isArray(files)).toBe(true);
 });
 
@@ -393,7 +386,7 @@ test("GET /oauth returns all oauth accounts", async () => {
     usersTable,
   );
   expect(response.status).toBe(200);
-  const accounts = await response.json() as unknown[];
+  const accounts = (await response.json()) as unknown[];
   expect(Array.isArray(accounts)).toBe(true);
 });
 

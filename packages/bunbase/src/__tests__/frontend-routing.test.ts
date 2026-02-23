@@ -4,11 +4,11 @@
  * when a SPA catch-all is registered, and that unknown paths fall through to the
  * SPA handler. Also guards against regressions on servers without frontend config.
  */
-import { test, expect, beforeAll, afterAll } from "bun:test";
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { createServer } from "../core/server.ts";
 
 const root = join(tmpdir(), `bunbase-frontend-routing-${Date.now()}`);
@@ -59,9 +59,7 @@ beforeAll(async () => {
   await serverWith.adapter.rawExecute(
     "CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL)",
   );
-  await serverWith.adapter.rawExecute(
-    "INSERT INTO tasks (id, title) VALUES ('t1', 'Task 1')",
-  );
+  await serverWith.adapter.rawExecute("INSERT INTO tasks (id, title) VALUES ('t1', 'Task 1')");
 
   srvWithFrontend = serverWith.listen(0);
   baseWithFrontend = `http://localhost:${srvWithFrontend.port}`;
@@ -97,7 +95,7 @@ test("GET /api/tasks returns JSON even when frontend is enabled", async () => {
   expect(res.status).toBe(200);
   const ct = res.headers.get("content-type") ?? "";
   expect(ct).toContain("application/json");
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.data).toBeArray();
 });
 
@@ -106,7 +104,7 @@ test("GET /api/tasks?limit=-1 returns JSON (not SPA) when frontend is enabled", 
   expect(res.status).toBe(200);
   const ct = res.headers.get("content-type") ?? "";
   expect(ct).toContain("application/json");
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.nextCursor).toBeNull();
 });
 
@@ -169,6 +167,6 @@ test("GET /some-unknown-route returns 404 when frontend is NOT enabled", async (
 test("GET /health returns 200 JSON when frontend is enabled", async () => {
   const res = await fetch(`${baseWithFrontend}/health`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.status).toBe("ok");
 });

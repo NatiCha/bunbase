@@ -1,12 +1,12 @@
-import { test, expect, afterEach, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { createOAuthRoutes } from "../auth/oauth/routes.ts";
+import { createSession } from "../auth/sessions.ts";
 import { SqliteAdapter } from "../core/adapters/sqlite.ts";
 import { getInternalSchema } from "../core/internal-schema.ts";
-import { createOAuthRoutes } from "../auth/oauth/routes.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
-import { createSession } from "../auth/sessions.ts";
 
 let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">>;
 
@@ -56,18 +56,16 @@ function callbackReq(nonce: string, action: "login" | "link" = "login", userId?:
   const stateObj: Record<string, string> = { nonce, action };
   if (userId) stateObj.userId = userId;
   const cookieValue = encodeURIComponent(JSON.stringify(stateObj));
-  return new Request(
-    `http://localhost/auth/oauth/google/callback?code=auth-code&state=${nonce}`,
-    { headers: { cookie: `oauth_state=${cookieValue}` } },
-  );
+  return new Request(`http://localhost/auth/oauth/google/callback?code=auth-code&state=${nonce}`, {
+    headers: { cookie: `oauth_state=${cookieValue}` },
+  });
 }
 
 /** Build a callback request with legacy plain-UUID state cookie (backward compat). */
 function callbackReqLegacy(state: string): Request {
-  return new Request(
-    `http://localhost/auth/oauth/google/callback?code=auth-code&state=${state}`,
-    { headers: { cookie: `oauth_state=${state}` } },
-  );
+  return new Request(`http://localhost/auth/oauth/google/callback?code=auth-code&state=${state}`, {
+    headers: { cookie: `oauth_state=${state}` },
+  });
 }
 
 // ─── createOAuthRoutes ────────────────────────────────────────────────────────
@@ -198,10 +196,9 @@ test("callback returns 400 when state does not match cookie", async () => {
 
   const cookieValue = encodeURIComponent(JSON.stringify({ nonce: "correct", action: "login" }));
   const response = await (routes["/auth/oauth/google/callback"] as any).GET(
-    new Request(
-      "http://localhost/auth/oauth/google/callback?code=abc&state=wrong",
-      { headers: { cookie: `oauth_state=${cookieValue}` } },
-    ),
+    new Request("http://localhost/auth/oauth/google/callback?code=abc&state=wrong", {
+      headers: { cookie: `oauth_state=${cookieValue}` },
+    }),
   );
   expect(response.status).toBe(400);
   sqlite.close();
@@ -212,35 +209,28 @@ test("callback returns 400 when state does not match legacy plain-UUID cookie", 
   const routes = createOAuthRoutes({ db, internalSchema, config: makeConfig(), usersTable });
 
   const response = await (routes["/auth/oauth/google/callback"] as any).GET(
-    new Request(
-      "http://localhost/auth/oauth/google/callback?code=abc&state=wrong",
-      { headers: { cookie: "oauth_state=correct" } },
-    ),
+    new Request("http://localhost/auth/oauth/google/callback?code=abc&state=wrong", {
+      headers: { cookie: "oauth_state=correct" },
+    }),
   );
   expect(response.status).toBe(400);
   sqlite.close();
 });
 
 test("callback returns 500 when exchangeCode fetch throws", async () => {
-  fetchSpy = spyOn(globalThis, "fetch").mockRejectedValueOnce(
-    new Error("Network error"),
-  );
+  fetchSpy = spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("Network error"));
 
   const { sqlite, db, internalSchema } = setupDb();
   const routes = createOAuthRoutes({ db, internalSchema, config: makeConfig(), usersTable });
 
-  const response = await (routes["/auth/oauth/google/callback"] as any).GET(
-    callbackReq(STATE),
-  );
+  const response = await (routes["/auth/oauth/google/callback"] as any).GET(callbackReq(STATE));
   expect(response.status).toBe(500);
   sqlite.close();
 });
 
 test("callback creates new user and redirects on first OAuth login", async () => {
   fetchSpy = spyOn(globalThis, "fetch")
-    .mockResolvedValueOnce(
-      Response.json({ access_token: "g-token" }) as any,
-    )
+    .mockResolvedValueOnce(Response.json({ access_token: "g-token" }) as any)
     .mockResolvedValueOnce(
       Response.json({
         id: "g-new-123",
@@ -253,9 +243,7 @@ test("callback creates new user and redirects on first OAuth login", async () =>
   const { sqlite, db, internalSchema } = setupDb();
   const routes = createOAuthRoutes({ db, internalSchema, config: makeConfig(), usersTable });
 
-  const response = await (routes["/auth/oauth/google/callback"] as any).GET(
-    callbackReq(STATE),
-  );
+  const response = await (routes["/auth/oauth/google/callback"] as any).GET(callbackReq(STATE));
 
   expect(response.status).toBe(302);
   // Session cookie must be set
@@ -263,9 +251,7 @@ test("callback creates new user and redirects on first OAuth login", async () =>
   expect(cookieHeader).toContain("bunbase_session=");
 
   // User was created in DB
-  const user = sqlite
-    .query<{ email: string }, []>("SELECT email FROM users")
-    .get([]);
+  const user = sqlite.query<{ email: string }, []>("SELECT email FROM users").get([]);
   expect(user?.email).toBe("newuser@gmail.com");
 
   // OAuth account was linked
@@ -279,9 +265,7 @@ test("callback creates new user and redirects on first OAuth login", async () =>
 
 test("callback auto-links OAuth account to existing user when provider confirms email is verified", async () => {
   fetchSpy = spyOn(globalThis, "fetch")
-    .mockResolvedValueOnce(
-      Response.json({ access_token: "g-token" }) as any,
-    )
+    .mockResolvedValueOnce(Response.json({ access_token: "g-token" }) as any)
     .mockResolvedValueOnce(
       Response.json({ id: "g-999", email: "existing@example.com", verified_email: true }) as any,
     );
@@ -293,9 +277,7 @@ test("callback auto-links OAuth account to existing user when provider confirms 
 
   const routes = createOAuthRoutes({ db, internalSchema, config: makeConfig(), usersTable });
 
-  const response = await (routes["/auth/oauth/google/callback"] as any).GET(
-    callbackReq(STATE),
-  );
+  const response = await (routes["/auth/oauth/google/callback"] as any).GET(callbackReq(STATE));
 
   expect(response.status).toBe(302);
 
@@ -306,9 +288,7 @@ test("callback auto-links OAuth account to existing user when provider confirms 
   expect(account?.user_id).toBe("existing-user");
 
   // No new user created
-  const count = sqlite
-    .query<{ n: number }, []>("SELECT COUNT(*) as n FROM users")
-    .get([]);
+  const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM users").get([]);
   expect(count?.n).toBe(1);
 
   sqlite.close();
@@ -316,9 +296,7 @@ test("callback auto-links OAuth account to existing user when provider confirms 
 
 test("callback redirects with ACCOUNT_LINK_REQUIRED when email collision and provider does not confirm verification", async () => {
   fetchSpy = spyOn(globalThis, "fetch")
-    .mockResolvedValueOnce(
-      Response.json({ access_token: "g-token" }) as any,
-    )
+    .mockResolvedValueOnce(Response.json({ access_token: "g-token" }) as any)
     .mockResolvedValueOnce(
       // No verified_email field — conservative: block auto-link
       Response.json({ id: "g-unverified", email: "victim@example.com" }) as any,
@@ -331,9 +309,7 @@ test("callback redirects with ACCOUNT_LINK_REQUIRED when email collision and pro
 
   const routes = createOAuthRoutes({ db, internalSchema, config: makeConfig(), usersTable });
 
-  const response = await (routes["/auth/oauth/google/callback"] as any).GET(
-    callbackReq(STATE),
-  );
+  const response = await (routes["/auth/oauth/google/callback"] as any).GET(callbackReq(STATE));
 
   // Must redirect to error URL, not create a session
   expect(response.status).toBe(302);
@@ -352,11 +328,13 @@ test("callback redirects with ACCOUNT_LINK_REQUIRED when email collision and pro
 
 test("callback redirects with ACCOUNT_LINK_REQUIRED when email collision and provider explicitly says unverified", async () => {
   fetchSpy = spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(Response.json({ access_token: "g-token" }) as any)
     .mockResolvedValueOnce(
-      Response.json({ access_token: "g-token" }) as any,
-    )
-    .mockResolvedValueOnce(
-      Response.json({ id: "g-false-verified", email: "victim2@example.com", verified_email: false }) as any,
+      Response.json({
+        id: "g-false-verified",
+        email: "victim2@example.com",
+        verified_email: false,
+      }) as any,
     );
 
   const { sqlite, db, internalSchema } = setupDb();
@@ -366,9 +344,7 @@ test("callback redirects with ACCOUNT_LINK_REQUIRED when email collision and pro
 
   const routes = createOAuthRoutes({ db, internalSchema, config: makeConfig(), usersTable });
 
-  const response = await (routes["/auth/oauth/google/callback"] as any).GET(
-    callbackReq(STATE),
-  );
+  const response = await (routes["/auth/oauth/google/callback"] as any).GET(callbackReq(STATE));
 
   expect(response.status).toBe(302);
   const location = response.headers.get("Location") ?? "";
@@ -379,9 +355,7 @@ test("callback redirects with ACCOUNT_LINK_REQUIRED when email collision and pro
 
 test("callback reuses existing OAuth account without creating a new link", async () => {
   fetchSpy = spyOn(globalThis, "fetch")
-    .mockResolvedValueOnce(
-      Response.json({ access_token: "g-token" }) as any,
-    )
+    .mockResolvedValueOnce(Response.json({ access_token: "g-token" }) as any)
     .mockResolvedValueOnce(
       Response.json({ id: "g-existing-provider-id", email: "oauth@example.com" }) as any,
     );
@@ -404,9 +378,7 @@ test("callback reuses existing OAuth account without creating a new link", async
 
   const routes = createOAuthRoutes({ db, internalSchema, config: makeConfig(), usersTable });
 
-  const response = await (routes["/auth/oauth/google/callback"] as any).GET(
-    callbackReq(STATE),
-  );
+  const response = await (routes["/auth/oauth/google/callback"] as any).GET(callbackReq(STATE));
 
   expect(response.status).toBe(302);
 
@@ -623,9 +595,7 @@ test("callback recovers from race: creates session for winning userId on unique 
   });
 
   const routes = createOAuthRoutes({ db, internalSchema, config: makeConfig(), usersTable });
-  const response = await (routes["/auth/oauth/google/callback"] as any).GET(
-    callbackReq(STATE),
-  );
+  const response = await (routes["/auth/oauth/google/callback"] as any).GET(callbackReq(STATE));
 
   // Recovered: session created, no 500
   expect(response.status).toBe(302);
@@ -643,9 +613,7 @@ test("callback recovers from race: creates session for winning userId on unique 
 test("callback returns 500 when account-link insert fails with a non-constraint error", async () => {
   fetchSpy = spyOn(globalThis, "fetch")
     .mockResolvedValueOnce(Response.json({ access_token: "g-token" }) as any)
-    .mockResolvedValueOnce(
-      Response.json({ id: "g-err-id", email: "error@example.com" }) as any,
-    );
+    .mockResolvedValueOnce(Response.json({ id: "g-err-id", email: "error@example.com" }) as any);
 
   const { sqlite, db, internalSchema } = setupDb();
 
@@ -653,17 +621,14 @@ test("callback returns 500 when account-link insert fails with a non-constraint 
   spyOn(db as any, "insert").mockImplementation((table: any) => {
     if (table === internalSchema.oauthAccounts) {
       return {
-        values: () =>
-          Promise.reject(new Error("Disk full — non-constraint storage error")),
+        values: () => Promise.reject(new Error("Disk full — non-constraint storage error")),
       };
     }
     return originalInsert(table);
   });
 
   const routes = createOAuthRoutes({ db, internalSchema, config: makeConfig(), usersTable });
-  const response = await (routes["/auth/oauth/google/callback"] as any).GET(
-    callbackReq(STATE),
-  );
+  const response = await (routes["/auth/oauth/google/callback"] as any).GET(callbackReq(STATE));
 
   expect(response.status).toBe(500);
   sqlite.close();

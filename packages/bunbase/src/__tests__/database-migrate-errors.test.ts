@@ -5,10 +5,10 @@
  * mock.module() is hoisted by Bun's test runner before static imports, so the
  * mocked migrate is seen by runUserMigrations on first import.
  */
-import { test, expect, afterAll, mock } from "bun:test";
-import { join } from "node:path";
+import { afterAll, expect, mock, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const testRoot = join(tmpdir(), `bunbase-db-exit-code-${Date.now()}`);
 mkdirSync(testRoot, { recursive: true });
@@ -16,7 +16,9 @@ mkdirSync(testRoot, { recursive: true });
 afterAll(() => {
   try {
     rmSync(testRoot, { recursive: true, force: true });
-  } catch { /* best effort */ }
+  } catch {
+    /* best effort */
+  }
 });
 
 // Replace migrate() with a function that returns { exitCode: 1 }
@@ -67,9 +69,7 @@ test("runUserMigrations throws in production when migrate returns exitCode", asy
   const { db, adapter } = createDatabase(cfg);
 
   try {
-    await expect(runUserMigrations(db, cfg)).rejects.toThrow(
-      "migration initialization failed",
-    );
+    await expect(runUserMigrations(db, cfg)).rejects.toThrow("migration initialization failed");
   } finally {
     adapter.close();
   }

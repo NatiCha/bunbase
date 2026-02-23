@@ -1,5 +1,6 @@
-import React, { createContext, useContext } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type React from "react";
+import { createContext, useContext } from "react";
 import type { AuthUser, UseAuthReturn } from "./types.ts";
 
 const AuthContext = createContext<{ baseUrl: string } | null>(null);
@@ -11,16 +12,12 @@ export function AuthProvider({
   baseUrl: string;
   children: React.ReactNode;
 }) {
-  return (
-    <AuthContext.Provider value={{ baseUrl }}>{children}</AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={{ baseUrl }}>{children}</AuthContext.Provider>;
 }
 
 function getCsrfToken(): string {
   if (typeof document === "undefined") return "";
-  const match = document.cookie
-    .split(";")
-    .find((c) => c.trim().startsWith("csrf_token="));
+  const match = document.cookie.split(";").find((c) => c.trim().startsWith("csrf_token="));
   return match?.split("=")[1]?.trim() ?? "";
 }
 

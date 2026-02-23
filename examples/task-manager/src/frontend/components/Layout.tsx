@@ -1,6 +1,6 @@
-import React from "react";
+import { FolderKanban, KeyRound, LayoutDashboard, LogOut } from "lucide-react";
+import type React from "react";
 import { Button } from "./ui/button.tsx";
-import { LayoutDashboard, FolderKanban, KeyRound, LogOut } from "lucide-react";
 
 interface LayoutProps {
   user: { id: string; email: string; role: string };
@@ -32,7 +32,9 @@ export function Layout({ user, page, onNavigate, onLogout, children }: LayoutPro
                 Dashboard
               </Button>
               <Button
-                variant={page.name === "projects" || page.name === "project" ? "secondary" : "ghost"}
+                variant={
+                  page.name === "projects" || page.name === "project" ? "secondary" : "ghost"
+                }
                 size="sm"
                 onClick={() => onNavigate({ name: "projects" })}
               >

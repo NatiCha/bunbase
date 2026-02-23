@@ -1,10 +1,10 @@
-import { test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
+import { expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { createEmailRoutes } from "../auth/email.ts";
 import { SqliteAdapter } from "../core/adapters/sqlite.ts";
 import { getInternalSchema } from "../core/internal-schema.ts";
-import { createEmailRoutes } from "../auth/email.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 
 const usersTable = sqliteTable("users", {
@@ -80,8 +80,8 @@ test("password reset posts webhook payload when configured", async () => {
     expect(response.status).toBe(200);
     expect(calls.length).toBe(1);
     expect(calls[0]?.url).toBe("https://example.com/send-email");
-    expect(calls[0]?.body.includes("\"type\":\"password_reset\"")).toBe(true);
-    expect(calls[0]?.body.includes("\"email\":\"reset@example.com\"")).toBe(true);
+    expect(calls[0]?.body.includes('"type":"password_reset"')).toBe(true);
+    expect(calls[0]?.body.includes('"email":"reset@example.com"')).toBe(true);
   } finally {
     globalThis.fetch = originalFetch;
     sqlite.close();
@@ -119,7 +119,7 @@ test("password reset returns 200 even when webhook fails (BB-AUTH-002: no enumer
 
     // Must always return 200 — webhook failures must not leak account existence
     expect(response.status).toBe(200);
-    const body = await response.json() as any;
+    const body = (await response.json()) as any;
     expect(body.message).toContain("If an account");
   } finally {
     globalThis.fetch = originalFetch;

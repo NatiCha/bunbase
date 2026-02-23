@@ -1,7 +1,7 @@
-import { test, expect, afterAll } from "bun:test";
-import { join } from "node:path";
-import { mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs";
+import { afterAll, expect, test } from "bun:test";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createDatabase, runUserMigrations } from "../core/database.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 
@@ -11,7 +11,9 @@ mkdirSync(testRoot, { recursive: true });
 afterAll(() => {
   try {
     rmSync(testRoot, { recursive: true, force: true });
-  } catch { /* best effort */ }
+  } catch {
+    /* best effort */
+  }
 });
 
 // ─── createDatabase ──────────────────────────────────────────────────────────
@@ -80,10 +82,7 @@ test("runUserMigrations warns and continues in dev when migrations folder is mis
 test("runUserMigrations warns and continues in dev when migrate() throws", async () => {
   const migrationsPath = join(testRoot, "invalid-meta-dev");
   mkdirSync(join(migrationsPath, "meta"), { recursive: true });
-  writeFileSync(
-    join(migrationsPath, "meta", "_journal.json"),
-    "{ this is not valid json }",
-  );
+  writeFileSync(join(migrationsPath, "meta", "_journal.json"), "{ this is not valid json }");
 
   const dbPath = join(testRoot, "migrate-catch-dev.sqlite");
   const config = makeResolvedConfig({
@@ -100,9 +99,7 @@ test("runUserMigrations warns and continues in dev when migrate() throws", async
 
   try {
     await runUserMigrations(db, config);
-    expect(
-      warnings.some((w) => w.includes("failed to run migrations")),
-    ).toBe(true);
+    expect(warnings.some((w) => w.includes("failed to run migrations"))).toBe(true);
   } finally {
     console.warn = origWarn;
     adapter.close();
@@ -112,10 +109,7 @@ test("runUserMigrations warns and continues in dev when migrate() throws", async
 test("runUserMigrations re-throws in production when migrate() throws", async () => {
   const migrationsPath = join(testRoot, "invalid-meta-prod");
   mkdirSync(join(migrationsPath, "meta"), { recursive: true });
-  writeFileSync(
-    join(migrationsPath, "meta", "_journal.json"),
-    "{ not json }",
-  );
+  writeFileSync(join(migrationsPath, "meta", "_journal.json"), "{ not json }");
 
   const dbPath = join(testRoot, "migrate-catch-prod.sqlite");
   const config = makeResolvedConfig({

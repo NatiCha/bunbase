@@ -1,5 +1,5 @@
-import { gt, lt, and, or, eq, asc, desc, type SQL } from "drizzle-orm";
 import type { Column } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lt, or, type SQL } from "drizzle-orm";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -71,11 +71,7 @@ export function buildCursorCondition(
   return comparator(idColumn, data.id);
 }
 
-export function buildOrderBy(
-  idColumn: Column,
-  sortColumn?: Column,
-  order: "asc" | "desc" = "asc",
-) {
+export function buildOrderBy(idColumn: Column, sortColumn?: Column, order: "asc" | "desc" = "asc") {
   const orderFn = order === "asc" ? asc : desc;
 
   if (sortColumn) {
@@ -94,7 +90,7 @@ export function buildNextCursor<T extends Record<string, unknown>>(
   const last = items[items.length - 1];
   if (!last) return null;
 
-  const data: CursorData = { id: String(last["id"]) };
+  const data: CursorData = { id: String(last.id) };
   if (sortField && sortField !== "id") {
     data.sortValue = last[sortField];
   }

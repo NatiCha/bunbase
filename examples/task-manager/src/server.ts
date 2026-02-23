@@ -2,11 +2,11 @@
  * Canonical BunBase setup example:
  * schema -> rules -> createServer -> listen.
  */
+
 import { createServer, defineConfig } from "bunbase";
-import type { ExtendContext } from "bunbase";
-import * as schema from "./schema";
-import { rules } from "./rules";
 import { customRoutes } from "./custom-routes";
+import { rules } from "./rules";
+import * as schema from "./schema";
 
 const isDev = process.env.NODE_ENV !== "production";
 

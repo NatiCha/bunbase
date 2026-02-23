@@ -1,19 +1,19 @@
-import { mkdirSync, existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { text, select, multiSelect, closePrompts, clack } from "./prompts.ts";
+import { clack, closePrompts, multiSelect, select, text } from "./prompts.ts";
+import { printSummary } from "./summary.ts";
 import {
+  DATABASE_OPTIONS,
+  type DatabaseDriver,
   getTemplate,
+  OAUTH_OPTIONS,
+  type OAuthProvider,
   slugifyDbName,
   TEMPLATE_OPTIONS,
-  DATABASE_OPTIONS,
-  OAUTH_OPTIONS,
   CLAUDE_MD,
   AGENTS_MD,
   type TemplateType,
-  type OAuthProvider,
-  type DatabaseDriver,
 } from "./templates.ts";
-import { printSummary } from "./summary.ts";
 
 const STATIC_FILES: Record<string, string> = {
   "tsconfig.json": `{
@@ -165,13 +165,10 @@ export async function init({ projectName, nonInteractive }: InitOptions) {
     },
   };
 
-  await Bun.write(
-    join(projectDir, "package.json"),
-    JSON.stringify(packageJson, null, 2),
-  );
+  await Bun.write(join(projectDir, "package.json"), JSON.stringify(packageJson, null, 2));
 
   const allFiles = [...Object.keys(files), "package.json"];
-  clack.log.info("Created files:\n" + allFiles.map(f => `  \x1b[2m${f}\x1b[0m`).join("\n"));
+  clack.log.info(`Created files:\n${allFiles.map((f) => `  \x1b[2m${f}\x1b[0m`).join("\n")}`);
 
   // 7. Auto-install
   const installSpinner = clack.spinner();
@@ -179,7 +176,7 @@ export async function init({ projectName, nonInteractive }: InitOptions) {
   try {
     await Bun.$`cd ${projectDir} && bun install`.quiet();
     installSpinner.stop("Dependencies installed");
-  } catch (err) {
+  } catch (_err) {
     installSpinner.stop("Failed to install dependencies");
     clack.log.error(`Run \x1b[1mcd ${projectName} && bun install\x1b[0m manually.`);
     process.exit(1);
@@ -226,7 +223,10 @@ export async function init({ projectName, nonInteractive }: InitOptions) {
 
   // Offer to open admin UI
   if (!nonInteractive) {
-    const openAdmin = await clack.confirm({ message: "Open admin UI in browser?", initialValue: true });
+    const openAdmin = await clack.confirm({
+      message: "Open admin UI in browser?",
+      initialValue: true,
+    });
     if (!clack.isCancel(openAdmin) && openAdmin) {
       const cmd = process.platform === "darwin" ? "open" : "xdg-open";
       Bun.spawn([cmd, `http://localhost:${port}/_admin`]);
@@ -257,9 +257,7 @@ function resolveBunBaseVersion(_projectDir: string): string {
   const packageJsonPath = join(packageRoot, "package.json");
   if (existsSync(packageJsonPath)) {
     try {
-      const pkg = JSON.parse(
-        require("node:fs").readFileSync(packageJsonPath, "utf8"),
-      );
+      const pkg = JSON.parse(require("node:fs").readFileSync(packageJsonPath, "utf8"));
       if (pkg.name === "bunbase") {
         // Running from source — point directly at the local package
         return `file:${packageRoot}`;

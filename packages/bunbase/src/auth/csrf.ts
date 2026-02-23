@@ -1,4 +1,4 @@
-import { parseCookies, serializeCookie, csrfCookieOptions } from "./cookies.ts";
+import { csrfCookieOptions, parseCookies, serializeCookie } from "./cookies.ts";
 
 /**
  * CSRF helpers using a double-submit cookie strategy.
@@ -48,7 +48,5 @@ const CSRF_EXEMPT_PATHS = new Set([
 ]);
 
 export function isCsrfExempt(pathname: string): boolean {
-  return (
-    CSRF_EXEMPT_PATHS.has(pathname) || pathname.startsWith("/auth/oauth/")
-  );
+  return CSRF_EXEMPT_PATHS.has(pathname) || pathname.startsWith("/auth/oauth/");
 }

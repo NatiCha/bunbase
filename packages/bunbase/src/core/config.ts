@@ -177,9 +177,7 @@ function resolveDatabaseConfig(config?: BunBaseConfig): ResolvedDatabaseConfig {
           ? `postgres://${db.user ?? ""}${db.password ? `:${db.password}` : ""}${db.user || db.password ? "@" : ""}${db.host}:${db.port ?? 5432}/${db.dbName ?? ""}`
           : "");
       if (!url) {
-        throw new Error(
-          "BunBase: database.url or database.host is required for Postgres",
-        );
+        throw new Error("BunBase: database.url or database.host is required for Postgres");
       }
       return { driver: "postgres", url };
     }
@@ -190,9 +188,7 @@ function resolveDatabaseConfig(config?: BunBaseConfig): ResolvedDatabaseConfig {
           ? `mysql://${db.user ?? "root"}${db.password ? `:${db.password}` : ""}@${db.host}:${db.port ?? 3306}/${db.dbName ?? ""}`
           : "");
       if (!url) {
-        throw new Error(
-          "BunBase: database.url or database.host is required for MySQL",
-        );
+        throw new Error("BunBase: database.url or database.host is required for MySQL");
       }
       return { driver: "mysql", url };
     }
@@ -279,9 +275,7 @@ export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
         (resolved.auth.oauth.providers && Object.keys(resolved.auth.oauth.providers).length > 0)) &&
       !resolved.auth.oauth.redirectUrl
     ) {
-      throw new Error(
-        "BunBase: auth.oauth.redirectUrl is required in production",
-      );
+      throw new Error("BunBase: auth.oauth.redirectUrl is required in production");
     }
 
     if (resolved.cors.origins.length === 0) {

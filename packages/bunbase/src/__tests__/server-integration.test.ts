@@ -3,13 +3,13 @@
  * port and exercises every branch inside the listen() fetch handler via actual
  * HTTP requests.
  */
-import { test, expect, beforeAll, afterAll } from "bun:test";
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { createServer } from "../core/server.ts";
-import { defineRules, isSet, isChanged } from "../index.ts";
+import { defineRules, isChanged, isSet } from "../index.ts";
 import { makeResolvedConfig } from "./test-helpers.ts";
 
 // ─── shared server setup ─────────────────────────────────────────────────────
@@ -39,7 +39,13 @@ beforeAll(async () => {
   bunbase = createServer({
     schema: { users: usersTable, posts: postsTable },
     rules: {
-      posts: { list: () => null, get: () => null, create: () => null, update: () => null, delete: () => null },
+      posts: {
+        list: () => null,
+        get: () => null,
+        create: () => null,
+        update: () => null,
+        delete: () => null,
+      },
     },
     config: makeResolvedConfig({
       development: true,
@@ -89,7 +95,9 @@ afterAll(() => {
   bunbase?.adapter.close();
   try {
     rmSync(root, { recursive: true, force: true });
-  } catch { /* best effort */ }
+  } catch {
+    /* best effort */
+  }
 });
 
 // ─── /health ─────────────────────────────────────────────────────────────────
@@ -97,7 +105,7 @@ afterAll(() => {
 test("GET /health returns 200 OK with JSON", async () => {
   const res = await fetch(`${base}/health`);
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.status).toBe("ok");
   expect(typeof body.version).toBe("string");
 });
@@ -110,9 +118,7 @@ test("OPTIONS preflight returns 204 with CORS headers", async () => {
     headers: { Origin: "http://localhost:5173" },
   });
   expect(res.status).toBe(204);
-  expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
-    "http://localhost:5173",
-  );
+  expect(res.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
   expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
 });
 
@@ -123,7 +129,7 @@ test("GET /_admin/api/sessions returns sessions list for admin", async () => {
     headers: { cookie: `bunbase_session=${adminSession}` },
   });
   expect(res.status).toBe(200);
-  const sessions = await res.json() as Array<{ id: string }>;
+  const sessions = (await res.json()) as Array<{ id: string }>;
   expect(Array.isArray(sessions)).toBe(true);
   expect(sessions.some((s) => s.id === adminSession)).toBe(true);
 });
@@ -155,9 +161,7 @@ test("POST /auth/login adds CORS headers to its response", async () => {
   });
   // 401 (unknown user) — the important thing is that CORS headers are present
   expect(res.status).toBe(401);
-  expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
-    "http://localhost:5173",
-  );
+  expect(res.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
 });
 
 test("GET /auth/me returns 401 when no session cookie is present", async () => {
@@ -203,7 +207,7 @@ test("POST /api/posts without CSRF token returns 403", async () => {
     body: JSON.stringify({ title: "Bad" }),
   });
   expect(res.status).toBe(403);
-  const body = await res.json() as { error: { code: string } };
+  const body = (await res.json()) as { error: { code: string } };
   expect(body.error.code).toBe("FORBIDDEN");
 });
 
@@ -227,9 +231,7 @@ test("GET /unknown-path returns 404 with CORS headers", async () => {
   });
   expect(res.status).toBe(404);
   // CORS headers should still be present on 404s
-  expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
-    "http://localhost:5173",
-  );
+  expect(res.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
 });
 
 // ─── Admin impersonation via REST API ────────────────────────────────────────
@@ -415,7 +417,7 @@ test("update rule allows when ownerId field is not changed (isChanged)", async (
     body: JSON.stringify({ title: "Updated Title" }),
   });
   expect(res.status).toBe(200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   expect(body.title).toBe("Updated Title");
 });
 
