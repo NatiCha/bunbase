@@ -649,7 +649,7 @@ IMPORTANT: Before implementing a BunBase feature you are unfamiliar with, read t
 \`\`\`
 [BunBase Docs]|root: ./node_modules/bunbase/docs
 |:{index.md,quickstart.md,schema.md,rules.md,hooks.md,client.md,configuration.md,deployment.md,extending.md,jobs.md,realtime.md,testing.md}
-|api:{auth.md,crud.md,files.md}
+|api:{auth.md,crud.md,files.md,api-keys.md}
 \`\`\`
 `;
 
@@ -767,4 +767,5 @@ Read the relevant file before implementing unfamiliar features:
 | Custom routes | \`./node_modules/bunbase/docs/extending.md\` |
 | Deployment checklist | \`./node_modules/bunbase/docs/deployment.md\` |
 | Testing / createTestServer | \`./node_modules/bunbase/docs/testing.md\` |
+| API keys (bearer auth) | \`./node_modules/bunbase/docs/api/api-keys.md\` |
 `;
