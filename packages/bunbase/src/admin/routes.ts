@@ -1,6 +1,8 @@
 import { desc, eq, getColumns, getTableName } from "drizzle-orm";
+import { z } from "zod/v4";
 import type { AuthUser } from "../api/types.ts";
 import { extractAuth } from "../auth/middleware.ts";
+import { hashPassword } from "../auth/passwords.ts";
 import type { DatabaseAdapter } from "../core/adapter.ts";
 import type { ResolvedConfig } from "../core/config.ts";
 import type { AnyDb } from "../core/db-types.ts";
@@ -144,6 +146,48 @@ export async function handleAdminApi(
 
   const qi = adapter.quoteIdentifier.bind(adapter);
 
+  // POST /users — admin creates a user directly
+  if (path === "/users" && method === "POST") {
+    if (!usersTable) {
+      return jsonError("INTERNAL_SERVER_ERROR", "No users table configured", 500);
+    }
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return jsonError("BAD_REQUEST", "Invalid JSON", 400);
+    }
+    const result = z
+      .object({
+        email: z.email(),
+        password: z.string().min(8),
+        role: z.enum(["user", "admin"]).optional().default("user"),
+      })
+      .safeParse(body);
+    if (!result.success) {
+      return jsonError("VALIDATION_ERROR", result.error.issues[0]?.message ?? "Invalid input", 400);
+    }
+    const { email, password, role } = result.data;
+
+    const existing = await (db as any)
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.email, email));
+    if (existing.length > 0) {
+      return jsonError("CONFLICT", "Email already registered", 409);
+    }
+
+    const id = Bun.randomUUIDv7();
+    const passwordHash = await hashPassword(password);
+    await (db as any).insert(usersTable).values({ id, email, passwordHash, role });
+
+    const rows = await (db as any).select().from(usersTable).where(eq(usersTable.id, id));
+    const created: Record<string, unknown> = { ...rows[0] };
+    delete created.password_hash;
+    delete created.passwordHash;
+    return Response.json(created, { status: 201 });
+  }
+
   // GET /users — paginated, strips password fields
   if (path === "/users" && method === "GET") {
     const page = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10));
@@ -160,6 +204,37 @@ export async function handleAdminApi(
       return copy;
     });
     return Response.json(sanitized);
+  }
+
+  // POST /users/:id/password — admin sets a user's password directly
+  const userPasswordMatch = path.match(/^\/users\/([^/]+)\/password$/);
+  if (userPasswordMatch && method === "POST") {
+    const userId = userPasswordMatch[1]!;
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return jsonError("BAD_REQUEST", "Invalid JSON", 400);
+    }
+    const result = z.object({ password: z.string().min(8) }).safeParse(body);
+    if (!result.success) {
+      return jsonError("VALIDATION_ERROR", "Password must be at least 8 characters", 400);
+    }
+
+    const existing = await adapter.rawQuery(
+      `SELECT id FROM ${qi("users")} WHERE id = $id LIMIT 1`,
+      { $id: userId },
+    );
+    if (!existing.length) {
+      return jsonError("NOT_FOUND", "User not found", 404);
+    }
+
+    const passwordHash = await hashPassword(result.data.password);
+    await adapter.rawQuery(`UPDATE ${qi("users")} SET password_hash = $hash WHERE id = $id`, {
+      $hash: passwordHash,
+      $id: userId,
+    });
+    return Response.json({ success: true });
   }
 
   // GET /sessions

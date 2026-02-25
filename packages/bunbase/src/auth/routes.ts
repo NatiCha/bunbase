@@ -441,5 +441,76 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
         return Response.json({ user: stripSensitiveUserFields(user as unknown as UsersRow) });
       },
     },
+
+    "/auth/change-password": {
+      async POST(req: Request): Promise<Response> {
+        if (!usersTable) {
+          return jsonError("INTERNAL_SERVER_ERROR", "BunBase users table is not configured", 500);
+        }
+
+        if (!isBearerOnly(req) && !validateCsrf(req)) {
+          return jsonError("FORBIDDEN", "Invalid CSRF token", 403);
+        }
+
+        const user = await extractAuth(req, db, internalSchema, usersTable);
+        if (!user) {
+          return jsonError("UNAUTHORIZED", "Not authenticated", 401);
+        }
+
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return jsonError("BAD_REQUEST", "Invalid JSON body", 400);
+        }
+
+        const result = z
+          .object({
+            currentPassword: z.string(),
+            newPassword: z.string().min(8),
+          })
+          .safeParse(body);
+        if (!result.success) {
+          return jsonError(
+            "VALIDATION_ERROR",
+            result.error.issues[0]?.message ?? "Invalid input",
+            400,
+          );
+        }
+        const { currentPassword, newPassword } = result.data;
+
+        const rows = await (db as any)
+          .select()
+          .from(usersTable)
+          .where(eq(usersTable.id, user.id))
+          .limit(1);
+        const userRow: UsersRow = rows[0];
+        if (!userRow) {
+          return jsonError("NOT_FOUND", "User not found", 404);
+        }
+
+        const existingHash = resolvePasswordHash(userRow);
+        if (!existingHash) {
+          return jsonError(
+            "BAD_REQUEST",
+            "No password set for this account. Use the password reset flow to set one.",
+            400,
+          );
+        }
+
+        const valid = await verifyPassword(currentPassword, existingHash);
+        if (!valid) {
+          return jsonError("UNAUTHORIZED", "Current password is incorrect", 401);
+        }
+
+        const passwordHash = await hashPassword(newPassword);
+        await (db as any)
+          .update(usersTable)
+          .set({ passwordHash })
+          .where(eq(usersTable.id, user.id));
+
+        return Response.json({ success: true });
+      },
+    },
   };
 }

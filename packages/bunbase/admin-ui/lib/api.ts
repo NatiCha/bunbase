@@ -133,6 +133,10 @@ export interface AdminConfig {
 
 export const api = {
   getUsers: () => get<AdminUser[]>("/users"),
+  createUser: (data: { email: string; password: string; role: "user" | "admin" }) =>
+    post<AdminUser>("/users", data),
+  setUserPassword: (userId: string, password: string) =>
+    post<{ success: boolean }>(`/users/${userId}/password`, { password }),
   getSessions: () => get<AdminSession[]>("/sessions"),
   deleteSession: (id: string) => del<{ deleted: boolean }>(`/sessions/${id}`),
   getOAuth: () => get<AdminOAuthAccount[]>("/oauth"),

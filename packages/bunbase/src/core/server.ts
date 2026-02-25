@@ -1,5 +1,8 @@
 import type { AnyRelations } from "drizzle-orm/relations";
-import adminUI from "../../admin-ui/index.html";
+
+const adminHTMLPath = new URL("../../dist/admin/index.html", import.meta.url);
+const adminAssetsDir = new URL("../../dist/admin/", import.meta.url);
+
 import pkg from "../../package.json";
 import { handleAdminApi, pushRequestLog } from "../admin/routes.ts";
 import { errorResponse } from "../api/helpers.ts";
@@ -448,8 +451,8 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
         return addCorsHeaders(response, req, config);
       }
 
-      // SPA catch-all for /_admin/*
-      if (pathname.startsWith("/_admin")) {
+      // SPA catch-all for /_admin/* (but not the pre-built asset files)
+      if (pathname.startsWith("/_admin") && !pathname.startsWith("/_admin-assets/")) {
         return new Response(null, {
           status: 302,
           headers: { Location: "/_admin" },
@@ -523,8 +526,12 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
 
       routes: {
         "/health": Response.json({ status: "ok", version: pkg.version }),
-        "/_admin": adminUI,
-        "/_admin/": adminUI,
+        "/_admin": () => new Response(Bun.file(adminHTMLPath)),
+        "/_admin/": () => new Response(Bun.file(adminHTMLPath)),
+        "/_admin-assets/*": (req: any) => {
+          const filename = new URL(req.url).pathname.slice("/_admin-assets/".length);
+          return new Response(Bun.file(new URL(filename, adminAssetsDir)));
+        },
         ...(frontendRoutes as any),
       },
 

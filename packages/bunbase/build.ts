@@ -22,6 +22,22 @@ if (buildCode !== 0) {
 
 console.log(`Built executable at ${output}`);
 
+// Build admin UI (Tailwind CSS + TSX) into dist/admin with stable public path
+console.log("Building admin UI...");
+const tailwindPlugin = (await import("bun-plugin-tailwind")).default;
+const adminBuild = await Bun.build({
+  entrypoints: ["./admin-ui/index.html"],
+  outdir: "./dist/admin",
+  publicPath: "/_admin-assets/",
+  plugins: [tailwindPlugin],
+  minify: true,
+});
+if (!adminBuild.success) {
+  console.error("Admin UI build failed:", adminBuild.logs);
+  process.exit(1);
+}
+console.log("Admin UI built at ./dist/admin");
+
 // Generate TypeScript declaration files
 console.log("Generating type declarations...");
 const tscProc = Bun.spawn(["bunx", "tsc", "--project", "tsconfig.emit.json"], {

@@ -263,7 +263,12 @@ function AdminApp({ user }: { user: MeUser }) {
 
   const handleSignOut = async () => {
     try {
-      await fetch("/auth/logout", { method: "POST", credentials: "include" });
+      const csrfToken = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)?.[1] ?? "";
+      await fetch("/auth/logout", {
+        method: "POST",
+        credentials: "include",
+        headers: { "x-csrf-token": decodeURIComponent(csrfToken) },
+      });
     } catch {
       // ignore
     }
