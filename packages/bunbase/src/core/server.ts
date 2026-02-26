@@ -451,13 +451,6 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
         return addCorsHeaders(response, req, config);
       }
 
-      // SPA catch-all for /_admin/* (but not the pre-built asset files)
-      if (pathname.startsWith("/_admin") && !pathname.startsWith("/_admin-assets/")) {
-        return new Response(null, {
-          status: 302,
-          headers: { Location: "/_admin" },
-        });
-      }
 
       // Exact match HTTP routes
       const routeHandlers = httpRoutes[pathname];
@@ -508,13 +501,18 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     // When frontend.html is set, register API namespace forwarders so they win
     // over the SPA catch-all. Bun's router is specificity-based: /api/* beats /*.
     // Forwarders call masterFetch so the full auth/CSRF/logging pipeline applies.
+    // Always-on routes: admin API + auth forwarded to masterFetch;
+    // /_admin/* wildcard serves the SPA HTML directly (enables History API deep links).
+    const baseAdminRoutes = {
+      "/auth/*":       (req: Request, srv: any) => masterFetch(req, srv),
+      "/_admin/api/*": (req: Request, srv: any) => masterFetch(req, srv),
+      "/_admin/*":     () => new Response(Bun.file(adminHTMLPath)),
+    };
+
     const frontendRoutes: Record<string, unknown> = config.frontend?.html
       ? {
-          "/api/*": (req: Request, srv: any) => masterFetch(req, srv),
-          "/auth/*": (req: Request, srv: any) => masterFetch(req, srv),
-          "/_admin/api/*": (req: Request, srv: any) => masterFetch(req, srv),
-          "/_admin/*": (req: Request, srv: any) => masterFetch(req, srv),
-          "/files/*": (req: Request, srv: any) => masterFetch(req, srv),
+          "/api/*":    (req: Request, srv: any) => masterFetch(req, srv),
+          "/files/*":  (req: Request, srv: any) => masterFetch(req, srv),
           "/realtime": (req: Request, srv: any) => masterFetch(req, srv),
           // SPA catch-all — served via Bun's HTML bundler (HMR, TSX, CSS)
           "/*": config.frontend?.html,
@@ -532,6 +530,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
           const filename = new URL(req.url).pathname.slice("/_admin-assets/".length);
           return new Response(Bun.file(new URL(filename, adminAssetsDir)));
         },
+        ...baseAdminRoutes,
         ...(frontendRoutes as any),
       },
 

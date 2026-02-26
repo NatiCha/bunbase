@@ -1,5 +1,5 @@
 import type { Column } from "drizzle-orm";
-import { eq, getColumns } from "drizzle-orm";
+import { eq, getColumns, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import { ApiError } from "../api/helpers.ts";
 import type { ResolvedConfig } from "../core/config.ts";
@@ -211,7 +211,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
           const existingRows = await (db as any)
             .select({ id: usersTable.id })
             .from(usersTable)
-            .where(eq(usersTable.email, email));
+            .where(sql`lower(${usersTable.email}) = lower(${email})`);
 
           if (existingRows.length > 0) {
             return jsonError("CONFLICT", "Email already registered", 409);
@@ -342,7 +342,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
           const rows = await (db as any)
             .select()
             .from(usersTable)
-            .where(eq(usersTable.email, email));
+            .where(sql`lower(${usersTable.email}) = lower(${email})`);
 
           const user = rows[0];
           if (!user) {

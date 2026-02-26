@@ -63,19 +63,21 @@ function useTheme() {
 
 // ─── Routing ──────────────────────────────────────────────────────────────────
 
-function getHashSection(): NavSection {
-  const hash = window.location.hash.replace("#/", "");
+function getPathSection(): NavSection {
+  const segment = window.location.pathname
+    .replace(/^\/_admin\/?/, "")
+    .split("/")[0];
   if (
-    hash === "collections" ||
-    hash === "auth" ||
-    hash === "logs" ||
-    hash === "storage" ||
-    hash === "api" ||
-    hash === "settings"
+    segment === "collections" ||
+    segment === "auth" ||
+    segment === "logs" ||
+    segment === "storage" ||
+    segment === "api" ||
+    segment === "settings"
   ) {
-    return hash;
+    return segment;
   }
-  return "collections";
+  return "auth";
 }
 
 const SECTION_LABELS: Record<NavSection, string> = {
@@ -212,7 +214,7 @@ function LoginPrompt() {
 
 function AdminApp({ user }: { user: MeUser }) {
   const { theme, setTheme } = useTheme();
-  const [section, setSection] = useState<NavSection>(getHashSection());
+  const [section, setSection] = useState<NavSection>(getPathSection());
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [apiSchema, setApiSchema] = useState<ApiSchema>({});
@@ -223,9 +225,9 @@ function AdminApp({ user }: { user: MeUser }) {
   const [authTab, setAuthTab] = useState<AuthTab>("users");
 
   useEffect(() => {
-    const handler = () => setSection(getHashSection());
-    window.addEventListener("hashchange", handler);
-    return () => window.removeEventListener("hashchange", handler);
+    const handler = () => setSection(getPathSection());
+    window.addEventListener("popstate", handler);
+    return () => window.removeEventListener("popstate", handler);
   }, []);
 
   useEffect(() => {
@@ -257,7 +259,7 @@ function AdminApp({ user }: { user: MeUser }) {
   }, [section, apiSchema, selectedTable]);
 
   const navigate = (s: NavSection) => {
-    window.location.hash = `/${s}`;
+    history.pushState(null, "", `/_admin/${s}`);
     setSection(s);
   };
 

@@ -38,8 +38,8 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { id: "collections", label: "Collections", icon: LayoutGrid },
   { id: "auth", label: "Users & Auth", icon: Users },
+  { id: "collections", label: "Collections", icon: LayoutGrid },
   { id: "logs", label: "Request Log", icon: Activity },
   { id: "storage", label: "Storage", icon: HardDrive },
   { id: "api", label: "API Explorer", icon: Code2 },
