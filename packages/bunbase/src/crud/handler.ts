@@ -48,6 +48,8 @@ function stripSensitiveFields(row: Record<string, unknown>): Record<string, unkn
           ? stripSensitiveFields(item as Record<string, unknown>)
           : item,
       );
+    } else if (val instanceof Date) {
+      result[key] = val.toISOString();
     } else if (val !== null && typeof val === "object") {
       result[key] = stripSensitiveFields(val as Record<string, unknown>);
     } else {
