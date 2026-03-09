@@ -484,7 +484,7 @@ function createRealtimeClient(baseUrl: string, apiKey?: string) {
     // Browser WebSocket API does not, so the header is only passed when an apiKey
     // is configured (server-side/CLI usage). Browser clients use cookie-based WS auth.
     ws =
-      apiKey && typeof (globalThis as Record<string, unknown>)["Bun"] !== "undefined"
+      apiKey && typeof (globalThis as Record<string, unknown>).Bun !== "undefined"
         ? new WebSocket(wsUrl, { headers: { Authorization: `Bearer ${apiKey}` } } as any)
         : new WebSocket(wsUrl);
 

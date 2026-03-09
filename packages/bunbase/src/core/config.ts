@@ -104,6 +104,13 @@ export interface BunBaseConfig {
     /** Result of `import x from "./index.html"` — passed directly to Bun.serve routes. */
     html: unknown;
   };
+  /**
+   * Domain for session and CSRF cookies.
+   * Set to a dot-prefixed parent domain (e.g. `.example.com`) to share cookies
+   * across subdomains (e.g. `app.example.com` and `api.example.com`).
+   * When unset, cookies are scoped to the exact host that sets them.
+   */
+  cookieDomain?: string;
 }
 
 /**
@@ -176,6 +183,8 @@ export interface ResolvedConfig {
   frontend?: {
     html: unknown;
   };
+  /** Domain for session and CSRF cookies. */
+  cookieDomain?: string;
 }
 
 function resolveDatabaseConfig(config?: BunBaseConfig): ResolvedDatabaseConfig {
@@ -279,6 +288,7 @@ export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
     migrationsPath: config?.migrationsPath ?? "./drizzle",
     trustedProxies: config?.trustedProxies ?? [],
     frontend: config?.frontend,
+    cookieDomain: config?.cookieDomain,
   };
 
   if (!isDev) {

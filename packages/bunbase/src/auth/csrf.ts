@@ -29,12 +29,15 @@ export function validateCsrf(req: Request): boolean {
 /**
  * Create and serialize a new CSRF cookie token.
  */
-export function setCsrfCookie(isDev: boolean): {
+export function setCsrfCookie(
+  isDev: boolean,
+  domain?: string,
+): {
   token: string;
   cookie: string;
 } {
   const token = generateCsrfToken();
-  const cookie = serializeCookie(CSRF_COOKIE, token, csrfCookieOptions(isDev));
+  const cookie = serializeCookie(CSRF_COOKIE, token, csrfCookieOptions(isDev, domain));
   return { token, cookie };
 }
 

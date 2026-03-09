@@ -35,7 +35,6 @@ export type {
 export { defineConfig } from "./core/config.ts";
 export type { AnyColumn, AnyDb, AnyTable, Dialect } from "./core/db-types.ts";
 export type { BunBaseServer, CreateServerOptions, ExtendContext, RouteMap } from "./core/server.ts";
-export type { FileRecord, FilesContext } from "./storage/files-context.ts";
 export { createServer } from "./core/server.ts";
 export type { FilterOperators } from "./crud/filters.ts";
 export { defineRelations, MAX_RELATION_DEPTH } from "./crud/relations.ts";
@@ -125,3 +124,4 @@ export type {
   TableRulesFor,
 } from "./rules/types.ts";
 export { defineRules } from "./rules/types.ts";
+export type { FileRecord, FilesContext } from "./storage/files-context.ts";

@@ -9,46 +9,50 @@ export interface CookieOptions {
   sameSite: "lax" | "strict" | "none";
   path: string;
   maxAge: number;
+  domain?: string;
 }
 
 /** Session cookie defaults (`HttpOnly`, 30 days, secure outside development). */
-export function sessionCookieOptions(isDev: boolean): CookieOptions {
+export function sessionCookieOptions(isDev: boolean, domain?: string): CookieOptions {
   return {
     httpOnly: true,
     secure: !isDev,
     sameSite: "lax",
     path: "/",
     maxAge: 30 * 24 * 60 * 60, // 30 days
+    domain,
   };
 }
 
 /** CSRF cookie defaults (client-readable, 30 days, secure outside development). */
-export function csrfCookieOptions(isDev: boolean): CookieOptions {
+export function csrfCookieOptions(isDev: boolean, domain?: string): CookieOptions {
   return {
     httpOnly: false, // JS needs to read this
     secure: !isDev,
     sameSite: "lax",
     path: "/",
     maxAge: 30 * 24 * 60 * 60,
+    domain,
   };
 }
 
 /** Serialize a cookie string from structured options. */
 export function serializeCookie(name: string, value: string, opts: CookieOptions): string {
   let cookie = `${name}=${value}; Path=${opts.path}; Max-Age=${opts.maxAge}; SameSite=${opts.sameSite}`;
+  if (opts.domain) cookie += `; Domain=${opts.domain}`;
   if (opts.httpOnly) cookie += "; HttpOnly";
   if (opts.secure) cookie += "; Secure";
   return cookie;
 }
 
 /** Clear an HttpOnly cookie by setting `Max-Age=0`. */
-export function clearCookie(name: string, isDev: boolean): string {
-  return `${name}=; Path=/; Max-Age=0; SameSite=lax${isDev ? "" : "; Secure"}; HttpOnly`;
+export function clearCookie(name: string, isDev: boolean, domain?: string): string {
+  return `${name}=; Path=/; Max-Age=0; SameSite=lax${domain ? `; Domain=${domain}` : ""}${isDev ? "" : "; Secure"}; HttpOnly`;
 }
 
 /** Clear a non-HttpOnly client cookie by setting `Max-Age=0`. */
-export function clearClientCookie(name: string, isDev: boolean): string {
-  return `${name}=; Path=/; Max-Age=0; SameSite=lax${isDev ? "" : "; Secure"}`;
+export function clearClientCookie(name: string, isDev: boolean, domain?: string): string {
+  return `${name}=; Path=/; Max-Age=0; SameSite=lax${domain ? `; Domain=${domain}` : ""}${isDev ? "" : "; Secure"}`;
 }
 
 /** Append multiple `Set-Cookie` headers onto a `ResponseInit`. */

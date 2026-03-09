@@ -133,6 +133,7 @@ function resolvePasswordHash(user: UsersRow): string | null {
 export function createAuthRoutes(deps: AuthRouteDeps) {
   const { db, internalSchema, config, usersTable, authHooks, mailer } = deps;
   const isDev = config.development;
+  const cookieDomain = config.cookieDomain;
   const { byInputField, requiredSignupColumns } = getUsersColumns(usersTable);
 
   return {
@@ -310,9 +311,9 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
           const sessionCookie = serializeCookie(
             SESSION_COOKIE,
             sessionId,
-            sessionCookieOptions(isDev),
+            sessionCookieOptions(isDev, cookieDomain),
           );
-          const csrf = setCsrfCookie(isDev);
+          const csrf = setCsrfCookie(isDev, cookieDomain);
 
           return new Response(
             JSON.stringify({
@@ -416,9 +417,9 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
           const sessionCookie = serializeCookie(
             SESSION_COOKIE,
             sessionId,
-            sessionCookieOptions(isDev),
+            sessionCookieOptions(isDev, cookieDomain),
           );
-          const csrf = setCsrfCookie(isDev);
+          const csrf = setCsrfCookie(isDev, cookieDomain);
 
           return new Response(
             JSON.stringify({
@@ -449,8 +450,8 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
           await deleteSession(db, internalSchema, sessionId);
         }
 
-        const clearSession = clearCookie(SESSION_COOKIE, isDev);
-        const clearCsrf = clearClientCookie("csrf_token", isDev);
+        const clearSession = clearCookie(SESSION_COOKIE, isDev, cookieDomain);
+        const clearCsrf = clearClientCookie("csrf_token", isDev, cookieDomain);
 
         return new Response(
           JSON.stringify({ success: true }),

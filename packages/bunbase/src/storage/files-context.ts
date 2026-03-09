@@ -58,9 +58,7 @@ export function createFilesContext(
   return {
     async upload({ collection, recordId, filename, mimeType, data }) {
       const id = crypto.randomUUID();
-      const ext = filename.includes(".")
-        ? filename.slice(filename.lastIndexOf("."))
-        : "";
+      const ext = filename.includes(".") ? filename.slice(filename.lastIndexOf(".")) : "";
       const storagePath = `${collection}/${recordId}/${id}${ext}`;
 
       await storage.write(storagePath, data);
@@ -106,12 +104,7 @@ export function createFilesContext(
       const rows = await (db as any)
         .select()
         .from(filesTable)
-        .where(
-          and(
-            eq(filesTable.collection, collection),
-            eq(filesTable.recordId, recordId),
-          ),
-        );
+        .where(and(eq(filesTable.collection, collection), eq(filesTable.recordId, recordId)));
       return rows.map((r: any) => ({
         id: r.id,
         filename: r.filename,

@@ -45,6 +45,7 @@ interface EmailRouteDeps {
 export function createEmailRoutes(deps: EmailRouteDeps) {
   const { db, internalSchema, config, usersTable, authHooks, mailer } = deps;
   const isDev = config.development;
+  const cookieDomain = config.cookieDomain;
   const tokens = internalSchema.verificationTokens;
 
   /** Verify an email token — shared between GET (browser click) and POST (API call). */
@@ -309,9 +310,9 @@ a{color:#3b82f6;text-decoration:none;font-size:14px}a:hover{text-decoration:unde
         const sessionCookie = serializeCookie(
           SESSION_COOKIE,
           sessionId,
-          sessionCookieOptions(isDev),
+          sessionCookieOptions(isDev, cookieDomain),
         );
-        const csrf = setCsrfCookie(isDev);
+        const csrf = setCsrfCookie(isDev, cookieDomain);
 
         return new Response(
           JSON.stringify({ message: "Password reset successfully" }),

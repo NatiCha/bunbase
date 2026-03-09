@@ -50,6 +50,7 @@ interface OAuthRouteDeps {
 export function createOAuthRoutes(deps: OAuthRouteDeps) {
   const { db, internalSchema, config, usersTable, authHooks } = deps;
   const isDev = config.development;
+  const cookieDomain = config.cookieDomain;
   const oauthConfig = config.auth.oauth;
   const oauthAccounts = internalSchema.oauthAccounts;
 
@@ -81,11 +82,13 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
 
   function buildStateCookie(stateObj: object, dev: boolean): string {
     const value = encodeURIComponent(JSON.stringify(stateObj));
-    return `${OAUTH_STATE_COOKIE}=${value}; Path=/; Max-Age=600; HttpOnly; SameSite=lax${dev ? "" : "; Secure"}`;
+    const domainPart = cookieDomain ? `; Domain=${cookieDomain}` : "";
+    return `${OAUTH_STATE_COOKIE}=${value}; Path=/; Max-Age=600; HttpOnly; SameSite=lax${domainPart}${dev ? "" : "; Secure"}`;
   }
 
   function clearStateCookie(dev: boolean): string {
-    return `${OAUTH_STATE_COOKIE}=; Path=/; Max-Age=0${dev ? "" : "; Secure"}`;
+    const domainPart = cookieDomain ? `; Domain=${cookieDomain}` : "";
+    return `${OAUTH_STATE_COOKIE}=; Path=/; Max-Age=0${domainPart}${dev ? "" : "; Secure"}`;
   }
 
   /** Extract and parse the state cookie, supporting legacy plain-UUID format. */
@@ -363,9 +366,9 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
           const sessionCookie = serializeCookie(
             SESSION_COOKIE,
             sessionId,
-            sessionCookieOptions(isDev),
+            sessionCookieOptions(isDev, cookieDomain),
           );
-          const csrf = setCsrfCookie(isDev);
+          const csrf = setCsrfCookie(isDev, cookieDomain);
           const redirectTo = oauthConfig.redirectUrl ?? "/";
 
           return new Response(

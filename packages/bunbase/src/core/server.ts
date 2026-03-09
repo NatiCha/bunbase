@@ -25,8 +25,8 @@ import { handleWebSocketClose, handleWebSocketMessage } from "../realtime/handle
 import { RealtimeManager } from "../realtime/manager.ts";
 import { PresenceTracker } from "../realtime/presence.ts";
 import type { TableRules } from "../rules/types.ts";
+import { createFilesContext, type FilesContext } from "../storage/files-context.ts";
 import { createFileRoutes, createStorageDriver } from "../storage/routes.ts";
-import { type FilesContext, createFilesContext } from "../storage/files-context.ts";
 import type { DatabaseAdapter } from "./adapter.ts";
 import { validateUsersTable } from "./bootstrap.ts";
 import type { BunBaseConfig } from "./config.ts";
