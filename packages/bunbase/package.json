@@ -27,19 +27,19 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/types/index.d.ts",
+      "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
     "./client": {
-      "types": "./dist/types/client.d.ts",
+      "types": "./src/client.ts",
       "default": "./src/client.ts"
     },
     "./react": {
-      "types": "./dist/types/react/index.d.ts",
+      "types": "./src/react/index.tsx",
       "default": "./src/react/index.tsx"
     },
     "./testing": {
-      "types": "./dist/types/testing/index.d.ts",
+      "types": "./src/testing/index.ts",
       "default": "./src/testing/index.ts"
     }
   },

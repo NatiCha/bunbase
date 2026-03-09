@@ -52,7 +52,7 @@ export function useAuth(): UseAuthReturn {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error((err as any).error || "Login failed");
+      throw new Error((err as any)?.error?.message ?? "Login failed");
     }
     const data = await res.json();
     const authUser = data.user as AuthUser;
@@ -71,7 +71,7 @@ export function useAuth(): UseAuthReturn {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error((err as any).error || "Registration failed");
+      throw new Error((err as any)?.error?.message ?? "Registration failed");
     }
     const result = await res.json();
     const authUser = result.user as AuthUser;

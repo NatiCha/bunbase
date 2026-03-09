@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
  */
 
 export interface StorageDriver {
-  write(path: string, data: Uint8Array<ArrayBuffer>): Promise<void>;
+  write(path: string, data: Uint8Array<ArrayBufferLike>): Promise<void>;
   read(path: string): Promise<Uint8Array<ArrayBuffer> | null>;
   delete(path: string): Promise<void>;
   exists(path: string): Promise<boolean>;
@@ -16,7 +16,7 @@ export interface StorageDriver {
 /** Create a local filesystem-backed storage driver rooted at `basePath`. */
 export function createLocalStorage(basePath: string): StorageDriver {
   return {
-    async write(path, data) {
+    async write(path: string, data: Uint8Array<ArrayBufferLike>) {
       const fullPath = join(basePath, path);
       const dir = dirname(fullPath);
       if (!existsSync(dir)) {

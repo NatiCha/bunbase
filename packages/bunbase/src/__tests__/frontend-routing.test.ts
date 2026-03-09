@@ -117,22 +117,18 @@ test("GET /auth/me returns JSON (not SPA) when frontend is enabled", async () =>
   expect(ct).toContain("application/json");
 });
 
-// ─── Admin redirect preserved through masterFetch ─────────────────────────
+// ─── Admin SPA catch-all serves HTML for deep links ──────────────────────
 
-test("GET /_admin/some-path returns 302 redirect (not SPA) when frontend is enabled", async () => {
-  const res = await fetch(`${baseWithFrontend}/_admin/some-arbitrary-path`, {
-    redirect: "manual", // don't follow redirect so we can inspect the 302
-  });
-  expect(res.status).toBe(302);
-  expect(res.headers.get("location")).toBe("/_admin");
+test("GET /_admin/some-path serves admin HTML (supports History API deep links)", async () => {
+  const res = await fetch(`${baseWithFrontend}/_admin/some-arbitrary-path`);
+  expect(res.status).toBe(200);
+  expect(res.headers.get("content-type")).toContain("text/html");
 });
 
-test("GET /_admin/another returns 302 even with deep path", async () => {
-  const res = await fetch(`${baseWithFrontend}/_admin/settings/users`, {
-    redirect: "manual",
-  });
-  expect(res.status).toBe(302);
-  expect(res.headers.get("location")).toBe("/_admin");
+test("GET /_admin/another serves admin HTML even with deep path", async () => {
+  const res = await fetch(`${baseWithFrontend}/_admin/settings/users`);
+  expect(res.status).toBe(200);
+  expect(res.headers.get("content-type")).toContain("text/html");
 });
 
 // ─── SPA catch-all served for unknown paths ───────────────────────────────

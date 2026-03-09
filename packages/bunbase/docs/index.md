@@ -32,9 +32,10 @@ A TypeScript-native backend-as-a-service built on Bun and Drizzle ORM. Define yo
 8. [Hooks](/hooks/) — lifecycle callbacks for CRUD operations and auth events
 9. [Realtime](/realtime/) — live table subscriptions, broadcast channels, and presence
 10. [Jobs](/jobs/) — scheduled background tasks
-11. [Configuration](/configuration/) — full `defineConfig` reference
-12. [Extending](/extending/) — add custom REST routes
-13. [Deployment](/deployment/) — production checklist
+11. [Email](/email/) — mailer setup, auth emails, provider examples
+12. [Configuration](/configuration/) — full `defineConfig` reference
+13. [Extending](/extending/) — add custom REST routes
+14. [Deployment](/deployment/) — production checklist
 
 ## Quick example
 

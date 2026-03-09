@@ -346,6 +346,78 @@ Same rules as CRUD hooks:
 - **`before*` hooks**: throw `ApiError` to return a specific status. Any other error returns `500` with code `AUTH_HOOK_ERROR`.
 - **`after*` hooks**: errors are caught and logged. They never change the response the client receives.
 
+## Common auth hook patterns
+
+### Domain allowlist
+
+Restrict signups to a specific email domain. The check runs before any DB write, so invalid emails never touch your database.
+
+```ts
+export const authHooks = defineAuthHooks({
+  beforeRegister: async ({ email }) => {
+    if (!email.endsWith("@mycompany.com")) {
+      throw new ApiError("FORBIDDEN", "Registration is restricted to @mycompany.com accounts", 403);
+    }
+  },
+});
+```
+
+Multiple allowed domains:
+
+```ts
+const ALLOWED_DOMAINS = ["mycompany.com", "partner.com"];
+
+export const authHooks = defineAuthHooks({
+  beforeRegister: async ({ email }) => {
+    const domain = email.split("@")[1];
+    if (!ALLOWED_DOMAINS.includes(domain ?? "")) {
+      throw new ApiError("FORBIDDEN", "Registration is restricted to approved domains", 403);
+    }
+  },
+});
+```
+
+Add the same check to `beforeLogin` if you want to lock out existing accounts after a policy change:
+
+```ts
+beforeLogin: async ({ email }) => {
+  if (!email.endsWith("@mycompany.com")) {
+    throw new ApiError("FORBIDDEN", "Access restricted to @mycompany.com accounts", 403);
+  }
+},
+```
+
+### Email verification grace period
+
+Let users in immediately after registration, but require verification after a set number of days:
+
+```ts
+beforeLogin: async ({ email }) => {
+  const rows = await db.select().from(users).where(eq(users.email, email));
+  const user = rows[0];
+  if (!user) return;
+
+  const accountAgeDays = (Date.now() - new Date(user.createdAt).getTime()) / 86_400_000;
+  if (!user.emailVerified && accountAgeDays > 7) {
+    throw new ApiError("FORBIDDEN", "Please verify your email to continue", 403);
+  }
+},
+```
+
+### Hard email verification gate
+
+Block login entirely until the user has clicked their verification link:
+
+```ts
+beforeLogin: async ({ email }) => {
+  const rows = await db.select().from(users).where(eq(users.email, email));
+  const user = rows[0];
+  if (user && !user.emailVerified) {
+    throw new ApiError("FORBIDDEN", "Please verify your email before logging in", 403);
+  }
+},
+```
+
 ## Next steps
 
 - [Rules](/rules/) — access control that runs before hooks

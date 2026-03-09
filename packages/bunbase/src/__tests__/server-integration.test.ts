@@ -141,10 +141,10 @@ test("GET /_admin/api/users returns 401 when not authenticated", async () => {
 
 // ─── Admin SPA catch-all ─────────────────────────────────────────────────────
 
-test("GET /_admin (SPA catch-all) redirects unknown sub-paths to /_admin", async () => {
-  const res = await fetch(`${base}/_admin/some-page`, { redirect: "manual" });
-  expect(res.status).toBe(302);
-  expect(res.headers.get("Location")).toBe("/_admin");
+test("GET /_admin (SPA catch-all) serves admin HTML for unknown sub-paths", async () => {
+  const res = await fetch(`${base}/_admin/some-page`);
+  expect(res.status).toBe(200);
+  expect(res.headers.get("content-type")).toContain("text/html");
 });
 
 // ─── Exact HTTP route + CORS on response ─────────────────────────────────────

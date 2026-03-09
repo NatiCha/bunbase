@@ -64,9 +64,7 @@ function useTheme() {
 // ─── Routing ──────────────────────────────────────────────────────────────────
 
 function getPathSection(): NavSection {
-  const segment = window.location.pathname
-    .replace(/^\/_admin\/?/, "")
-    .split("/")[0];
+  const segment = window.location.pathname.replace(/^\/_admin\/?/, "").split("/")[0];
   if (
     segment === "collections" ||
     segment === "auth" ||

@@ -31,12 +31,12 @@ function toHex(data: ArrayBuffer | Uint8Array): string {
     .join("");
 }
 
-async function sha256(data: Uint8Array<ArrayBuffer> | string): Promise<string> {
+async function sha256(data: Uint8Array<ArrayBufferLike> | string): Promise<string> {
   const input = typeof data === "string" ? enc.encode(data) : data;
   return toHex(await crypto.subtle.digest("SHA-256", input));
 }
 
-async function hmac(key: Uint8Array<ArrayBuffer>, msg: string): Promise<Uint8Array<ArrayBuffer>> {
+async function hmac(key: Uint8Array<ArrayBufferLike>, msg: string): Promise<Uint8Array<ArrayBuffer>> {
   const k = await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, [
     "sign",
   ]);
@@ -46,7 +46,7 @@ async function hmac(key: Uint8Array<ArrayBuffer>, msg: string): Promise<Uint8Arr
 async function sigv4Headers(
   method: string,
   url: URL,
-  body: Uint8Array<ArrayBuffer>,
+  body: Uint8Array<ArrayBufferLike>,
   config: S3Config,
 ): Promise<Record<string, string>> {
   const region = config.region ?? "us-east-1";
@@ -100,7 +100,7 @@ export function createS3Storage(config: S3Config): StorageDriver {
   async function s3Fetch(
     method: string,
     key: string,
-    body: Uint8Array<ArrayBuffer> = new Uint8Array(new ArrayBuffer(0)),
+    body: Uint8Array<ArrayBufferLike> = new Uint8Array(new ArrayBuffer(0)),
   ): Promise<Response> {
     const url = new URL(buildUrl(config, key));
     const headers = await sigv4Headers(method, url, body, config);

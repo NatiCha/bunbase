@@ -35,6 +35,7 @@ export type {
 export { defineConfig } from "./core/config.ts";
 export type { AnyColumn, AnyDb, AnyTable, Dialect } from "./core/db-types.ts";
 export type { BunBaseServer, CreateServerOptions, ExtendContext, RouteMap } from "./core/server.ts";
+export type { FileRecord, FilesContext } from "./storage/files-context.ts";
 export { createServer } from "./core/server.ts";
 export type { FilterOperators } from "./crud/filters.ts";
 export { defineRelations, MAX_RELATION_DEPTH } from "./crud/relations.ts";
@@ -80,6 +81,25 @@ export type {
 export { defineHooks } from "./hooks/types.ts";
 export type { JobContext, JobDefinition, Jobs } from "./jobs/types.ts";
 export { defineJobs } from "./jobs/types.ts";
+export type {
+  DevMailServer,
+  DevMailServerConfig,
+  ReceivedEmail,
+} from "./mailer/dev-server.ts";
+export { createDevMailServer } from "./mailer/dev-server.ts";
+export type {
+  EmailMessage,
+  EmailVerificationTemplateContext,
+  Mailer,
+  MailerConfig,
+  MailerTemplates,
+  PasswordResetTemplateContext,
+  SendOptions,
+  TemplateResult,
+} from "./mailer/index.ts";
+export { createMailer, MailerError } from "./mailer/index.ts";
+export type { SmtpConfig } from "./mailer/transports/smtp.ts";
+export { createSmtpTransport } from "./mailer/transports/smtp.ts";
 export {
   admin,
   adminOrOwner,

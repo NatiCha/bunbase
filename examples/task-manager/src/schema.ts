@@ -3,7 +3,7 @@
  */
 
 import { defineRelations } from "drizzle-orm/relations";
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: text("id")
@@ -12,6 +12,7 @@ export const users = sqliteTable("users", {
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   role: text("role").notNull().default("user"),
+  emailVerified: integer("email_verified").notNull().default(0),
   name: text("name"),
   avatarUrl: text("avatar_url"),
   createdAt: text("created_at")

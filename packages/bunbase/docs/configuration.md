@@ -57,6 +57,12 @@ const config = defineConfig({
       // Hard cap on TTL. null = no cap. (default: null)
       maxExpirationDays: 365,
     },
+
+    emailVerification: {
+      // Auto-send a verification email on registration when a mailer is configured
+      // and the users table has an emailVerified column. (default: true)
+      autoSend: true,
+    },
   },
 
   storage: {

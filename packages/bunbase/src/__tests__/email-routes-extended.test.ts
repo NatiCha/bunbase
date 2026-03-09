@@ -89,27 +89,38 @@ test("request-password-reset returns 400 for invalid email", async () => {
   sqlite.close();
 });
 
-test("request-password-reset returns 500 in production when webhook is not configured", async () => {
+test("request-password-reset returns 200 in production when no webhook or mailer configured (anti-enumeration)", async () => {
   const { sqlite, db, internalSchema } = setupEmailDb();
-  const routes = createEmailRoutes({
-    db,
-    internalSchema,
-    config: makeResolvedConfig({
-      development: false,
-      cors: { origins: ["https://example.com"] },
-    }),
-    usersTable,
-  });
+  const warnings: string[] = [];
+  const origWarn = console.warn;
+  console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
 
-  const response = await routes["/auth/request-password-reset"].POST(
-    new Request("http://localhost/auth/request-password-reset", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-forwarded-for": freshIp() },
-      body: JSON.stringify({ email: "reset@example.com" }),
-    }),
-  );
-  expect(response.status).toBe(500);
-  sqlite.close();
+  try {
+    const routes = createEmailRoutes({
+      db,
+      internalSchema,
+      config: makeResolvedConfig({
+        development: false,
+        cors: { origins: ["https://example.com"] },
+      }),
+      usersTable,
+    });
+
+    const response = await routes["/auth/request-password-reset"].POST(
+      new Request("http://localhost/auth/request-password-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-forwarded-for": freshIp() },
+        body: JSON.stringify({ email: "reset@example.com" }),
+      }),
+    );
+    // Softened from 500 → 200 to prevent enumeration
+    expect(response.status).toBe(200);
+    // Should log a warning
+    expect(warnings.some((w) => w.includes("no mailer or email webhook"))).toBe(true);
+  } finally {
+    console.warn = origWarn;
+    sqlite.close();
+  }
 });
 
 test("request-password-reset in dev mode logs token when no webhook configured", async () => {

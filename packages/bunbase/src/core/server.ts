@@ -20,11 +20,13 @@ import type { AuthHooks } from "../hooks/auth-types.ts";
 import type { TableHooks } from "../hooks/types.ts";
 import { JobScheduler } from "../jobs/scheduler.ts";
 import type { JobDefinition } from "../jobs/types.ts";
+import type { Mailer } from "../mailer/index.ts";
 import { handleWebSocketClose, handleWebSocketMessage } from "../realtime/handler.ts";
 import { RealtimeManager } from "../realtime/manager.ts";
 import { PresenceTracker } from "../realtime/presence.ts";
 import type { TableRules } from "../rules/types.ts";
 import { createFileRoutes, createStorageDriver } from "../storage/routes.ts";
+import { type FilesContext, createFilesContext } from "../storage/files-context.ts";
 import type { DatabaseAdapter } from "./adapter.ts";
 import { validateUsersTable } from "./bootstrap.ts";
 import type { BunBaseConfig } from "./config.ts";
@@ -48,6 +50,7 @@ export type RouteMap = Record<
 export interface ExtendContext {
   db: AnyDb;
   extractAuth: (req: Request) => Promise<AuthUser | null>;
+  files: FilesContext;
 }
 
 /**
@@ -69,6 +72,13 @@ export interface CreateServerOptions<
   jobs?: JobDefinition[];
   config?: BunBaseConfig;
   extend?: (ctx: ExtendContext) => RouteMap;
+  /**
+   * Optional mailer for sending auth emails (password reset, email verification).
+   * When provided, password reset emails are sent directly instead of via the webhook.
+   * Email verification emails are sent automatically on registration when the users
+   * table has an `emailVerified` column and `auth.emailVerification.autoSend` is true.
+   */
+  mailer?: Mailer;
 }
 
 /** Runtime BunBase server instance. */
@@ -201,6 +211,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     config,
     usersTable: usersTable as any,
     authHooks,
+    mailer: options.mailer,
   });
   const emailRoutes = createEmailRoutes({
     db,
@@ -208,6 +219,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     config,
     usersTable,
     authHooks,
+    mailer: options.mailer,
   });
   const oauthRoutes = createOAuthRoutes({
     db,
@@ -256,7 +268,8 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
   // Merge extend routes (if provided)
   // Extend routes must live under /api/* so the same CORS/CSRF protections apply.
   if (options.extend) {
-    const extendRoutes = options.extend({ db, extractAuth });
+    const filesContext = createFilesContext(db, adminStorage, internalSchema.files);
+    const extendRoutes = options.extend({ db, extractAuth, files: filesContext });
     for (const [path, handlers] of Object.entries(extendRoutes)) {
       if (!path.startsWith("/api/")) {
         throw new Error(
@@ -451,7 +464,6 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
         return addCorsHeaders(response, req, config);
       }
 
-
       // Exact match HTTP routes
       const routeHandlers = httpRoutes[pathname];
       if (routeHandlers) {
@@ -504,15 +516,15 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     // Always-on routes: admin API + auth forwarded to masterFetch;
     // /_admin/* wildcard serves the SPA HTML directly (enables History API deep links).
     const baseAdminRoutes = {
-      "/auth/*":       (req: Request, srv: any) => masterFetch(req, srv),
+      "/auth/*": (req: Request, srv: any) => masterFetch(req, srv),
       "/_admin/api/*": (req: Request, srv: any) => masterFetch(req, srv),
-      "/_admin/*":     () => new Response(Bun.file(adminHTMLPath)),
+      "/_admin/*": () => new Response(Bun.file(adminHTMLPath)),
     };
 
     const frontendRoutes: Record<string, unknown> = config.frontend?.html
       ? {
-          "/api/*":    (req: Request, srv: any) => masterFetch(req, srv),
-          "/files/*":  (req: Request, srv: any) => masterFetch(req, srv),
+          "/api/*": (req: Request, srv: any) => masterFetch(req, srv),
+          "/files/*": (req: Request, srv: any) => masterFetch(req, srv),
           "/realtime": (req: Request, srv: any) => masterFetch(req, srv),
           // SPA catch-all — served via Bun's HTML bundler (HMR, TSX, CSS)
           "/*": config.frontend?.html,
@@ -548,6 +560,9 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     console.log(`Admin UI: ${server.url}_admin`);
     if (config.realtime.enabled) {
       console.log(`Realtime WebSocket: ${String(server.url).replace(/^http/, "ws")}realtime`);
+    }
+    if (options.mailer) {
+      console.log("  Email: mailer configured");
     }
 
     // Wrap server.stop() so callers who hold the Bun server reference also stop the scheduler

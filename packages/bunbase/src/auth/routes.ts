@@ -6,6 +6,7 @@ import type { ResolvedConfig } from "../core/config.ts";
 import type { AnyDb } from "../core/db-types.ts";
 import type { InternalSchema } from "../core/internal-schema.ts";
 import type { AuthHooks } from "../hooks/auth-types.ts";
+import type { Mailer } from "../mailer/index.ts";
 import {
   appendResponseCookies,
   clearClientCookie,
@@ -18,6 +19,7 @@ import { extractAuth, extractSessionId, isBearerOnly } from "./middleware.ts";
 import { hashPassword, verifyPassword } from "./passwords.ts";
 import { checkRateLimit, getClientIp } from "./rate-limit.ts";
 import { createSession, deleteSession } from "./sessions.ts";
+import { hashToken } from "./tokens.ts";
 
 /**
  * Primary auth routes: register, login, logout, and me.
@@ -46,6 +48,7 @@ interface AuthRouteDeps {
   config: ResolvedConfig;
   usersTable: any | null;
   authHooks?: AuthHooks;
+  mailer?: Mailer;
 }
 
 function jsonError(code: string, message: string, status: number): Response {
@@ -128,7 +131,7 @@ function resolvePasswordHash(user: UsersRow): string | null {
  * - Signup blocks privileged/internal fields by default.
  */
 export function createAuthRoutes(deps: AuthRouteDeps) {
-  const { db, internalSchema, config, usersTable, authHooks } = deps;
+  const { db, internalSchema, config, usersTable, authHooks, mailer } = deps;
   const isDev = config.development;
   const { byInputField, requiredSignupColumns } = getUsersColumns(usersTable);
 
@@ -267,6 +270,39 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
               });
             } catch (err) {
               console.error("[BunBase] afterRegister hook error:", err);
+            }
+          }
+
+          // Auto-send email verification if mailer is configured and autoSend is enabled
+          if (mailer && config.auth.emailVerification.autoSend) {
+            const userColumns = getColumns(usersTable);
+            const hasEmailVerified =
+              "emailVerified" in userColumns || "email_verified" in userColumns;
+            if (hasEmailVerified) {
+              // Fire-and-forget — do not block the registration response
+              (async () => {
+                try {
+                  const verificationTokens = internalSchema.verificationTokens;
+                  const token = Bun.randomUUIDv7();
+                  const tokenHash = await hashToken(token);
+                  const tokenId = Bun.randomUUIDv7();
+                  const expiresAt = Math.floor(Date.now() / 1000) + 86400; // 24 hours
+                  await (db as any).insert(verificationTokens).values({
+                    id: tokenId,
+                    userId: id,
+                    tokenHash,
+                    type: "email_verification",
+                    expiresAt,
+                    createdAt: new Date().toISOString(),
+                  });
+                  await mailer.sendEmailVerification({ token, email, userId: id });
+                } catch (err) {
+                  console.error(
+                    "[BunBase] Failed to send verification email on registration:",
+                    err,
+                  );
+                }
+              })();
             }
           }
 

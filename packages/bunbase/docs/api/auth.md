@@ -153,7 +153,7 @@ curl -X POST http://localhost:3000/auth/request-password-reset \
 }
 ```
 
-Always returns success to prevent user enumeration. In development mode, the reset token is logged to the console. In production, BunBase POSTs to your configured `auth.email.webhook`:
+Always returns success to prevent user enumeration. When a mailer is configured, password reset emails are sent automatically — no webhook required. In development mode (no mailer, no webhook), the reset token is logged to the console. In production without a mailer, BunBase POSTs to your configured `auth.email.webhook`:
 
 ```json
 {
@@ -200,7 +200,47 @@ curl -X POST http://localhost:3000/auth/verify-email \
   -d '{"token": "verification-token"}'
 ```
 
-Sets `email_verified = 1` on the user record (if the column exists).
+Sets `email_verified = 1` on the user record (if the column exists). Tokens expire after 24 hours.
+
+**Errors:**
+- `400` — invalid or expired token
+
+### Request email verification
+
+```
+POST /auth/request-email-verification
+```
+
+Sends a fresh email verification link to the given address. Requires a mailer to be configured.
+
+```bash
+curl -X POST http://localhost:3000/auth/request-email-verification \
+  -H "Content-Type: application/json" \
+  -d '{"email": "alice@example.com"}'
+```
+
+**Request body:**
+
+| Field | Type | Required |
+|---|---|---|
+| `email` | `string` | Yes |
+
+**Response (200):**
+
+```json
+{
+  "message": "If an account with that email exists, a verification link has been sent."
+}
+```
+
+Always returns 200 to prevent user enumeration. Previous tokens for the same user are invalidated before a new one is created.
+
+**Errors:**
+- `400` — invalid input
+- `429` — rate limited
+- `503` — no mailer configured
+
+When a user registers and the `users` table has an `emailVerified` column, BunBase automatically sends a verification email (fire-and-forget) if a mailer is configured and `auth.emailVerification.autoSend` is `true` (the default). See [Email](/email/) for setup details.
 
 ## OAuth
 

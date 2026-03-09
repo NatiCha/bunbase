@@ -46,6 +46,14 @@ export interface BunBaseConfig {
       /** Hard cap on TTL. Keys cannot be created with a longer TTL. null = no cap. */
       maxExpirationDays?: number;
     };
+    emailVerification?: {
+      /**
+       * Automatically send a verification email when a new user registers, if
+       * the users table has an `emailVerified` column and a mailer is configured.
+       * Default: `true`.
+       */
+      autoSend?: boolean;
+    };
   };
   storage?: {
     driver?: "local" | "s3";
@@ -133,6 +141,10 @@ export interface ResolvedConfig {
       defaultExpirationDays: number;
       /** Hard cap in days. undefined = no cap. */
       maxExpirationDays: number | undefined;
+    };
+    emailVerification: {
+      /** Whether to auto-send a verification email on registration. */
+      autoSend: boolean;
     };
   };
   storage: {
@@ -244,6 +256,9 @@ export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
       email: config?.auth?.email,
       oauth: config?.auth?.oauth,
       apiKeys: { defaultExpirationDays, maxExpirationDays },
+      emailVerification: {
+        autoSend: config?.auth?.emailVerification?.autoSend ?? true,
+      },
     },
     storage: {
       driver: config?.storage?.driver ?? "local",

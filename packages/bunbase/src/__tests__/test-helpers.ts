@@ -37,6 +37,7 @@ export function makeResolvedConfig(overrides: DeepPartialResolvedConfig = {}): R
         defaultExpirationDays: 365,
         maxExpirationDays: undefined,
       },
+      emailVerification: authOverrides.emailVerification ?? { autoSend: true },
     },
     storage: {
       driver: storageOverrides.driver ?? "local",
