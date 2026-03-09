@@ -88,7 +88,7 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
 
   function clearStateCookie(dev: boolean): string {
     const domainPart = cookieDomain ? `; Domain=${cookieDomain}` : "";
-    return `${OAUTH_STATE_COOKIE}=; Path=/; Max-Age=0${domainPart}${dev ? "" : "; Secure"}`;
+    return `${OAUTH_STATE_COOKIE}=; Path=/; Max-Age=0${domainPart}; SameSite=lax${dev ? "" : "; Secure"}`;
   }
 
   /** Extract and parse the state cookie, supporting legacy plain-UUID format. */

@@ -183,3 +183,142 @@ test("login and logout emit separate cookie headers", async () => {
 
   sqlite.close();
 });
+
+// cookieDomain tests
+
+function setupCookieDomainDb() {
+  const { sqlite, db, internalSchema } = setupAuthRouteDb();
+  // Seed a user for login/logout tests
+  const passwordHash = Bun.password.hashSync("password123");
+  sqlite
+    .query(
+      `INSERT INTO users (id, email, password_hash, role, company, nickname)
+       VALUES ($id, $email, $passwordHash, $role, $company, $nickname)`,
+    )
+    .run({
+      $id: "domain-user",
+      $email: "domain@example.com",
+      $passwordHash: passwordHash,
+      $role: "user",
+      $company: "DomainCo",
+      $nickname: null,
+    });
+  return { sqlite, db, internalSchema };
+}
+
+test("cookieDomain: login cookies include Domain attribute", async () => {
+  const { sqlite, db, internalSchema } = setupCookieDomainDb();
+  const routes = createAuthRoutes({
+    db,
+    internalSchema,
+    config: makeResolvedConfig({ development: true, cookieDomain: ".example.com" }),
+    usersTable,
+  });
+
+  const response = await routes["/auth/login"].POST(
+    new Request("http://localhost/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "domain@example.com", password: "password123" }),
+    }),
+  );
+
+  expect(response.status).toBe(200);
+  const cookies = response.headers.getSetCookie();
+  expect(cookies.some((c) => c.includes("Domain=.example.com"))).toBe(true);
+  expect(cookies.filter((c) => c.includes("Domain=.example.com")).length).toBe(2); // session + csrf
+
+  sqlite.close();
+});
+
+test("cookieDomain: register cookies include Domain attribute", async () => {
+  const { sqlite, db, internalSchema } = setupAuthRouteDb();
+  const routes = createAuthRoutes({
+    db,
+    internalSchema,
+    config: makeResolvedConfig({ development: true, cookieDomain: ".example.com" }),
+    usersTable,
+  });
+
+  const response = await routes["/auth/register"].POST(
+    new Request("http://localhost/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "newuser@example.com",
+        password: "password123",
+        company: "DomainCo",
+      }),
+    }),
+  );
+
+  expect(response.status).toBe(201);
+  const cookies = response.headers.getSetCookie();
+  expect(cookies.some((c) => c.includes("Domain=.example.com"))).toBe(true);
+  expect(cookies.filter((c) => c.includes("Domain=.example.com")).length).toBe(2); // session + csrf
+
+  sqlite.close();
+});
+
+test("cookieDomain: logout clearing cookies include Domain attribute", async () => {
+  const { sqlite, db, internalSchema } = setupCookieDomainDb();
+  const routes = createAuthRoutes({
+    db,
+    internalSchema,
+    config: makeResolvedConfig({ development: true, cookieDomain: ".example.com" }),
+    usersTable,
+  });
+
+  const loginResponse = await routes["/auth/login"].POST(
+    new Request("http://localhost/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "domain@example.com", password: "password123" }),
+    }),
+  );
+  const loginCookies = loginResponse.headers.getSetCookie();
+  const sessionCookie = loginCookies.find((c) => c.startsWith("bunbase_session="));
+  const csrfCookie = loginCookies.find((c) => c.startsWith("csrf_token="));
+  const sessionValue = sessionCookie?.split(";")[0] ?? "";
+  const csrfValue = csrfCookie?.split(";")[0]?.split("=")[1] ?? "";
+
+  const logoutResponse = await routes["/auth/logout"].POST(
+    new Request("http://localhost/auth/logout", {
+      method: "POST",
+      headers: {
+        "X-CSRF-Token": csrfValue,
+        cookie: `${sessionValue}; csrf_token=${csrfValue}`,
+      },
+    }),
+  );
+
+  expect(logoutResponse.status).toBe(200);
+  const logoutCookies = logoutResponse.headers.getSetCookie();
+  expect(logoutCookies.some((c) => c.includes("Domain=.example.com"))).toBe(true);
+
+  sqlite.close();
+});
+
+test("cookieDomain: login cookies omit Domain when not configured", async () => {
+  const { sqlite, db, internalSchema } = setupCookieDomainDb();
+  const routes = createAuthRoutes({
+    db,
+    internalSchema,
+    config: makeResolvedConfig({ development: true }),
+    usersTable,
+  });
+
+  const response = await routes["/auth/login"].POST(
+    new Request("http://localhost/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "domain@example.com", password: "password123" }),
+    }),
+  );
+
+  expect(response.status).toBe(200);
+  const cookies = response.headers.getSetCookie();
+  expect(cookies.some((c) => c.includes("Domain="))).toBe(false);
+
+  sqlite.close();
+});

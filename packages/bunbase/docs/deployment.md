@@ -165,6 +165,7 @@ docker run -p 3000:3000 -v my-data:/app/data -e NODE_ENV=production my-app
 - [ ] Configure `auth.email.webhook` if using password reset
 - [ ] Define access rules for every table (BunBase warns at startup for any unprotected table)
 - [ ] Set `trustedProxies` in `defineConfig` if running behind a reverse proxy (nginx, Cloudflare, etc.)
+- [ ] Set `cookieDomain` in `defineConfig` if your API and frontend are on different subdomains (e.g. `api.example.com` / `app.example.com`)
 - [ ] Use S3 storage or mount a persistent volume for local storage
 - [ ] Back up the SQLite database
 - [ ] Use HTTPS (via reverse proxy or hosting platform)

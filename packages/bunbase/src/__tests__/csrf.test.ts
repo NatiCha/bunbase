@@ -97,3 +97,13 @@ test("setCsrfCookie in dev does not add Secure flag", () => {
   const { cookie } = setCsrfCookie(true);
   expect(cookie).not.toContain("Secure");
 });
+
+test("setCsrfCookie with domain includes Domain attribute", () => {
+  const { cookie } = setCsrfCookie(true, ".example.com");
+  expect(cookie).toContain("Domain=.example.com");
+});
+
+test("setCsrfCookie without domain omits Domain attribute", () => {
+  const { cookie } = setCsrfCookie(true);
+  expect(cookie).not.toContain("Domain=");
+});

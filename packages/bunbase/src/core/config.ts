@@ -238,6 +238,16 @@ export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
   const isDev = config?.development ?? process.env.NODE_ENV !== "production";
   const database = resolveDatabaseConfig(config);
 
+  // Validate cookieDomain — reject values that could inject into Set-Cookie header
+  const cookieDomain = config?.cookieDomain;
+  if (cookieDomain !== undefined) {
+    if (/[\s\r\n;]/.test(cookieDomain)) {
+      throw new Error(
+        'BunBase: cookieDomain contains invalid characters. Use a dot-prefixed hostname like ".example.com".',
+      );
+    }
+  }
+
   // Validate and resolve apiKeys config
   const rawApiKeys = config?.auth?.apiKeys;
   const defaultExpirationDays = rawApiKeys?.defaultExpirationDays ?? 365;

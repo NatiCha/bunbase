@@ -102,6 +102,9 @@ const config = defineConfig({
   // arrives from one of these IPs, BunBase trusts X-Forwarded-For / X-Real-IP
   // for rate limiting. When unset, the socket IP is used directly.
   trustedProxies: ["127.0.0.1"],
+
+  // Cookie domain — share session cookies across subdomains (default: unset)
+  cookieDomain: ".example.com",
 });
 ```
 
@@ -307,6 +310,24 @@ defineConfig({
 ```
 
 Default: `[]`
+
+### `cookieDomain`
+
+Sets the `Domain` attribute on session, CSRF, and OAuth state cookies.
+
+Use a dot-prefixed parent domain to share cookies across subdomains:
+
+```ts
+defineConfig({
+  cookieDomain: process.env.COOKIE_DOMAIN, // e.g. ".example.com"
+})
+```
+
+This is needed when the BunBase API server and the frontend are on different subdomains (e.g. `api.example.com` and `app.example.com`). Without it, cookies are scoped to the exact host that sets them.
+
+**Also required:** Configure `cors.origins` with the frontend origin, and ensure your frontend makes requests with `credentials: "include"`.
+
+Default: unset (cookies scoped to exact host)
 
 ## Environment variables
 

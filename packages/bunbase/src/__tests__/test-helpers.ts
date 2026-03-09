@@ -58,6 +58,7 @@ export function makeResolvedConfig(overrides: DeepPartialResolvedConfig = {}): R
     migrationsPath: overrides.migrationsPath ?? "./drizzle",
     trustedProxies: overrides.trustedProxies ?? [],
     frontend: overrides.frontend,
+    cookieDomain: overrides.cookieDomain,
   };
 }
 
