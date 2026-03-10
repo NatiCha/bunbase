@@ -1,6 +1,6 @@
 {
   "name": "@naticha/bunbase",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "TypeScript-native Backend-as-a-Service built on Bun — REST API, auth, realtime, storage, and admin UI from a Drizzle schema",
   "author": "NatiCha",
   "license": "MIT",
