@@ -54,6 +54,51 @@ export interface BunBaseConfig {
        */
       autoSend?: boolean;
     };
+    /** Multi-factor and passwordless authentication options. */
+    mfa?: {
+      /** Require all users to enroll in MFA. Default: false. */
+      required?: boolean;
+      /** AES-256 encryption key for TOTP secrets. Falls back to BUNBASE_MFA_SECRET env var. */
+      encryptionKey?: string;
+      totp?: {
+        /** Enable TOTP-based 2FA. Default: false. */
+        enabled?: boolean;
+        /** App name shown in authenticator apps. Default: "BunBase". */
+        issuer?: string;
+        /** TOTP verification window (number of periods to check). Default: 1. */
+        window?: number;
+      };
+      magicLink?: {
+        /** Enable magic link passwordless login. Default: false. */
+        enabled?: boolean;
+        /** Token TTL in seconds. Default: 600 (10 minutes). */
+        ttl?: number;
+      };
+      otp?: {
+        /** Enable email OTP passwordless login. Default: false. */
+        enabled?: boolean;
+        /** Code TTL in seconds. Default: 300 (5 minutes). */
+        ttl?: number;
+        /** Number of digits in the OTP code. Default: 6. */
+        length?: number;
+      };
+      passkeys?: {
+        /** Enable WebAuthn/passkey authentication. Default: false. */
+        enabled?: boolean;
+        /** Relying party display name. */
+        rpName?: string;
+        /** Relying party ID (domain, e.g. "example.com"). */
+        rpId?: string;
+        /** Expected origin (e.g. "https://example.com"). */
+        origin?: string;
+      };
+      backupCodes?: {
+        /** Number of backup codes to generate. Default: 10. */
+        count?: number;
+        /** Characters per backup code. Default: 8. */
+        length?: number;
+      };
+    };
   };
   storage?: {
     driver?: "local" | "s3";
@@ -152,6 +197,34 @@ export interface ResolvedConfig {
     emailVerification: {
       /** Whether to auto-send a verification email on registration. */
       autoSend: boolean;
+    };
+    mfa: {
+      required: boolean;
+      encryptionKey: string | undefined;
+      totp: {
+        enabled: boolean;
+        issuer: string;
+        window: number;
+      };
+      magicLink: {
+        enabled: boolean;
+        ttl: number;
+      };
+      otp: {
+        enabled: boolean;
+        ttl: number;
+        length: number;
+      };
+      passkeys: {
+        enabled: boolean;
+        rpName: string | undefined;
+        rpId: string | undefined;
+        origin: string | undefined;
+      };
+      backupCodes: {
+        count: number;
+        length: number;
+      };
     };
   };
   storage: {
@@ -277,6 +350,34 @@ export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
       apiKeys: { defaultExpirationDays, maxExpirationDays },
       emailVerification: {
         autoSend: config?.auth?.emailVerification?.autoSend ?? true,
+      },
+      mfa: {
+        required: config?.auth?.mfa?.required ?? false,
+        encryptionKey: config?.auth?.mfa?.encryptionKey,
+        totp: {
+          enabled: config?.auth?.mfa?.totp?.enabled ?? false,
+          issuer: config?.auth?.mfa?.totp?.issuer ?? "BunBase",
+          window: config?.auth?.mfa?.totp?.window ?? 1,
+        },
+        magicLink: {
+          enabled: config?.auth?.mfa?.magicLink?.enabled ?? false,
+          ttl: config?.auth?.mfa?.magicLink?.ttl ?? 600,
+        },
+        otp: {
+          enabled: config?.auth?.mfa?.otp?.enabled ?? false,
+          ttl: config?.auth?.mfa?.otp?.ttl ?? 300,
+          length: config?.auth?.mfa?.otp?.length ?? 6,
+        },
+        passkeys: {
+          enabled: config?.auth?.mfa?.passkeys?.enabled ?? false,
+          rpName: config?.auth?.mfa?.passkeys?.rpName,
+          rpId: config?.auth?.mfa?.passkeys?.rpId,
+          origin: config?.auth?.mfa?.passkeys?.origin,
+        },
+        backupCodes: {
+          count: config?.auth?.mfa?.backupCodes?.count ?? 10,
+          length: config?.auth?.mfa?.backupCodes?.length ?? 8,
+        },
       },
     },
     storage: {

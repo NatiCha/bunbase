@@ -12,6 +12,9 @@ import { isCsrfExempt, validateCsrf } from "../auth/csrf.ts";
 import { createEmailRoutes } from "../auth/email.ts";
 import { extractAuth as extractAuthFromReq, isBearerOnly } from "../auth/middleware.ts";
 import { createOAuthRoutes } from "../auth/oauth/routes.ts";
+import { createTotpRoutes } from "../auth/mfa/totp.ts";
+import { createPasskeyRoutes } from "../auth/passkeys.ts";
+import { createPasswordlessRoutes } from "../auth/passwordless.ts";
 import { hashPassword } from "../auth/passwords.ts";
 import { createAuthRoutes } from "../auth/routes.ts";
 import { addCorsHeaders, handleCorsPreflightOrNull } from "../cors.ts";
@@ -246,6 +249,43 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     extractAuth,
   });
 
+  // Passwordless auth routes (magic link + OTP, only when enabled)
+  const passwordlessRoutes =
+    config.auth.mfa.magicLink.enabled || config.auth.mfa.otp.enabled
+      ? createPasswordlessRoutes({
+          db,
+          internalSchema,
+          config,
+          usersTable,
+          authHooks,
+          mailer: options.mailer,
+        })
+      : {};
+
+  // TOTP MFA routes (only when enabled)
+  const totpRoutes = config.auth.mfa.totp.enabled
+    ? createTotpRoutes({
+        db,
+        internalSchema,
+        config,
+        usersTable,
+        extractAuth,
+        authHooks,
+      })
+    : {};
+
+  // Passkey routes (only when enabled)
+  const passkeyRoutes = config.auth.mfa.passkeys.enabled
+    ? createPasskeyRoutes({
+        db,
+        internalSchema,
+        config,
+        usersTable,
+        extractAuth,
+        authHooks,
+      })
+    : {};
+
   // Storage driver for admin operations
   const adminStorage = createStorageDriver(config);
 
@@ -258,6 +298,9 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     oauthRoutes,
     fileRoutes,
     apiKeyRoutes,
+    passwordlessRoutes,
+    totpRoutes,
+    passkeyRoutes,
     crudExact,
   ]) {
     for (const [path, handlers] of Object.entries(routeSet)) {

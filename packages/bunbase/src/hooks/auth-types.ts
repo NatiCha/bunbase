@@ -74,6 +74,76 @@ export type AfterPasswordResetFn = (ctx: AfterPasswordResetContext) => void | Pr
 
 export type AfterEmailVerifyFn = (ctx: AfterEmailVerifyContext) => void | Promise<void>;
 
+// ─── Magic Link & OTP Hooks ───
+
+export type BeforeMagicLinkLoginContext = {
+  email: string;
+  req: Request;
+};
+
+export type AfterMagicLinkLoginContext = {
+  user: Record<string, unknown>;
+  userId: string;
+  isNewUser: boolean;
+};
+
+export type BeforeOtpLoginContext = {
+  email: string;
+  req: Request;
+};
+
+export type AfterOtpLoginContext = {
+  user: Record<string, unknown>;
+  userId: string;
+};
+
+export type BeforeMagicLinkLoginFn = (ctx: BeforeMagicLinkLoginContext) => void | Promise<void>;
+export type AfterMagicLinkLoginFn = (ctx: AfterMagicLinkLoginContext) => void | Promise<void>;
+export type BeforeOtpLoginFn = (ctx: BeforeOtpLoginContext) => void | Promise<void>;
+export type AfterOtpLoginFn = (ctx: AfterOtpLoginContext) => void | Promise<void>;
+
+// ─── MFA Hooks ───
+
+export type AfterMfaSetupContext = {
+  userId: string;
+  method: "totp";
+};
+
+export type AfterMfaVerifyContext = {
+  userId: string;
+  method: "totp" | "backup_code";
+};
+
+export type AfterMfaDisableContext = {
+  userId: string;
+  method: "totp";
+};
+
+export type AfterMfaSetupFn = (ctx: AfterMfaSetupContext) => void | Promise<void>;
+export type AfterMfaVerifyFn = (ctx: AfterMfaVerifyContext) => void | Promise<void>;
+export type AfterMfaDisableFn = (ctx: AfterMfaDisableContext) => void | Promise<void>;
+
+// ─── Passkey Hooks ───
+
+export type AfterPasskeyRegisterContext = {
+  userId: string;
+  credentialId: string;
+};
+
+export type AfterPasskeyLoginContext = {
+  userId: string;
+  credentialId: string;
+};
+
+export type AfterPasskeyRemoveContext = {
+  userId: string;
+  credentialId: string;
+};
+
+export type AfterPasskeyRegisterFn = (ctx: AfterPasskeyRegisterContext) => void | Promise<void>;
+export type AfterPasskeyLoginFn = (ctx: AfterPasskeyLoginContext) => void | Promise<void>;
+export type AfterPasskeyRemoveFn = (ctx: AfterPasskeyRemoveContext) => void | Promise<void>;
+
 export interface AuthHooks {
   beforeRegister?: BeforeRegisterFn;
   afterRegister?: AfterRegisterFn;
@@ -84,6 +154,19 @@ export interface AuthHooks {
   beforePasswordReset?: BeforePasswordResetFn;
   afterPasswordReset?: AfterPasswordResetFn;
   afterEmailVerify?: AfterEmailVerifyFn;
+  // Passwordless
+  beforeMagicLinkLogin?: BeforeMagicLinkLoginFn;
+  afterMagicLinkLogin?: AfterMagicLinkLoginFn;
+  beforeOtpLogin?: BeforeOtpLoginFn;
+  afterOtpLogin?: AfterOtpLoginFn;
+  // MFA
+  afterMfaSetup?: AfterMfaSetupFn;
+  afterMfaVerify?: AfterMfaVerifyFn;
+  afterMfaDisable?: AfterMfaDisableFn;
+  // Passkeys
+  afterPasskeyRegister?: AfterPasskeyRegisterFn;
+  afterPasskeyLogin?: AfterPasskeyLoginFn;
+  afterPasskeyRemove?: AfterPasskeyRemoveFn;
 }
 
 export function defineAuthHooks(hooks: AuthHooks): AuthHooks {

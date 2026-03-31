@@ -20,6 +20,7 @@ export const sqliteSessions = sqliteTable("_sessions", {
   id: sqliteText("id").primaryKey(),
   userId: sqliteText("user_id").notNull(),
   expiresAt: sqliteInteger("expires_at").notNull(),
+  mfaVerified: sqliteInteger("mfa_verified"),
   createdAt: sqliteText("created_at").notNull(),
 });
 
@@ -78,6 +79,7 @@ export const pgSessions = pgTable("_sessions", {
   id: pgText("id").primaryKey(),
   userId: pgText("user_id").notNull(),
   expiresAt: pgBigint("expires_at", { mode: "number" }).notNull(),
+  mfaVerified: pgInteger("mfa_verified"),
   createdAt: pgText("created_at").notNull(),
 });
 
@@ -136,6 +138,7 @@ export const mysqlSessions = mysqlTable("_sessions", {
   id: mysqlText("id").primaryKey(),
   userId: mysqlText("user_id").notNull(),
   expiresAt: mysqlBigint("expires_at", { mode: "number" }).notNull(),
+  mfaVerified: mysqlInt("mfa_verified"),
   createdAt: mysqlText("created_at").notNull(),
 });
 
@@ -188,6 +191,99 @@ export const mysqlApiKeys = mysqlTable("_api_keys", {
   createdAt: mysqlText("created_at").notNull(),
 });
 
+// ─── MFA Tables: SQLite ───
+
+export const sqliteMfaTotp = sqliteTable("_mfa_totp", {
+  id: sqliteText("id").primaryKey(),
+  userId: sqliteText("user_id").notNull().unique(),
+  encryptedSecret: sqliteText("encrypted_secret").notNull(),
+  verified: sqliteInteger("verified").notNull().default(0),
+  createdAt: sqliteText("created_at").notNull(),
+});
+
+export const sqliteMfaBackupCodes = sqliteTable("_mfa_backup_codes", {
+  id: sqliteText("id").primaryKey(),
+  userId: sqliteText("user_id").notNull(),
+  codeHash: sqliteText("code_hash").notNull(),
+  used: sqliteInteger("used").notNull().default(0),
+  createdAt: sqliteText("created_at").notNull(),
+});
+
+export const sqlitePasskeyCredentials = sqliteTable("_passkey_credentials", {
+  id: sqliteText("id").primaryKey(),
+  userId: sqliteText("user_id").notNull(),
+  publicKey: sqliteText("public_key").notNull(),
+  counter: sqliteInteger("counter").notNull().default(0),
+  deviceType: sqliteText("device_type"),
+  backedUp: sqliteInteger("backed_up").notNull().default(0),
+  transports: sqliteText("transports"),
+  name: sqliteText("name").notNull(),
+  createdAt: sqliteText("created_at").notNull(),
+  lastUsedAt: sqliteText("last_used_at"),
+});
+
+// ─── MFA Tables: Postgres ───
+
+export const pgMfaTotp = pgTable("_mfa_totp", {
+  id: pgText("id").primaryKey(),
+  userId: pgText("user_id").notNull().unique(),
+  encryptedSecret: pgText("encrypted_secret").notNull(),
+  verified: pgInteger("verified").notNull().default(0),
+  createdAt: pgText("created_at").notNull(),
+});
+
+export const pgMfaBackupCodes = pgTable("_mfa_backup_codes", {
+  id: pgText("id").primaryKey(),
+  userId: pgText("user_id").notNull(),
+  codeHash: pgText("code_hash").notNull(),
+  used: pgInteger("used").notNull().default(0),
+  createdAt: pgText("created_at").notNull(),
+});
+
+export const pgPasskeyCredentials = pgTable("_passkey_credentials", {
+  id: pgText("id").primaryKey(),
+  userId: pgText("user_id").notNull(),
+  publicKey: pgText("public_key").notNull(),
+  counter: pgInteger("counter").notNull().default(0),
+  deviceType: pgText("device_type"),
+  backedUp: pgInteger("backed_up").notNull().default(0),
+  transports: pgText("transports"),
+  name: pgText("name").notNull(),
+  createdAt: pgText("created_at").notNull(),
+  lastUsedAt: pgText("last_used_at"),
+});
+
+// ─── MFA Tables: MySQL ───
+
+export const mysqlMfaTotp = mysqlTable("_mfa_totp", {
+  id: mysqlText("id").primaryKey(),
+  userId: mysqlText("user_id").notNull().unique(),
+  encryptedSecret: mysqlText("encrypted_secret").notNull(),
+  verified: mysqlInt("verified").notNull().default(0),
+  createdAt: mysqlText("created_at").notNull(),
+});
+
+export const mysqlMfaBackupCodes = mysqlTable("_mfa_backup_codes", {
+  id: mysqlText("id").primaryKey(),
+  userId: mysqlText("user_id").notNull(),
+  codeHash: mysqlText("code_hash").notNull(),
+  used: mysqlInt("used").notNull().default(0),
+  createdAt: mysqlText("created_at").notNull(),
+});
+
+export const mysqlPasskeyCredentials = mysqlTable("_passkey_credentials", {
+  id: mysqlText("id").primaryKey(),
+  userId: mysqlText("user_id").notNull(),
+  publicKey: mysqlText("public_key").notNull(),
+  counter: mysqlInt("counter").notNull().default(0),
+  deviceType: mysqlText("device_type"),
+  backedUp: mysqlInt("backed_up").notNull().default(0),
+  transports: mysqlText("transports"),
+  name: mysqlText("name").notNull(),
+  createdAt: mysqlText("created_at").notNull(),
+  lastUsedAt: mysqlText("last_used_at"),
+});
+
 // ─── Dialect-aware getter ───
 
 export interface InternalSchema {
@@ -200,6 +296,15 @@ export interface InternalSchema {
   oauthAccounts: typeof sqliteOauthAccounts | typeof pgOauthAccounts | typeof mysqlOauthAccounts;
   requestLogs: typeof sqliteRequestLogs | typeof pgRequestLogs | typeof mysqlRequestLogs;
   apiKeys: typeof sqliteApiKeys | typeof pgApiKeys | typeof mysqlApiKeys;
+  mfaTotp: typeof sqliteMfaTotp | typeof pgMfaTotp | typeof mysqlMfaTotp;
+  mfaBackupCodes:
+    | typeof sqliteMfaBackupCodes
+    | typeof pgMfaBackupCodes
+    | typeof mysqlMfaBackupCodes;
+  passkeyCredentials:
+    | typeof sqlitePasskeyCredentials
+    | typeof pgPasskeyCredentials
+    | typeof mysqlPasskeyCredentials;
 }
 
 export function getInternalSchema(dialect: Dialect): InternalSchema {
@@ -211,6 +316,9 @@ export function getInternalSchema(dialect: Dialect): InternalSchema {
       oauthAccounts: pgOauthAccounts,
       requestLogs: pgRequestLogs,
       apiKeys: pgApiKeys,
+      mfaTotp: pgMfaTotp,
+      mfaBackupCodes: pgMfaBackupCodes,
+      passkeyCredentials: pgPasskeyCredentials,
     };
   }
   if (dialect === "mysql") {
@@ -221,6 +329,9 @@ export function getInternalSchema(dialect: Dialect): InternalSchema {
       oauthAccounts: mysqlOauthAccounts,
       requestLogs: mysqlRequestLogs,
       apiKeys: mysqlApiKeys,
+      mfaTotp: mysqlMfaTotp,
+      mfaBackupCodes: mysqlMfaBackupCodes,
+      passkeyCredentials: mysqlPasskeyCredentials,
     };
   }
   return {
@@ -230,5 +341,8 @@ export function getInternalSchema(dialect: Dialect): InternalSchema {
     oauthAccounts: sqliteOauthAccounts,
     requestLogs: sqliteRequestLogs,
     apiKeys: sqliteApiKeys,
+    mfaTotp: sqliteMfaTotp,
+    mfaBackupCodes: sqliteMfaBackupCodes,
+    passkeyCredentials: sqlitePasskeyCredentials,
   };
 }

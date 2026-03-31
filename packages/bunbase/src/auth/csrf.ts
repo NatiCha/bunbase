@@ -48,6 +48,17 @@ const CSRF_EXEMPT_PATHS = new Set([
   "/auth/request-password-reset",
   "/auth/reset-password",
   "/auth/verify-email",
+  // Passwordless auth (stateless, like login)
+  "/auth/magic-link/request",
+  "/auth/magic-link/verify",
+  "/auth/otp/request",
+  "/auth/otp/verify",
+  // MFA verification (session is pending, not yet fully authenticated)
+  "/auth/mfa/totp/verify",
+  "/auth/mfa/backup/verify",
+  // Passkey auth (stateless, like login)
+  "/auth/passkeys/login/options",
+  "/auth/passkeys/login/verify",
 ]);
 
 export function isCsrfExempt(pathname: string): boolean {

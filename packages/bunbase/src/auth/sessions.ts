@@ -9,12 +9,18 @@ export async function createSession(
   schema: InternalSchema,
   userId: string,
   ttlSeconds: number = 30 * 24 * 60 * 60,
+  mfaVerified?: number | null,
 ): Promise<string> {
   const id = Bun.randomUUIDv7();
   const expiresAt = Math.floor(Date.now() / 1000) + ttlSeconds;
   const createdAt = new Date().toISOString();
 
-  await (db as any).insert(schema.sessions).values({ id, userId, expiresAt, createdAt });
+  const values: Record<string, unknown> = { id, userId, expiresAt, createdAt };
+  if (mfaVerified !== undefined) {
+    values.mfaVerified = mfaVerified;
+  }
+
+  await (db as any).insert(schema.sessions).values(values);
 
   return id;
 }
@@ -23,6 +29,7 @@ export interface SessionRow {
   id: string;
   user_id: string;
   expires_at: number;
+  mfa_verified: number | null;
   created_at: string;
 }
 
@@ -42,6 +49,7 @@ export async function getSession(
     id: row.id,
     user_id: row.userId,
     expires_at: row.expiresAt,
+    mfa_verified: row.mfaVerified ?? row.mfa_verified ?? null,
     created_at: row.createdAt,
   };
 
@@ -75,6 +83,18 @@ export async function deleteUserSessions(
   userId: string,
 ): Promise<void> {
   await (db as any).delete(schema.sessions).where(eq(schema.sessions.userId, userId));
+}
+
+export async function updateSessionMfaVerified(
+  db: AnyDb,
+  schema: InternalSchema,
+  sessionId: string,
+  mfaVerified: number,
+): Promise<void> {
+  await (db as any)
+    .update(schema.sessions)
+    .set({ mfaVerified })
+    .where(eq(schema.sessions.id, sessionId));
 }
 
 export async function cleanupExpiredSessions(db: AnyDb, schema: InternalSchema): Promise<void> {

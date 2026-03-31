@@ -38,6 +38,15 @@ export function makeResolvedConfig(overrides: DeepPartialResolvedConfig = {}): R
         maxExpirationDays: undefined,
       },
       emailVerification: authOverrides.emailVerification ?? { autoSend: true },
+      mfa: authOverrides.mfa ?? {
+        required: false,
+        encryptionKey: undefined,
+        totp: { enabled: false, issuer: "BunBase", window: 1 },
+        magicLink: { enabled: false, ttl: 600 },
+        otp: { enabled: false, ttl: 300, length: 6 },
+        passkeys: { enabled: false, rpName: undefined, rpId: undefined, origin: undefined },
+        backupCodes: { count: 10, length: 8 },
+      },
     },
     storage: {
       driver: storageOverrides.driver ?? "local",

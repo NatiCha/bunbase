@@ -252,7 +252,9 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
         credentials,
         body: JSON.stringify(data),
       });
-      return res.json() as Promise<{ user: Record<string, unknown> }>;
+      return res.json() as Promise<
+        { user: Record<string, unknown> } | { mfaRequired: true; mfaMethods: string[] }
+      >;
     },
 
     async logout() {
@@ -318,6 +320,175 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
 
     oauthUrl(provider: string) {
       return `${baseUrl}/auth/oauth/${provider}`;
+    },
+
+    // ─── Magic Links ───
+    magicLink: {
+      async request(email: string) {
+        const res = await fetch(`${baseUrl}/auth/magic-link/request`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        return res.json();
+      },
+      async verify(token: string) {
+        const res = await fetch(`${baseUrl}/auth/magic-link/verify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ token }),
+        });
+        return res.json();
+      },
+    },
+
+    // ─── Email OTP ───
+    otp: {
+      async request(email: string) {
+        const res = await fetch(`${baseUrl}/auth/otp/request`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        return res.json();
+      },
+      async verify(email: string, code: string) {
+        const res = await fetch(`${baseUrl}/auth/otp/verify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ email, code }),
+        });
+        return res.json();
+      },
+    },
+
+    // ─── MFA / TOTP ───
+    mfa: {
+      async setup() {
+        const res = await fetch(`${baseUrl}/auth/mfa/totp/setup`, {
+          method: "POST",
+          headers: mutationHeaders(),
+          credentials,
+        });
+        return res.json() as Promise<{ secret: string; uri: string }>;
+      },
+      async verifySetup(code: string) {
+        const res = await fetch(`${baseUrl}/auth/mfa/totp/verify-setup`, {
+          method: "POST",
+          headers: mutationHeaders(),
+          credentials,
+          body: JSON.stringify({ code }),
+        });
+        return res.json() as Promise<{ backupCodes: string[] }>;
+      },
+      async verify(code: string) {
+        const res = await fetch(`${baseUrl}/auth/mfa/totp/verify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ code }),
+        });
+        return res.json() as Promise<{ user: Record<string, unknown> }>;
+      },
+      async disable(password: string) {
+        const res = await fetch(`${baseUrl}/auth/mfa/totp/disable`, {
+          method: "POST",
+          headers: mutationHeaders(),
+          credentials,
+          body: JSON.stringify({ password }),
+        });
+        return res.json() as Promise<{ success: boolean }>;
+      },
+      async verifyBackup(code: string) {
+        const res = await fetch(`${baseUrl}/auth/mfa/backup/verify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ code }),
+        });
+        return res.json() as Promise<{ user: Record<string, unknown> }>;
+      },
+      async regenerateBackup(password: string) {
+        const res = await fetch(`${baseUrl}/auth/mfa/backup/regenerate`, {
+          method: "POST",
+          headers: mutationHeaders(),
+          credentials,
+          body: JSON.stringify({ password }),
+        });
+        return res.json() as Promise<{ backupCodes: string[] }>;
+      },
+      async status() {
+        const res = await fetch(`${baseUrl}/auth/mfa/status`, {
+          credentials,
+          headers: authHeaders(),
+        });
+        return res.json() as Promise<{ totp: boolean; passkeys: number }>;
+      },
+    },
+
+    // ─── Passkeys ───
+    passkeys: {
+      async registerOptions() {
+        const res = await fetch(`${baseUrl}/auth/passkeys/register/options`, {
+          method: "POST",
+          headers: mutationHeaders(),
+          credentials,
+        });
+        return res.json();
+      },
+      async registerVerify(attestation: Record<string, unknown>, name?: string) {
+        const res = await fetch(`${baseUrl}/auth/passkeys/register/verify`, {
+          method: "POST",
+          headers: mutationHeaders(),
+          credentials,
+          body: JSON.stringify({ response: attestation, name }),
+        });
+        return res.json() as Promise<{ verified: boolean; credentialId: string }>;
+      },
+      async loginOptions(email?: string) {
+        const res = await fetch(`${baseUrl}/auth/passkeys/login/options`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        return res.json();
+      },
+      async loginVerify(assertion: Record<string, unknown>) {
+        const res = await fetch(`${baseUrl}/auth/passkeys/login/verify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(assertion),
+        });
+        return res.json() as Promise<{ user: Record<string, unknown> }>;
+      },
+      async list() {
+        const res = await fetch(`${baseUrl}/auth/passkeys`, {
+          credentials,
+          headers: authHeaders(),
+        });
+        return res.json() as Promise<{
+          passkeys: Array<{
+            id: string;
+            name: string;
+            deviceType: string;
+            backedUp: number;
+            createdAt: string;
+            lastUsedAt: string | null;
+          }>;
+        }>;
+      },
+      async remove(id: string) {
+        const res = await fetch(`${baseUrl}/auth/passkeys/delete`, {
+          method: "POST",
+          headers: mutationHeaders(),
+          credentials,
+          body: JSON.stringify({ id }),
+        });
+        return res.json() as Promise<{ deleted: boolean }>;
+      },
     },
 
     apiKeys: {

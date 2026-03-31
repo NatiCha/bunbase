@@ -67,6 +67,8 @@ export interface CreateTestServerOptions {
   hooks?: Hooks;
   /** Drizzle relations object (from `defineRelations`). */
   relations?: unknown;
+  /** Optional config overrides (merged with test defaults). */
+  config?: import("../core/config.ts").BunBaseConfig;
 }
 
 /**
@@ -88,6 +90,7 @@ export async function createTestServer(options: CreateTestServerOptions): Promis
     hooks: options.hooks,
     relations: options.relations as any,
     config: {
+      ...options.config,
       database: { driver: "sqlite", path: dbPath },
       storage: { driver: "local", localPath: join(root, "uploads") },
       development: true,

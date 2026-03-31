@@ -75,6 +75,48 @@ export class SqliteAdapter implements DatabaseAdapter {
       )
     `);
 
+    // Add mfa_verified column to sessions if missing (migration for existing databases)
+    try {
+      this.sqlite.run("ALTER TABLE _sessions ADD COLUMN mfa_verified INTEGER");
+    } catch {
+      // Column already exists
+    }
+
+    this.sqlite.run(`
+      CREATE TABLE IF NOT EXISTS _mfa_totp (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL UNIQUE,
+        encrypted_secret TEXT NOT NULL,
+        verified INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+
+    this.sqlite.run(`
+      CREATE TABLE IF NOT EXISTS _mfa_backup_codes (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        code_hash TEXT NOT NULL,
+        used INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+
+    this.sqlite.run(`
+      CREATE TABLE IF NOT EXISTS _passkey_credentials (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        public_key TEXT NOT NULL,
+        counter INTEGER NOT NULL DEFAULT 0,
+        device_type TEXT,
+        backed_up INTEGER NOT NULL DEFAULT 0,
+        transports TEXT,
+        name TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        last_used_at TEXT
+      )
+    `);
+
     // Indexes
     this.sqlite.run("CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON _sessions(user_id)");
     this.sqlite.run("CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON _sessions(expires_at)");
@@ -95,6 +137,14 @@ export class SqliteAdapter implements DatabaseAdapter {
     );
     this.sqlite.run("CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON _api_keys(user_id)");
     this.sqlite.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_hash ON _api_keys(key_hash)");
+
+    // MFA indexes
+    this.sqlite.run(
+      "CREATE INDEX IF NOT EXISTS idx_mfa_backup_codes_user ON _mfa_backup_codes(user_id)",
+    );
+    this.sqlite.run(
+      "CREATE INDEX IF NOT EXISTS idx_passkey_credentials_user ON _passkey_credentials(user_id)",
+    );
   }
 
   async rawQuery<T = Record<string, unknown>>(

@@ -8,7 +8,9 @@
 
 export { ApiError, requireAuth } from "./api/helpers.ts";
 export type { AuthUser, BunBaseErrorCode, BunBaseErrorEnvelope } from "./api/types.ts";
+export { encrypt, decrypt, resolveMfaEncryptionKey } from "./auth/encryption.ts";
 export { isBearerOnly } from "./auth/middleware.ts";
+export { getMfaStatus, generateBackupCodes } from "./auth/mfa/index.ts";
 export { createGenericOAuthProvider as defineOAuthProvider } from "./auth/oauth/generic.ts";
 export type {
   CustomOAuthProviderConfig,
@@ -58,6 +60,29 @@ export type {
   BeforePasswordResetFn,
   BeforeRegisterContext,
   BeforeRegisterFn,
+  // Passwordless hooks
+  BeforeMagicLinkLoginContext,
+  BeforeMagicLinkLoginFn,
+  AfterMagicLinkLoginContext,
+  AfterMagicLinkLoginFn,
+  BeforeOtpLoginContext,
+  BeforeOtpLoginFn,
+  AfterOtpLoginContext,
+  AfterOtpLoginFn,
+  // MFA hooks
+  AfterMfaSetupContext,
+  AfterMfaSetupFn,
+  AfterMfaVerifyContext,
+  AfterMfaVerifyFn,
+  AfterMfaDisableContext,
+  AfterMfaDisableFn,
+  // Passkey hooks
+  AfterPasskeyRegisterContext,
+  AfterPasskeyRegisterFn,
+  AfterPasskeyLoginContext,
+  AfterPasskeyLoginFn,
+  AfterPasskeyRemoveContext,
+  AfterPasskeyRemoveFn,
 } from "./hooks/auth-types.ts";
 export { defineAuthHooks } from "./hooks/auth-types.ts";
 export type {

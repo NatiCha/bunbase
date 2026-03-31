@@ -123,6 +123,52 @@ export class MysqlAdapter implements DatabaseAdapter {
       )
     `);
 
+    // Add mfa_verified column to sessions if missing (migration for existing databases)
+    try {
+      await this.sql.unsafe("ALTER TABLE `_sessions` ADD COLUMN `mfa_verified` INTEGER");
+    } catch {
+      // Column already exists
+    }
+
+    await this.sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS \`_mfa_totp\` (
+        \`id\` TEXT NOT NULL,
+        \`user_id\` TEXT NOT NULL,
+        \`encrypted_secret\` TEXT NOT NULL,
+        \`verified\` INTEGER NOT NULL DEFAULT 0,
+        \`created_at\` TEXT NOT NULL DEFAULT (NOW()),
+        PRIMARY KEY (\`id\`(191)),
+        UNIQUE KEY \`idx_mfa_totp_user\` (\`user_id\`(191))
+      )
+    `);
+
+    await this.sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS \`_mfa_backup_codes\` (
+        \`id\` TEXT NOT NULL,
+        \`user_id\` TEXT NOT NULL,
+        \`code_hash\` TEXT NOT NULL,
+        \`used\` INTEGER NOT NULL DEFAULT 0,
+        \`created_at\` TEXT NOT NULL DEFAULT (NOW()),
+        PRIMARY KEY (\`id\`(191))
+      )
+    `);
+
+    await this.sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS \`_passkey_credentials\` (
+        \`id\` TEXT NOT NULL,
+        \`user_id\` TEXT NOT NULL,
+        \`public_key\` TEXT NOT NULL,
+        \`counter\` INTEGER NOT NULL DEFAULT 0,
+        \`device_type\` TEXT,
+        \`backed_up\` INTEGER NOT NULL DEFAULT 0,
+        \`transports\` TEXT,
+        \`name\` TEXT NOT NULL,
+        \`created_at\` TEXT NOT NULL DEFAULT (NOW()),
+        \`last_used_at\` TEXT,
+        PRIMARY KEY (\`id\`(191))
+      )
+    `);
+
     // Indexes — MySQL uses CREATE INDEX IF NOT EXISTS syntax differently; use DROP+CREATE or just swallow errors
     const idxStmts = [
       "CREATE INDEX idx_sessions_user_id ON `_sessions`(`user_id`(191))",
@@ -134,6 +180,8 @@ export class MysqlAdapter implements DatabaseAdapter {
       "CREATE INDEX idx_request_logs_timestamp ON `_request_logs`(`timestamp`(191))",
       "CREATE INDEX idx_api_keys_user_id ON `_api_keys`(`user_id`(191))",
       "CREATE UNIQUE INDEX idx_api_keys_hash ON `_api_keys`(`key_hash`)",
+      "CREATE INDEX idx_mfa_backup_codes_user ON `_mfa_backup_codes`(`user_id`(191))",
+      "CREATE INDEX idx_passkey_credentials_user ON `_passkey_credentials`(`user_id`(191))",
     ];
     for (const stmt of idxStmts) {
       try {

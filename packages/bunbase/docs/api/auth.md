@@ -327,6 +327,9 @@ See [Hooks](/hooks/) for the full auth hook surface, context types, and error ha
 
 ## Next steps
 
+- [MFA / Two-Factor Auth](/api/mfa/) — TOTP setup, backup codes, and MFA-enforced login
+- [Passwordless Auth](/api/passwordless/) — magic links and email OTP
+- [Passkeys](/api/passkeys/) — WebAuthn/FIDO2 biometric and security key login
 - [Client SDK](/client/) — use `auth.login()`, `auth.register()` from the frontend
 - [Rules](/rules/) — use `ctx.auth` in rules to check authentication
 - [Hooks](/hooks/) — run code before/after auth events

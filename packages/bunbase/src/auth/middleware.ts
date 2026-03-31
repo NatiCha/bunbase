@@ -99,8 +99,18 @@ export async function getApiKeyUser(
   return { ...user, id, email, role };
 }
 
+/** Paths accessible with a pending-MFA session (mfa_verified === 0). */
+const MFA_PENDING_ALLOWED_PREFIXES = ["/auth/mfa/", "/auth/logout"];
+
+function isMfaPendingAllowed(pathname: string): boolean {
+  return MFA_PENDING_ALLOWED_PREFIXES.some((p) => pathname.startsWith(p));
+}
+
 /**
  * Resolve authenticated user from session cookie first, then bearer API key.
+ *
+ * When a session has `mfa_verified === 0` (password verified but MFA pending),
+ * returns `null` for all routes except `/auth/mfa/*` and `/auth/logout`.
  */
 export async function extractAuth(
   req: Request,
@@ -114,6 +124,14 @@ export async function extractAuth(
   if (sessionId) {
     const session = await getSession(db, internalSchema, sessionId);
     if (session) {
+      // MFA enforcement: pending sessions can only access MFA and logout routes
+      if (session.mfa_verified === 0) {
+        const url = new URL(req.url);
+        if (!isMfaPendingAllowed(url.pathname.replace(/^\/api/, ""))) {
+          return null;
+        }
+      }
+
       const rows = await (db as any)
         .select()
         .from(usersTable)

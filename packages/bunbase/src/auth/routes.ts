@@ -1,5 +1,5 @@
 import type { Column } from "drizzle-orm";
-import { eq, getColumns, sql } from "drizzle-orm";
+import { and, eq, getColumns, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import { ApiError } from "../api/helpers.ts";
 import type { ResolvedConfig } from "../core/config.ts";
@@ -396,11 +396,34 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
             return jsonError("UNAUTHORIZED", "Invalid email or password", 401);
           }
 
+          // Check if user has TOTP MFA enrolled
+          let mfaRequired = false;
+          const mfaMethods: string[] = [];
+
+          if (config.auth.mfa.totp.enabled) {
+            const totpRows = await (db as any)
+              .select({ id: internalSchema.mfaTotp.id })
+              .from(internalSchema.mfaTotp)
+              .where(
+                and(
+                  eq(internalSchema.mfaTotp.userId, String(user.id)),
+                  eq(internalSchema.mfaTotp.verified, 1),
+                ),
+              );
+
+            if (totpRows.length > 0) {
+              mfaRequired = true;
+              mfaMethods.push("totp");
+            }
+          }
+
+          // Create session — pending MFA if TOTP is enrolled
           const sessionId = await createSession(
             db,
             internalSchema,
             String(user.id),
             config.auth.tokenExpiry,
+            mfaRequired ? 0 : undefined, // 0 = pending MFA, undefined = no MFA
           );
 
           if (authHooks?.afterLogin) {
@@ -421,10 +444,12 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
           );
           const csrf = setCsrfCookie(isDev, cookieDomain);
 
+          const responseBody = mfaRequired
+            ? { mfaRequired: true, mfaMethods }
+            : { user: stripSensitiveUserFields(user) };
+
           return new Response(
-            JSON.stringify({
-              user: stripSensitiveUserFields(user),
-            }),
+            JSON.stringify(responseBody),
             appendResponseCookies(
               {
                 status: 200,
