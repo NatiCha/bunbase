@@ -29,6 +29,7 @@ defineConfig({
         rpName: "My App",                   // relying party display name
         rpId: "example.com",                // relying party ID (your domain)
         origin: "https://example.com",      // expected origin
+        authenticatorAttachment: "platform", // optional — see below
       },
     },
   },
@@ -36,6 +37,18 @@ defineConfig({
 ```
 
 In development, `rpId` and `origin` default to the request's hostname and origin.
+
+### `authenticatorAttachment`
+
+Controls which type of authenticator is allowed for passkey registration and preferred during login:
+
+| Value | Behavior |
+|---|---|
+| `"platform"` | Only built-in authenticators: Touch ID, Face ID, Windows Hello, iCloud Keychain. Prevents QR code prompts for cross-device authentication. |
+| `"cross-platform"` | Only roaming authenticators: hardware security keys, phones via QR code. |
+| `undefined` (default) | Allow both — the browser decides what to show. |
+
+Set `"platform"` if your users primarily sign in from their own devices and you want the cleanest UX (biometric prompt, no QR code).
 
 ## Registration flow
 

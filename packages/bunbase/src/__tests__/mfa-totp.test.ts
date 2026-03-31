@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { createTestServer } from "../testing/index.ts";
 import { allowAll } from "../rules/helpers.ts";
+import { createTestServer } from "../testing/index.ts";
 
 const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -64,7 +64,7 @@ describe("TOTP MFA flow", () => {
       body: JSON.stringify({ email: "mfa@test.com", password: "password123" }),
     });
     expect(registerRes.status).toBe(201);
-    let session = extractSessionCookie(registerRes);
+    const session = extractSessionCookie(registerRes);
 
     // 2. Setup TOTP (user is authenticated from registration)
     const setupRes = await fetchWithSession("/auth/mfa/totp/setup", { method: "POST" }, session);
@@ -78,10 +78,14 @@ describe("TOTP MFA flow", () => {
     const { generateTotpCode } = await import("../auth/mfa/totp-core.ts");
 
     const code = generateTotpCode(setupData.secret);
-    const verifySetupRes = await fetchWithSession("/auth/mfa/totp/verify-setup", {
-      method: "POST",
-      body: JSON.stringify({ code }),
-    }, session);
+    const verifySetupRes = await fetchWithSession(
+      "/auth/mfa/totp/verify-setup",
+      {
+        method: "POST",
+        body: JSON.stringify({ code }),
+      },
+      session,
+    );
     expect(verifySetupRes.status).toBe(200);
     const verifySetupData = await verifySetupRes.json();
     expect(verifySetupData.backupCodes).toBeDefined();
@@ -110,10 +114,14 @@ describe("TOTP MFA flow", () => {
 
     // 7. Complete MFA with TOTP code
     const mfaCode = generateTotpCode(setupData.secret);
-    const mfaVerifyRes = await fetchWithSession("/auth/mfa/totp/verify", {
-      method: "POST",
-      body: JSON.stringify({ code: mfaCode }),
-    }, pendingSession);
+    const mfaVerifyRes = await fetchWithSession(
+      "/auth/mfa/totp/verify",
+      {
+        method: "POST",
+        body: JSON.stringify({ code: mfaCode }),
+      },
+      pendingSession,
+    );
     expect(mfaVerifyRes.status).toBe(200);
     const mfaVerifyData = await mfaVerifyRes.json();
     expect(mfaVerifyData.user).toBeDefined();
@@ -131,17 +139,21 @@ describe("TOTP MFA flow", () => {
       body: JSON.stringify({ email: "backup@test.com", password: "password123" }),
     });
     expect(registerRes.status).toBe(201);
-    let session = extractSessionCookie(registerRes);
+    const session = extractSessionCookie(registerRes);
 
     const setupRes = await fetchWithSession("/auth/mfa/totp/setup", { method: "POST" }, session);
     const setupData = await setupRes.json();
 
     const { generateTotpCode: genCode } = await import("../auth/mfa/totp-core.ts");
 
-    const verifySetupRes = await fetchWithSession("/auth/mfa/totp/verify-setup", {
-      method: "POST",
-      body: JSON.stringify({ code: genCode(setupData.secret) }),
-    }, session);
+    const verifySetupRes = await fetchWithSession(
+      "/auth/mfa/totp/verify-setup",
+      {
+        method: "POST",
+        body: JSON.stringify({ code: genCode(setupData.secret) }),
+      },
+      session,
+    );
     const { backupCodes } = await verifySetupRes.json();
     expect(backupCodes.length).toBe(10);
 
@@ -155,10 +167,14 @@ describe("TOTP MFA flow", () => {
     const pendingSession = extractSessionCookie(loginRes);
 
     // Use backup code
-    const backupRes = await fetchWithSession("/auth/mfa/backup/verify", {
-      method: "POST",
-      body: JSON.stringify({ code: backupCodes[0] }),
-    }, pendingSession);
+    const backupRes = await fetchWithSession(
+      "/auth/mfa/backup/verify",
+      {
+        method: "POST",
+        body: JSON.stringify({ code: backupCodes[0] }),
+      },
+      pendingSession,
+    );
     expect(backupRes.status).toBe(200);
     const backupData = await backupRes.json();
     expect(backupData.user).toBeDefined();
@@ -171,10 +187,14 @@ describe("TOTP MFA flow", () => {
     expect((await loginRes2.json()).mfaRequired).toBe(true);
     const pendingSession2 = extractSessionCookie(loginRes2);
 
-    const backupRes2 = await fetchWithSession("/auth/mfa/backup/verify", {
-      method: "POST",
-      body: JSON.stringify({ code: backupCodes[0] }),
-    }, pendingSession2);
+    const backupRes2 = await fetchWithSession(
+      "/auth/mfa/backup/verify",
+      {
+        method: "POST",
+        body: JSON.stringify({ code: backupCodes[0] }),
+      },
+      pendingSession2,
+    );
     expect(backupRes2.status).toBe(401);
   });
 });

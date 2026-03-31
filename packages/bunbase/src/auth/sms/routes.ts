@@ -4,11 +4,7 @@ import type { ResolvedConfig } from "../../core/config.ts";
 import type { AnyDb } from "../../core/db-types.ts";
 import type { InternalSchema } from "../../core/internal-schema.ts";
 import type { AuthHooks } from "../../hooks/auth-types.ts";
-import {
-  appendResponseCookies,
-  serializeCookie,
-  sessionCookieOptions,
-} from "../cookies.ts";
+import { appendResponseCookies, serializeCookie, sessionCookieOptions } from "../cookies.ts";
 import { setCsrfCookie } from "../csrf.ts";
 import { checkRateLimit, getClientIp } from "../rate-limit.ts";
 import { createSession } from "../sessions.ts";
@@ -130,7 +126,9 @@ export function createSmsOtpRoutes(deps: SmsOtpDeps) {
           }
         }
 
-        return Response.json({ message: "If an account with that phone exists, a code has been sent." });
+        return Response.json({
+          message: "If an account with that phone exists, a code has been sent.",
+        });
       },
     },
 
@@ -196,7 +194,12 @@ export function createSmsOtpRoutes(deps: SmsOtpDeps) {
         await (db as any).delete(tokens).where(eq(tokens.id, tokenRows[0].id));
 
         // Create session
-        const sessionId = await createSession(db, internalSchema, String(user.id), config.auth.tokenExpiry);
+        const sessionId = await createSession(
+          db,
+          internalSchema,
+          String(user.id),
+          config.auth.tokenExpiry,
+        );
 
         if (authHooks?.afterSmsOtpLogin) {
           try {

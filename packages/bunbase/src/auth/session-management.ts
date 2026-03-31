@@ -36,10 +36,7 @@ export function createSessionManagementRoutes(deps: SessionManagementDeps) {
 
         const currentSessionId = extractSessionId(req);
 
-        const rows = await (db as any)
-          .select()
-          .from(sessions)
-          .where(eq(sessions.userId, user.id));
+        const rows = await (db as any).select().from(sessions).where(eq(sessions.userId, user.id));
 
         const now = Math.floor(Date.now() / 1000);
         const result = rows
@@ -74,7 +71,11 @@ export function createSessionManagementRoutes(deps: SessionManagementDeps) {
         const currentSessionId = extractSessionId(req);
 
         if (sessionId === currentSessionId) {
-          return jsonError("BAD_REQUEST", "Cannot revoke the current session. Use logout instead.", 400);
+          return jsonError(
+            "BAD_REQUEST",
+            "Cannot revoke the current session. Use logout instead.",
+            400,
+          );
         }
 
         const rows = await (db as any)

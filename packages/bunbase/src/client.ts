@@ -245,7 +245,12 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
       return res.json() as Promise<{ user: Record<string, unknown> }>;
     },
 
-    async login(data: { email?: string; username?: string; identifier?: string; password: string }) {
+    async login(data: {
+      email?: string;
+      username?: string;
+      identifier?: string;
+      password: string;
+    }) {
       const res = await fetch(`${baseUrl}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

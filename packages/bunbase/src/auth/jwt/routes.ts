@@ -22,7 +22,7 @@ interface JwtRouteDeps {
 }
 
 export function createJwtRoutes(deps: JwtRouteDeps) {
-  const { db, internalSchema, config, usersTable } = deps;
+  const { db, internalSchema, config } = deps;
   const jwtConfig = config.auth.jwt;
 
   return {

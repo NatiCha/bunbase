@@ -263,10 +263,8 @@ export class PostgresAdapter implements DatabaseAdapter {
       .sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_org_members_unique ON _organization_members(org_id, user_id)`;
     await this
       .sql`CREATE INDEX IF NOT EXISTS idx_org_members_user ON _organization_members(user_id)`;
-    await this
-      .sql`CREATE INDEX IF NOT EXISTS idx_org_members_org ON _organization_members(org_id)`;
-    await this
-      .sql`CREATE INDEX IF NOT EXISTS idx_org_invites_org ON _organization_invites(org_id)`;
+    await this.sql`CREATE INDEX IF NOT EXISTS idx_org_members_org ON _organization_members(org_id)`;
+    await this.sql`CREATE INDEX IF NOT EXISTS idx_org_invites_org ON _organization_invites(org_id)`;
     await this
       .sql`CREATE INDEX IF NOT EXISTS idx_jwt_revocations_expires ON _jwt_revocations(expires_at)`;
   }

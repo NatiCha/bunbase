@@ -15,10 +15,10 @@ import {
   sessionCookieOptions,
 } from "./cookies.ts";
 import { setCsrfCookie, validateCsrf } from "./csrf.ts";
+import { validateAndConsumeInvite } from "./invitations.ts";
 import { extractAuth, extractSessionId, isBearerOnly } from "./middleware.ts";
 import { hashPassword, verifyPassword } from "./passwords.ts";
 import { checkRateLimit, getClientIp } from "./rate-limit.ts";
-import { validateAndConsumeInvite } from "./invitations.ts";
 import { createSession, deleteSession } from "./sessions.ts";
 import { hashToken } from "./tokens.ts";
 
@@ -370,13 +370,15 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
           }
 
           // Support email, username, or identifier login
-          const valSchema = z.object({ password: z.string() }).and(
-            z.union([
-              z.object({ email: z.email() }),
-              z.object({ username: z.string().min(1) }),
-              z.object({ identifier: z.string().min(1) }),
-            ]),
-          );
+          const valSchema = z
+            .object({ password: z.string() })
+            .and(
+              z.union([
+                z.object({ email: z.email() }),
+                z.object({ username: z.string().min(1) }),
+                z.object({ identifier: z.string().min(1) }),
+              ]),
+            );
 
           const result = valSchema.safeParse(body);
           if (!result.success) {
@@ -396,7 +398,10 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
 
           if (authHooks?.beforeLogin) {
             try {
-              await authHooks.beforeLogin({ email: loginEmail ?? username ?? identifier ?? "", req });
+              await authHooks.beforeLogin({
+                email: loginEmail ?? username ?? identifier ?? "",
+                req,
+              });
             } catch (err) {
               if (err instanceof ApiError) {
                 return jsonError(err.code, err.message, err.status);

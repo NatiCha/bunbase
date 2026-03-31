@@ -4,16 +4,11 @@ import type { ResolvedConfig } from "../core/config.ts";
 import type { AnyDb } from "../core/db-types.ts";
 import type { InternalSchema } from "../core/internal-schema.ts";
 import type { AuthHooks } from "../hooks/auth-types.ts";
-import {
-  appendResponseCookies,
-  serializeCookie,
-  sessionCookieOptions,
-} from "./cookies.ts";
+import { appendResponseCookies, serializeCookie, sessionCookieOptions } from "./cookies.ts";
 import { setCsrfCookie } from "./csrf.ts";
-import { extractAuth } from "./middleware.ts";
+import { extractSessionId } from "./middleware.ts";
 import { hashPassword } from "./passwords.ts";
 import { getSession } from "./sessions.ts";
-import { extractSessionId } from "./middleware.ts";
 
 /**
  * Anonymous/guest auth routes.

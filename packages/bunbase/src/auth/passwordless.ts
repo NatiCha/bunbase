@@ -1,6 +1,5 @@
 import { and, eq, gt } from "drizzle-orm";
 import { z } from "zod/v4";
-import type { AuthUser } from "../api/types.ts";
 import type { ResolvedConfig } from "../core/config.ts";
 import type { AnyDb } from "../core/db-types.ts";
 import type { InternalSchema } from "../core/internal-schema.ts";
@@ -66,10 +65,7 @@ async function authenticateByEmail(
   const isDev = config.development;
   const cookieDomain = config.cookieDomain;
 
-  const userRows = await (db as any)
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.email, email));
+  const userRows = await (db as any).select().from(usersTable).where(eq(usersTable.email, email));
 
   let user = userRows[0];
   let isNewUser = false;
@@ -89,10 +85,7 @@ async function authenticateByEmail(
       createdAt,
     });
 
-    const newRows = await (db as any)
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.id, id));
+    const newRows = await (db as any).select().from(usersTable).where(eq(usersTable.id, id));
     user = newRows[0];
     isNewUser = true;
   }
@@ -165,7 +158,11 @@ export function createPasswordlessRoutes(deps: PasswordlessRouteDeps) {
             if (err?.code && err?.status) {
               return jsonError(err.code, err.message, err.status);
             }
-            return jsonError("AUTH_HOOK_ERROR", "An error occurred in beforeMagicLinkLogin hook", 500);
+            return jsonError(
+              "AUTH_HOOK_ERROR",
+              "An error occurred in beforeMagicLinkLogin hook",
+              500,
+            );
           }
         }
 
@@ -242,10 +239,13 @@ export function createPasswordlessRoutes(deps: PasswordlessRouteDeps) {
         }
 
         const html = magicLinkResultHtml(true, "Successfully signed in");
-        return new Response(html, appendResponseCookies(
-          { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
-          [result.sessionCookie, result.csrfCookie],
-        ));
+        return new Response(
+          html,
+          appendResponseCookies(
+            { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
+            [result.sessionCookie, result.csrfCookie],
+          ),
+        );
       },
 
       // POST — programmatic API call from client SDK
@@ -270,10 +270,10 @@ export function createPasswordlessRoutes(deps: PasswordlessRouteDeps) {
 
         return new Response(
           JSON.stringify({ user: stripSensitive(authResult.user) }),
-          appendResponseCookies(
-            { status: 200, headers: { "Content-Type": "application/json" } },
-            [authResult.sessionCookie, authResult.csrfCookie],
-          ),
+          appendResponseCookies({ status: 200, headers: { "Content-Type": "application/json" } }, [
+            authResult.sessionCookie,
+            authResult.csrfCookie,
+          ]),
         );
       },
     };
@@ -430,7 +430,10 @@ export function createPasswordlessRoutes(deps: PasswordlessRouteDeps) {
 
         if (authHooks?.afterOtpLogin) {
           try {
-            await authHooks.afterOtpLogin({ user: stripSensitive(authResult.user), userId: authResult.userId });
+            await authHooks.afterOtpLogin({
+              user: stripSensitive(authResult.user),
+              userId: authResult.userId,
+            });
           } catch (err) {
             console.error("[BunBase] afterOtpLogin hook error:", err);
           }
@@ -438,10 +441,10 @@ export function createPasswordlessRoutes(deps: PasswordlessRouteDeps) {
 
         return new Response(
           JSON.stringify({ user: stripSensitive(authResult.user) }),
-          appendResponseCookies(
-            { status: 200, headers: { "Content-Type": "application/json" } },
-            [authResult.sessionCookie, authResult.csrfCookie],
-          ),
+          appendResponseCookies({ status: 200, headers: { "Content-Type": "application/json" } }, [
+            authResult.sessionCookie,
+            authResult.csrfCookie,
+          ]),
         );
       },
     };

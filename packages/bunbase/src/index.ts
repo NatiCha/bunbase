@@ -8,20 +8,24 @@
 
 export { ApiError, requireAuth } from "./api/helpers.ts";
 export type { AuthUser, BunBaseErrorCode, BunBaseErrorEnvelope } from "./api/types.ts";
-export { encrypt, decrypt, resolveMfaEncryptionKey } from "./auth/encryption.ts";
-export { isBearerOnly } from "./auth/middleware.ts";
-export { signJwt, verifyJwt, revokeJwt, isJwtToken } from "./auth/jwt/core.ts";
-export type { JwtPayload } from "./auth/jwt/core.ts";
-export { getOrgMembership, getUserOrganizations, requireOrgRole } from "./auth/organizations/helpers.ts";
-export type { SmsMessage, SmsTransport } from "./auth/sms/types.ts";
+export { decrypt, encrypt, resolveMfaEncryptionKey } from "./auth/encryption.ts";
 export { validateAndConsumeInvite } from "./auth/invitations.ts";
-export { getMfaStatus, generateBackupCodes } from "./auth/mfa/index.ts";
+export type { JwtPayload } from "./auth/jwt/core.ts";
+export { isJwtToken, revokeJwt, signJwt, verifyJwt } from "./auth/jwt/core.ts";
+export { generateBackupCodes, getMfaStatus } from "./auth/mfa/index.ts";
+export { isBearerOnly } from "./auth/middleware.ts";
 export { createGenericOAuthProvider as defineOAuthProvider } from "./auth/oauth/generic.ts";
 export type {
   CustomOAuthProviderConfig,
   OAuthProvider,
   OAuthUserInfo,
 } from "./auth/oauth/types.ts";
+export {
+  getOrgMembership,
+  getUserOrganizations,
+  requireOrgRole,
+} from "./auth/organizations/helpers.ts";
+export type { SmsMessage, SmsTransport } from "./auth/sms/types.ts";
 export type {
   BunBaseAPI,
   ChannelClient,
@@ -46,77 +50,77 @@ export { createServer } from "./core/server.ts";
 export type { FilterOperators } from "./crud/filters.ts";
 export { defineRelations, MAX_RELATION_DEPTH } from "./crud/relations.ts";
 export type {
+  AfterAccountDeleteContext,
+  AfterAccountDeleteFn,
   AfterEmailVerifyContext,
   AfterEmailVerifyFn,
+  AfterGuestConvertContext,
+  AfterGuestConvertFn,
+  // Guest auth hooks
+  AfterGuestCreateContext,
+  AfterGuestCreateFn,
+  AfterInviteAcceptContext,
+  AfterInviteAcceptFn,
+  // Invitation hooks
+  AfterInviteCreateContext,
+  AfterInviteCreateFn,
   AfterLoginContext,
   AfterLoginFn,
-  AfterOAuthLoginContext,
-  AfterOAuthLoginFn,
-  AfterPasswordResetContext,
-  AfterPasswordResetFn,
-  AfterRegisterContext,
-  AfterRegisterFn,
-  AuthHooks,
-  BeforeLoginContext,
-  BeforeLoginFn,
-  BeforeOAuthLoginContext,
-  BeforeOAuthLoginFn,
-  BeforePasswordResetContext,
-  BeforePasswordResetFn,
-  BeforeRegisterContext,
-  BeforeRegisterFn,
-  // Passwordless hooks
-  BeforeMagicLinkLoginContext,
-  BeforeMagicLinkLoginFn,
   AfterMagicLinkLoginContext,
   AfterMagicLinkLoginFn,
-  BeforeOtpLoginContext,
-  BeforeOtpLoginFn,
-  AfterOtpLoginContext,
-  AfterOtpLoginFn,
+  AfterMfaDisableContext,
+  AfterMfaDisableFn,
   // MFA hooks
   AfterMfaSetupContext,
   AfterMfaSetupFn,
   AfterMfaVerifyContext,
   AfterMfaVerifyFn,
-  AfterMfaDisableContext,
-  AfterMfaDisableFn,
-  // Passkey hooks
-  AfterPasskeyRegisterContext,
-  AfterPasskeyRegisterFn,
-  AfterPasskeyLoginContext,
-  AfterPasskeyLoginFn,
-  AfterPasskeyRemoveContext,
-  AfterPasskeyRemoveFn,
-  // Account deletion hooks
-  BeforeAccountDeleteContext,
-  BeforeAccountDeleteFn,
-  AfterAccountDeleteContext,
-  AfterAccountDeleteFn,
-  // Guest auth hooks
-  AfterGuestCreateContext,
-  AfterGuestCreateFn,
-  AfterGuestConvertContext,
-  AfterGuestConvertFn,
-  // SMS OTP hooks
-  BeforeSmsOtpLoginContext,
-  BeforeSmsOtpLoginFn,
-  AfterSmsOtpLoginContext,
-  AfterSmsOtpLoginFn,
-  // Invitation hooks
-  AfterInviteCreateContext,
-  AfterInviteCreateFn,
-  AfterInviteAcceptContext,
-  AfterInviteAcceptFn,
+  AfterOAuthLoginContext,
+  AfterOAuthLoginFn,
   // Organization hooks
   AfterOrgCreateContext,
   AfterOrgCreateFn,
+  AfterOrgInviteAcceptContext,
+  AfterOrgInviteAcceptFn,
   AfterOrgMemberAddContext,
   AfterOrgMemberAddFn,
   AfterOrgMemberRemoveContext,
   AfterOrgMemberRemoveFn,
-  AfterOrgInviteAcceptContext,
-  AfterOrgInviteAcceptFn,
+  AfterOtpLoginContext,
+  AfterOtpLoginFn,
+  AfterPasskeyLoginContext,
+  AfterPasskeyLoginFn,
+  // Passkey hooks
+  AfterPasskeyRegisterContext,
+  AfterPasskeyRegisterFn,
+  AfterPasskeyRemoveContext,
+  AfterPasskeyRemoveFn,
+  AfterPasswordResetContext,
+  AfterPasswordResetFn,
+  AfterRegisterContext,
+  AfterRegisterFn,
+  AfterSmsOtpLoginContext,
+  AfterSmsOtpLoginFn,
+  AuthHooks,
+  // Account deletion hooks
+  BeforeAccountDeleteContext,
+  BeforeAccountDeleteFn,
+  BeforeLoginContext,
+  BeforeLoginFn,
+  // Passwordless hooks
+  BeforeMagicLinkLoginContext,
+  BeforeMagicLinkLoginFn,
+  BeforeOAuthLoginContext,
+  BeforeOAuthLoginFn,
+  BeforeOtpLoginContext,
+  BeforeOtpLoginFn,
+  BeforePasswordResetContext,
+  BeforePasswordResetFn,
+  BeforeRegisterContext,
+  BeforeRegisterFn,
+  // SMS OTP hooks
+  BeforeSmsOtpLoginContext,
+  BeforeSmsOtpLoginFn,
 } from "./hooks/auth-types.ts";
 export { defineAuthHooks } from "./hooks/auth-types.ts";
 export type {

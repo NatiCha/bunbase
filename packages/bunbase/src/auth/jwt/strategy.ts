@@ -1,11 +1,7 @@
 import type { ResolvedConfig } from "../../core/config.ts";
 import type { AnyDb } from "../../core/db-types.ts";
 import type { InternalSchema } from "../../core/internal-schema.ts";
-import {
-  appendResponseCookies,
-  serializeCookie,
-  sessionCookieOptions,
-} from "../cookies.ts";
+import { appendResponseCookies, serializeCookie, sessionCookieOptions } from "../cookies.ts";
 import { setCsrfCookie } from "../csrf.ts";
 import { createSession } from "../sessions.ts";
 import { signJwt } from "./core.ts";
@@ -45,13 +41,7 @@ export async function buildAuthResponse(
 
     if (mfaRequired) {
       // For MFA-pending, still create a cookie session (JWT requires full auth)
-      const sessionId = await createSession(
-        db,
-        internalSchema,
-        userId,
-        config.auth.tokenExpiry,
-        0,
-      );
+      const sessionId = await createSession(db, internalSchema, userId, config.auth.tokenExpiry, 0);
       const sessionCookie = serializeCookie(
         SESSION_COOKIE,
         sessionId,
@@ -61,10 +51,10 @@ export async function buildAuthResponse(
 
       return new Response(
         JSON.stringify({ mfaRequired: true, mfaMethods }),
-        appendResponseCookies(
-          { status: 200, headers: { "Content-Type": "application/json" } },
-          [sessionCookie, csrf.cookie],
-        ),
+        appendResponseCookies({ status: 200, headers: { "Content-Type": "application/json" } }, [
+          sessionCookie,
+          csrf.cookie,
+        ]),
       );
     }
 
@@ -108,15 +98,13 @@ export async function buildAuthResponse(
   );
   const csrf = setCsrfCookie(isDev, cookieDomain);
 
-  const responseBody = mfaRequired
-    ? { mfaRequired: true, mfaMethods }
-    : { user };
+  const responseBody = mfaRequired ? { mfaRequired: true, mfaMethods } : { user };
 
   return new Response(
     JSON.stringify(responseBody),
-    appendResponseCookies(
-      { status, headers: { "Content-Type": "application/json" } },
-      [sessionCookie, csrf.cookie],
-    ),
+    appendResponseCookies({ status, headers: { "Content-Type": "application/json" } }, [
+      sessionCookie,
+      csrf.cookie,
+    ]),
   );
 }

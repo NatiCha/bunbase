@@ -90,7 +90,11 @@ export function createTotpRoutes(deps: TotpRouteDeps) {
         .where(eq(internalSchema.mfaTotp.userId, user.id));
 
       if (existingRows[0]?.verified === 1) {
-        return jsonError("CONFLICT", "TOTP is already enabled. Disable it first to reconfigure.", 409);
+        return jsonError(
+          "CONFLICT",
+          "TOTP is already enabled. Disable it first to reconfigure.",
+          409,
+        );
       }
 
       // Delete any unverified setup
@@ -150,15 +154,16 @@ export function createTotpRoutes(deps: TotpRouteDeps) {
         .select()
         .from(internalSchema.mfaTotp)
         .where(
-          and(
-            eq(internalSchema.mfaTotp.userId, user.id),
-            eq(internalSchema.mfaTotp.verified, 0),
-          ),
+          and(eq(internalSchema.mfaTotp.userId, user.id), eq(internalSchema.mfaTotp.verified, 0)),
         );
 
       const totpRow = totpRows[0];
       if (!totpRow) {
-        return jsonError("BAD_REQUEST", "No TOTP setup in progress. Call /auth/mfa/totp/setup first.", 400);
+        return jsonError(
+          "BAD_REQUEST",
+          "No TOTP setup in progress. Call /auth/mfa/totp/setup first.",
+          400,
+        );
       }
 
       // Decrypt secret and verify code
@@ -249,7 +254,10 @@ export function createTotpRoutes(deps: TotpRouteDeps) {
       }
 
       // Strip sensitive fields from user
-      const { passwordHash, password_hash, ...safeUser } = pending.user as unknown as Record<string, unknown>;
+      const { passwordHash, password_hash, ...safeUser } = pending.user as unknown as Record<
+        string,
+        unknown
+      >;
 
       return Response.json({ user: safeUser });
     },
@@ -293,7 +301,10 @@ export function createTotpRoutes(deps: TotpRouteDeps) {
         }
       }
 
-      const { passwordHash, password_hash, ...safeUser } = pending.user as unknown as Record<string, unknown>;
+      const { passwordHash, password_hash, ...safeUser } = pending.user as unknown as Record<
+        string,
+        unknown
+      >;
 
       return Response.json({ user: safeUser });
     },

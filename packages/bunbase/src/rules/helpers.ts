@@ -127,27 +127,18 @@ export function yearStart(): Date {
  * Organization rule helper: require membership in the org referenced by a record field.
  * Use in rules like: `list: ({ record, auth }) => orgMember(record.orgId, auth)`
  */
-export function orgMember(
-  orgId: string | null | undefined,
-  auth: AuthUser | null,
-): boolean {
+export function orgMember(orgId: string | null | undefined, auth: AuthUser | null): boolean {
   // Actual membership check must be done at the route level;
   // this helper is a no-op check that verifies auth exists and org is set
   return auth !== null && orgId != null;
 }
 
 /** Organization rule helper: require admin+ role. */
-export function orgAdmin(
-  orgId: string | null | undefined,
-  auth: AuthUser | null,
-): boolean {
+export function orgAdmin(orgId: string | null | undefined, auth: AuthUser | null): boolean {
   return auth !== null && orgId != null;
 }
 
 /** Organization rule helper: require owner role. */
-export function orgOwner(
-  orgId: string | null | undefined,
-  auth: AuthUser | null,
-): boolean {
+export function orgOwner(orgId: string | null | undefined, auth: AuthUser | null): boolean {
   return auth !== null && orgId != null;
 }

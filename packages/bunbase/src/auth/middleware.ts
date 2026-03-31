@@ -134,7 +134,7 @@ export async function extractAuth(
 
       // Guest session — return synthetic user without DB lookup
       if (session.is_guest === 1) {
-        const guestUuid = session.user_id.replace(/^guest:/, "");
+        const _guestUuid = session.user_id.replace(/^guest:/, "");
         return { id: session.user_id, email: "", role: "guest" } as AuthUser;
       }
 

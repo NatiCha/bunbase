@@ -61,9 +61,7 @@ export async function storeBackupCodes(
   codes: string[],
 ): Promise<void> {
   // Delete existing codes
-  await (db as any)
-    .delete(schema.mfaBackupCodes)
-    .where(eq(schema.mfaBackupCodes.userId, userId));
+  await (db as any).delete(schema.mfaBackupCodes).where(eq(schema.mfaBackupCodes.userId, userId));
 
   const now = new Date().toISOString();
 

@@ -91,6 +91,14 @@ export interface BunBaseConfig {
         rpId?: string;
         /** Expected origin (e.g. "https://example.com"). */
         origin?: string;
+        /**
+         * Restrict passkeys to a specific authenticator type.
+         * - `"platform"`: Only built-in authenticators (Touch ID, Face ID, Windows Hello, iCloud Keychain).
+         *   Prevents QR code prompts for cross-device authentication.
+         * - `"cross-platform"`: Only roaming authenticators (hardware security keys, phones via QR).
+         * - `undefined`: Allow both (default browser behavior).
+         */
+        authenticatorAttachment?: "platform" | "cross-platform";
       };
       backupCodes?: {
         /** Number of backup codes to generate. Default: 10. */
@@ -276,6 +284,7 @@ export interface ResolvedConfig {
         rpName: string | undefined;
         rpId: string | undefined;
         origin: string | undefined;
+        authenticatorAttachment: "platform" | "cross-platform" | undefined;
       };
       backupCodes: {
         count: number;
@@ -464,6 +473,7 @@ export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
           rpName: config?.auth?.mfa?.passkeys?.rpName,
           rpId: config?.auth?.mfa?.passkeys?.rpId,
           origin: config?.auth?.mfa?.passkeys?.origin,
+          authenticatorAttachment: config?.auth?.mfa?.passkeys?.authenticatorAttachment,
         },
         backupCodes: {
           count: config?.auth?.mfa?.backupCodes?.count ?? 10,

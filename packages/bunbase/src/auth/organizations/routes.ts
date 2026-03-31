@@ -58,7 +58,11 @@ export function createOrganizationRoutes(deps: OrgDeps) {
           .where(eq(members.userId, user.id));
 
         if (userOrgs.length >= orgConfig.maxOrgsPerUser) {
-          return jsonError("BAD_REQUEST", `Maximum of ${orgConfig.maxOrgsPerUser} organizations reached`, 400);
+          return jsonError(
+            "BAD_REQUEST",
+            `Maximum of ${orgConfig.maxOrgsPerUser} organizations reached`,
+            400,
+          );
         }
 
         let body: unknown;
@@ -76,7 +80,11 @@ export function createOrganizationRoutes(deps: OrgDeps) {
           .safeParse(body);
 
         if (!result.success) {
-          return jsonError("VALIDATION_ERROR", result.error.issues[0]?.message ?? "Invalid input", 400);
+          return jsonError(
+            "VALIDATION_ERROR",
+            result.error.issues[0]?.message ?? "Invalid input",
+            400,
+          );
         }
 
         const { name } = result.data;
@@ -115,14 +123,26 @@ export function createOrganizationRoutes(deps: OrgDeps) {
 
         if (authHooks?.afterOrgCreate) {
           try {
-            await authHooks.afterOrgCreate({ organization: { id: orgId, name, slug }, userId: user.id });
+            await authHooks.afterOrgCreate({
+              organization: { id: orgId, name, slug },
+              userId: user.id,
+            });
           } catch (err) {
             console.error("[BunBase] afterOrgCreate hook error:", err);
           }
         }
 
         return Response.json(
-          { organization: { id: orgId, name, slug, ownerId: user.id, createdAt: now, updatedAt: now } },
+          {
+            organization: {
+              id: orgId,
+              name,
+              slug,
+              ownerId: user.id,
+              createdAt: now,
+              updatedAt: now,
+            },
+          },
           { status: 201 },
         );
       },
@@ -174,10 +194,7 @@ export function createOrganizationRoutes(deps: OrgDeps) {
         const org = orgRows[0];
         if (!org) return jsonError("NOT_FOUND", "Organization not found", 404);
 
-        const memberRows = await (db as any)
-          .select()
-          .from(members)
-          .where(eq(members.orgId, orgId));
+        const memberRows = await (db as any).select().from(members).where(eq(members.orgId, orgId));
 
         return Response.json({
           organization: {
@@ -221,7 +238,11 @@ export function createOrganizationRoutes(deps: OrgDeps) {
 
         const result = z.object({ name: z.string().min(1).max(255) }).safeParse(body);
         if (!result.success) {
-          return jsonError("VALIDATION_ERROR", result.error.issues[0]?.message ?? "Invalid input", 400);
+          return jsonError(
+            "VALIDATION_ERROR",
+            result.error.issues[0]?.message ?? "Invalid input",
+            400,
+          );
         }
 
         await (db as any)
@@ -272,10 +293,7 @@ export function createOrganizationRoutes(deps: OrgDeps) {
           return jsonError(err.code ?? "FORBIDDEN", err.message, err.status ?? 403);
         }
 
-        const rows = await (db as any)
-          .select()
-          .from(members)
-          .where(eq(members.orgId, orgId));
+        const rows = await (db as any).select().from(members).where(eq(members.orgId, orgId));
 
         return Response.json({
           members: rows.map((m: any) => ({
@@ -399,7 +417,11 @@ export function createOrganizationRoutes(deps: OrgDeps) {
           return jsonError("NOT_FOUND", "Not a member of this organization", 404);
         }
         if (membership.role === "owner") {
-          return jsonError("FORBIDDEN", "Owner cannot leave. Transfer ownership or delete the organization.", 403);
+          return jsonError(
+            "FORBIDDEN",
+            "Owner cannot leave. Transfer ownership or delete the organization.",
+            403,
+          );
         }
 
         await (db as any)
@@ -444,7 +466,11 @@ export function createOrganizationRoutes(deps: OrgDeps) {
           .safeParse(body);
 
         if (!result.success) {
-          return jsonError("VALIDATION_ERROR", result.error.issues[0]?.message ?? "Invalid input", 400);
+          return jsonError(
+            "VALIDATION_ERROR",
+            result.error.issues[0]?.message ?? "Invalid input",
+            400,
+          );
         }
 
         const token = Bun.randomUUIDv7();
@@ -464,7 +490,15 @@ export function createOrganizationRoutes(deps: OrgDeps) {
         });
 
         return Response.json(
-          { invite: { id, token, email: result.data.email, role: result.data.role ?? "member", expiresAt } },
+          {
+            invite: {
+              id,
+              token,
+              email: result.data.email,
+              role: result.data.role ?? "member",
+              expiresAt,
+            },
+          },
           { status: 201 },
         );
       },
@@ -483,10 +517,7 @@ export function createOrganizationRoutes(deps: OrgDeps) {
           return jsonError(err.code ?? "FORBIDDEN", err.message, err.status ?? 403);
         }
 
-        const rows = await (db as any)
-          .select()
-          .from(orgInvites)
-          .where(eq(orgInvites.orgId, orgId));
+        const rows = await (db as any).select().from(orgInvites).where(eq(orgInvites.orgId, orgId));
 
         return Response.json({
           invites: rows.map((r: any) => ({
@@ -572,7 +603,12 @@ export function createOrganizationRoutes(deps: OrgDeps) {
         }
 
         // Check if already a member
-        const existingMembership = await getOrgMembership(db, internalSchema, user.id, invite.orgId);
+        const existingMembership = await getOrgMembership(
+          db,
+          internalSchema,
+          user.id,
+          invite.orgId,
+        );
         if (existingMembership) {
           return jsonError("CONFLICT", "Already a member of this organization", 409);
         }
@@ -591,7 +627,11 @@ export function createOrganizationRoutes(deps: OrgDeps) {
 
         if (authHooks?.afterOrgMemberAdd) {
           try {
-            await authHooks.afterOrgMemberAdd({ orgId: invite.orgId, userId: user.id, role: invite.role });
+            await authHooks.afterOrgMemberAdd({
+              orgId: invite.orgId,
+              userId: user.id,
+              role: invite.role,
+            });
           } catch (err) {
             console.error("[BunBase] afterOrgMemberAdd hook error:", err);
           }
@@ -599,7 +639,11 @@ export function createOrganizationRoutes(deps: OrgDeps) {
 
         if (authHooks?.afterOrgInviteAccept) {
           try {
-            await authHooks.afterOrgInviteAccept({ orgId: invite.orgId, userId: user.id, email: user.email });
+            await authHooks.afterOrgInviteAccept({
+              orgId: invite.orgId,
+              userId: user.id,
+              email: user.email,
+            });
           } catch (err) {
             console.error("[BunBase] afterOrgInviteAccept hook error:", err);
           }

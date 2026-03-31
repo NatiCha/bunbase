@@ -4,7 +4,7 @@
  */
 
 const ALGORITHM = "AES-GCM";
-const KEY_LENGTH = 256;
+const _KEY_LENGTH = 256;
 const IV_LENGTH = 12; // 96-bit IV recommended for AES-GCM
 const TAG_LENGTH = 128; // 128-bit auth tag
 
@@ -67,10 +67,7 @@ export async function decrypt(encrypted: string, rawKey: string): Promise<string
  * Resolve the MFA encryption key from config or environment.
  * In development mode, falls back to a deterministic key with a console warning.
  */
-export function resolveMfaEncryptionKey(
-  configKey: string | undefined,
-  isDev: boolean,
-): string {
+export function resolveMfaEncryptionKey(configKey: string | undefined, isDev: boolean): string {
   const key = configKey ?? process.env.BUNBASE_MFA_SECRET;
   if (key) return key;
 

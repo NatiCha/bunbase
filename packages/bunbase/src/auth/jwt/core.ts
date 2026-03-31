@@ -63,9 +63,7 @@ export async function signJwt(
   const signingInput = `${header}.${body}`;
 
   const key = await getSigningKey(secret);
-  const signature = new Uint8Array(
-    await crypto.subtle.sign("HMAC", key, enc.encode(signingInput)),
-  );
+  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(signingInput)));
 
   return `${signingInput}.${base64url(signature)}`;
 }

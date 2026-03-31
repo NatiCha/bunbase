@@ -71,6 +71,9 @@ export function createPasskeyRoutes(deps: PasskeyRouteDeps) {
         authenticatorSelection: {
           residentKey: "preferred",
           userVerification: "preferred",
+          ...(passkeyConfig.authenticatorAttachment
+            ? { authenticatorAttachment: passkeyConfig.authenticatorAttachment }
+            : {}),
         },
       });
 
@@ -138,7 +141,7 @@ export function createPasskeyRoutes(deps: PasskeyRouteDeps) {
 
       const { verifyRegistrationResponse } = await import("@simplewebauthn/server");
 
-      let verification;
+      let verification: Awaited<ReturnType<typeof verifyRegistrationResponse>>;
       try {
         verification = await verifyRegistrationResponse({
           response: parseResult.data.response as any,
@@ -232,11 +235,20 @@ export function createPasskeyRoutes(deps: PasskeyRouteDeps) {
         }
       }
 
-      const options = await generateAuthenticationOptions({
+      const authOpts: Parameters<typeof generateAuthenticationOptions>[0] = {
         rpID: passkeyConfig.rpId ?? new URL(req.url).hostname,
         allowCredentials,
         userVerification: "preferred",
-      });
+      };
+
+      const options = await generateAuthenticationOptions(authOpts);
+
+      // Hint the browser to prefer the configured authenticator type
+      if (passkeyConfig.authenticatorAttachment === "platform") {
+        (options as any).hints = ["client-device"];
+      } else if (passkeyConfig.authenticatorAttachment === "cross-platform") {
+        (options as any).hints = ["security-key"];
+      }
 
       // Store challenge — use a placeholder userId since we don't know who's authenticating yet
       const challengeHash = await hashToken(options.challenge);
@@ -300,7 +312,7 @@ export function createPasskeyRoutes(deps: PasskeyRouteDeps) {
 
       const { verifyAuthenticationResponse } = await import("@simplewebauthn/server");
 
-      let verification;
+      let verification: Awaited<ReturnType<typeof verifyAuthenticationResponse>>;
       let matchedChallengeId: string | null = null;
 
       try {
@@ -388,10 +400,10 @@ export function createPasskeyRoutes(deps: PasskeyRouteDeps) {
 
       return new Response(
         JSON.stringify({ user: safeUser }),
-        appendResponseCookies(
-          { status: 200, headers: { "Content-Type": "application/json" } },
-          [sessionCookie, csrf.cookie],
-        ),
+        appendResponseCookies({ status: 200, headers: { "Content-Type": "application/json" } }, [
+          sessionCookie,
+          csrf.cookie,
+        ]),
       );
     },
   };

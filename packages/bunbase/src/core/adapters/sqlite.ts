@@ -212,9 +212,7 @@ export class SqliteAdapter implements DatabaseAdapter {
     );
 
     // Invite indexes
-    this.sqlite.run(
-      "CREATE INDEX IF NOT EXISTS idx_invites_token_hash ON _invites(token_hash)",
-    );
+    this.sqlite.run("CREATE INDEX IF NOT EXISTS idx_invites_token_hash ON _invites(token_hash)");
 
     // Organization indexes
     this.sqlite.run(

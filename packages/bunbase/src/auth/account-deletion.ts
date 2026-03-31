@@ -5,11 +5,7 @@ import type { AnyDb } from "../core/db-types.ts";
 import type { InternalSchema } from "../core/internal-schema.ts";
 import type { AuthHooks } from "../hooks/auth-types.ts";
 import { deleteUserApiKeys } from "./api-keys.ts";
-import {
-  appendResponseCookies,
-  clearClientCookie,
-  clearCookie,
-} from "./cookies.ts";
+import { appendResponseCookies, clearClientCookie, clearCookie } from "./cookies.ts";
 import { validateCsrf } from "./csrf.ts";
 import { isBearerOnly } from "./middleware.ts";
 import { verifyPassword } from "./passwords.ts";
@@ -92,7 +88,11 @@ export function createAccountDeletionRoutes(deps: AccountDeletionDeps) {
             if (err?.code && err?.status) {
               return jsonError(err.code, err.message, err.status);
             }
-            return jsonError("AUTH_HOOK_ERROR", "An error occurred in beforeAccountDelete hook", 500);
+            return jsonError(
+              "AUTH_HOOK_ERROR",
+              "An error occurred in beforeAccountDelete hook",
+              500,
+            );
           }
         }
 
