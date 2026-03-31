@@ -105,6 +105,9 @@ const config = defineConfig({
 
   // Cookie domain — share session cookies across subdomains (default: unset)
   cookieDomain: ".example.com",
+
+  // Service key for server-to-server admin access (default: auto-generated)
+  serviceKey: process.env.BUNBASE_SERVICE_KEY,
 });
 ```
 
@@ -329,6 +332,16 @@ This is needed when the BunBase API server and the frontend are on different sub
 
 Default: unset (cookies scoped to exact host)
 
+### `serviceKey`
+
+A pre-shared key for server-to-server admin access. Requests with this key as a Bearer token are authenticated as a synthetic admin user (`{ id: "__service__", role: "admin" }`), bypassing the need for a real user account.
+
+If not provided via config or the `BUNBASE_SERVICE_KEY` environment variable, BunBase auto-generates a key and persists it to `.bunbase-service-key` in the working directory. The key is printed to the console on every startup.
+
+See the [Service Key](/api/service-key/) guide for usage details.
+
+Default: auto-generated
+
 ## Environment variables
 
 BunBase reads these environment variables:
@@ -339,6 +352,7 @@ BunBase reads these environment variables:
 | `PORT` | Server port (default: 3000) |
 | `BUNBASE_ADMIN_EMAIL` | Email for the admin account created on first startup (production only) |
 | `BUNBASE_ADMIN_PASSWORD` | Password for the admin account created on first startup (production only) |
+| `BUNBASE_SERVICE_KEY` | Service key for server-to-server admin access. Overrides auto-generated key. |
 
 > **Note:** `trustedProxies` is a code-level config option, not an environment variable. Set it in your `defineConfig()` call.
 
@@ -347,5 +361,6 @@ Bun automatically loads `.env` files — no dotenv needed.
 ## Next steps
 
 - [API Keys](/api/api-keys/) — user-generated bearer tokens
+- [Service Key](/api/service-key/) — server-to-server admin access
 - [Extending](/extending/) — add custom REST routes
 - [Deployment](/deployment/) — production checklist

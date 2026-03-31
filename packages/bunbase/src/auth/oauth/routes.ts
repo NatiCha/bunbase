@@ -117,7 +117,7 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
 
     const baseCallbackUrl =
       oauthConfig.callbackBaseUrl ??
-      (isDev ? "http://localhost:3001" : oauthConfig.redirectUrl ?? "");
+      (isDev ? "http://localhost:3001" : (oauthConfig.redirectUrl ?? ""));
 
     const redirectUri = `${baseCallbackUrl}/auth/oauth/${providerName}/callback`;
 

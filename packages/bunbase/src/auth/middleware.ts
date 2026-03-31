@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { and, eq, isNull, lt, or } from "drizzle-orm";
 import type { AuthUser } from "../api/types.ts";
 import type { AnyDb } from "../core/db-types.ts";
@@ -34,6 +35,22 @@ export function extractBearerToken(req: Request): string | null {
 export function isBearerOnly(req: Request): boolean {
   return extractBearerToken(req) !== null && extractSessionId(req) === null;
 }
+
+/** Check if a bearer token is a valid service key using constant-time comparison. */
+export function isServiceKey(bearerToken: string, serviceKey: string): boolean {
+  if (!bearerToken.startsWith("bb_sk_")) return false;
+  const a = Buffer.from(bearerToken);
+  const b = Buffer.from(serviceKey);
+  if (a.byteLength !== b.byteLength) return false;
+  return timingSafeEqual(a, b);
+}
+
+/** Synthetic AuthUser returned for service key authentication. */
+export const SERVICE_KEY_USER: AuthUser = {
+  id: "__service__",
+  email: "",
+  role: "admin",
+} as AuthUser;
 
 export async function getApiKeyUser(
   db: AnyDb,
@@ -107,7 +124,9 @@ function isMfaPendingAllowed(pathname: string): boolean {
 }
 
 /**
- * Resolve authenticated user from session cookie first, then bearer API key.
+ * Resolve authenticated user from service key, session cookie, or bearer API key.
+ *
+ * Priority: service key > session cookie > JWT > user API key.
  *
  * When a session has `mfa_verified === 0` (password verified but MFA pending),
  * returns `null` for all routes except `/auth/mfa/*` and `/auth/logout`.
@@ -117,7 +136,16 @@ export async function extractAuth(
   db: AnyDb,
   internalSchema: InternalSchema,
   usersTable: any,
+  serviceKey?: string,
 ): Promise<AuthUser | null> {
+  // Extract bearer token once — reused for service key, JWT, and API key checks
+  const bearerToken = extractBearerToken(req);
+
+  // Service key — highest priority, bypasses all other auth
+  if (bearerToken && serviceKey && isServiceKey(bearerToken, serviceKey)) {
+    return SERVICE_KEY_USER;
+  }
+
   const sessionId = extractSessionId(req);
 
   // Try session cookie first — valid cookie always wins
@@ -154,7 +182,6 @@ export async function extractAuth(
   }
 
   // Fall back to bearer token (no cookie, or cookie was invalid/expired)
-  const bearerToken = extractBearerToken(req);
   if (bearerToken) {
     // Check if it's a JWT (has 3 dot-separated parts)
     if (bearerToken.split(".").length === 3) {

@@ -1,3 +1,4 @@
+import { readFileSync, writeFileSync } from "node:fs";
 import type { AnyRelations } from "drizzle-orm/relations";
 
 const adminHTMLPath = new URL("../../dist/admin/index.html", import.meta.url);
@@ -134,6 +135,37 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
   }
 
   const config = resolveConfig(options.config);
+
+  // Resolve service key: config/env → persisted file → auto-generate
+  if (!config.serviceKey) {
+    const keyFilePath = ".bunbase-service-key";
+    try {
+      const content = readFileSync(keyFilePath, "utf-8").trim();
+      if (content.startsWith("bb_sk_") && content.length === 37) {
+        config.serviceKey = content;
+      }
+    } catch {
+      // File doesn't exist or isn't readable — will generate below
+    }
+
+    if (!config.serviceKey) {
+      const randomBytes = new Uint8Array(16);
+      crypto.getRandomValues(randomBytes);
+      const hex = Array.from(randomBytes)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+      config.serviceKey = `bb_sk_${hex}`;
+      try {
+        writeFileSync(keyFilePath, config.serviceKey);
+      } catch (err) {
+        console.warn(
+          `  \x1b[33m[BunBase]\x1b[0m Warning: Could not persist service key to ${keyFilePath}:`,
+          err,
+        );
+      }
+    }
+  }
+
   const { db, dialect, adapter } = createDatabase(config, options.schema, options.relations);
   const internalSchema = getInternalSchema(dialect);
 
@@ -172,7 +204,13 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
 
   // Auth extractor with admin impersonation support
   const extractAuth = async (req: Request): Promise<AuthUser | null> => {
-    const realUser = await extractAuthFromReq(req, db, internalSchema, usersTable);
+    const realUser = await extractAuthFromReq(
+      req,
+      db,
+      internalSchema,
+      usersTable,
+      config.serviceKey,
+    );
 
     // Admin impersonation — only honoured when caller is a verified admin
     const impersonateId = req.headers.get("x-impersonate-user");
@@ -536,9 +574,13 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
       // WebSocket upgrade for /realtime — must use the original req, not a clone,
       // because srv.upgrade() requires the native Bun request handle.
       if (pathname === "/realtime" && config.realtime.enabled && realtimeManager) {
-        const auth = await extractAuthFromReq(req, db, internalSchema, usersTable).catch(
-          () => null,
-        );
+        const auth = await extractAuthFromReq(
+          req,
+          db,
+          internalSchema,
+          usersTable,
+          config.serviceKey,
+        ).catch(() => null);
         const upgraded = srv.upgrade(req, {
           data: {
             auth,
@@ -591,9 +633,13 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
           usersTable,
         );
         const durationMs = Date.now() - start;
-        const user = await extractAuthFromReq(req, db, internalSchema, usersTable).catch(
-          () => null,
-        );
+        const user = await extractAuthFromReq(
+          req,
+          db,
+          internalSchema,
+          usersTable,
+          config.serviceKey,
+        ).catch(() => null);
         await pushRequestLog(db, internalSchema, {
           id: Bun.randomUUIDv7(),
           method: req.method,
@@ -706,6 +752,10 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     if (options.mailer) {
       console.log("  Email: mailer configured");
     }
+    console.log(
+      `\n  \x1b[33m[BunBase]\x1b[0m Service key: \x1b[1m${config.serviceKey}\x1b[0m` +
+        `\n  \x1b[2mUse as Bearer token for server-to-server admin access. Keep this secret.\x1b[0m\n`,
+    );
 
     // Wrap server.stop() so callers who hold the Bun server reference also stop the scheduler
     if (scheduler) {

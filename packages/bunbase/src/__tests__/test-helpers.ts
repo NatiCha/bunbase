@@ -44,7 +44,13 @@ export function makeResolvedConfig(overrides: DeepPartialResolvedConfig = {}): R
         totp: { enabled: false, issuer: "BunBase", window: 1 },
         magicLink: { enabled: false, ttl: 600 },
         otp: { enabled: false, ttl: 300, length: 6 },
-        passkeys: { enabled: false, rpName: undefined, rpId: undefined, origin: undefined, authenticatorAttachment: undefined },
+        passkeys: {
+          enabled: false,
+          rpName: undefined,
+          rpId: undefined,
+          origin: undefined,
+          authenticatorAttachment: undefined,
+        },
         backupCodes: { count: 10, length: 8 },
         smsOtp: { enabled: false, ttl: 300, length: 6 },
       },
@@ -93,6 +99,7 @@ export function makeResolvedConfig(overrides: DeepPartialResolvedConfig = {}): R
     trustedProxies: overrides.trustedProxies ?? [],
     frontend: overrides.frontend,
     cookieDomain: overrides.cookieDomain,
+    serviceKey: (overrides as any).serviceKey ?? "",
   };
 }
 

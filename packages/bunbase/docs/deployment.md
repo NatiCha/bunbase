@@ -47,6 +47,9 @@ PORT=3000
 # Admin bootstrap (see Admin account below)
 BUNBASE_ADMIN_EMAIL=admin@your-app.com
 BUNBASE_ADMIN_PASSWORD=change-me
+
+# Service key for server-to-server admin access (auto-generated if omitted)
+BUNBASE_SERVICE_KEY=bb_sk_...
 ```
 
 Bun loads `.env` files automatically. For production, set environment variables through your hosting platform.
@@ -73,6 +76,9 @@ PORT=3000
 # Admin bootstrap credentials (used once if no admin exists)
 BUNBASE_ADMIN_EMAIL=admin@your-app.com
 BUNBASE_ADMIN_PASSWORD=a-strong-password
+
+# Service key (auto-generated if omitted, but set explicitly in production)
+BUNBASE_SERVICE_KEY=bb_sk_...
 
 # OAuth (if using)
 GOOGLE_CLIENT_ID=...
@@ -166,6 +172,8 @@ docker run -p 3000:3000 -v my-data:/app/data -e NODE_ENV=production my-app
 - [ ] Define access rules for every table (BunBase warns at startup for any unprotected table)
 - [ ] Set `trustedProxies` in `defineConfig` if running behind a reverse proxy (nginx, Cloudflare, etc.)
 - [ ] Set `cookieDomain` in `defineConfig` if your API and frontend are on different subdomains (e.g. `api.example.com` / `app.example.com`)
+- [ ] Set `BUNBASE_SERVICE_KEY` if using server-to-server auth (or let BunBase auto-generate and save the printed key)
+- [ ] Ensure `.bunbase-service-key` is in `.gitignore` if using auto-generated keys
 - [ ] Use S3 storage or mount a persistent volume for local storage
 - [ ] Back up the SQLite database
 - [ ] Use HTTPS (via reverse proxy or hosting platform)

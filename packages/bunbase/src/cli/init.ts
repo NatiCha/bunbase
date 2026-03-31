@@ -53,6 +53,7 @@ data/
 .env.local
 .DS_Store
 *.tsbuildinfo
+.bunbase-service-key
 `,
 };
 

@@ -13,7 +13,7 @@ export { validateAndConsumeInvite } from "./auth/invitations.ts";
 export type { JwtPayload } from "./auth/jwt/core.ts";
 export { isJwtToken, revokeJwt, signJwt, verifyJwt } from "./auth/jwt/core.ts";
 export { generateBackupCodes, getMfaStatus } from "./auth/mfa/index.ts";
-export { isBearerOnly } from "./auth/middleware.ts";
+export { isBearerOnly, isServiceKey, SERVICE_KEY_USER } from "./auth/middleware.ts";
 export { createGenericOAuthProvider as defineOAuthProvider } from "./auth/oauth/generic.ts";
 export type {
   CustomOAuthProviderConfig,

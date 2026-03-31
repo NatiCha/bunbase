@@ -78,7 +78,7 @@ IMPORTANT: Before implementing or modifying a BunBase feature, read the relevant
 ```
 [BunBase Docs]|root: ./packages/bunbase/docs
 |:{index.md,quickstart.md,schema.md,rules.md,hooks.md,client.md,configuration.md,deployment.md,extending.md,jobs.md,realtime.md,testing.md}
-|api:{auth.md,crud.md,files.md,api-keys.md,mfa.md,passwordless.md,passkeys.md,username-login.md,sessions.md,account-deletion.md,guest-auth.md,sms-otp.md,invitations.md,organizations.md,jwt.md}
+|api:{auth.md,crud.md,files.md,api-keys.md,service-key.md,mfa.md,passwordless.md,passkeys.md,username-login.md,sessions.md,account-deletion.md,guest-auth.md,sms-otp.md,invitations.md,organizations.md,jwt.md}
 ```
 
 ---

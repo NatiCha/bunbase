@@ -36,6 +36,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # BunBase data (any workspace)
 data/
 drizzle/
+.bunbase-service-key
 
 # Private product docs
 product/
