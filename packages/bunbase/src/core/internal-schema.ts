@@ -284,6 +284,165 @@ export const mysqlPasskeyCredentials = mysqlTable("_passkey_credentials", {
   lastUsedAt: mysqlText("last_used_at"),
 });
 
+// ─── Invites: SQLite ───
+
+export const sqliteInvites = sqliteTable("_invites", {
+  id: sqliteText("id").primaryKey(),
+  email: sqliteText("email"),
+  tokenHash: sqliteText("token_hash").notNull(),
+  role: sqliteText("role").notNull().default("user"),
+  invitedBy: sqliteText("invited_by").notNull(),
+  maxUses: sqliteInteger("max_uses").default(1),
+  useCount: sqliteInteger("use_count").notNull().default(0),
+  expiresAt: sqliteInteger("expires_at").notNull(),
+  createdAt: sqliteText("created_at").notNull(),
+});
+
+// ─── Invites: Postgres ───
+
+export const pgInvites = pgTable("_invites", {
+  id: pgText("id").primaryKey(),
+  email: pgText("email"),
+  tokenHash: pgText("token_hash").notNull(),
+  role: pgText("role").notNull().default("user"),
+  invitedBy: pgText("invited_by").notNull(),
+  maxUses: pgInteger("max_uses").default(1),
+  useCount: pgInteger("use_count").notNull().default(0),
+  expiresAt: pgBigint("expires_at", { mode: "number" }).notNull(),
+  createdAt: pgText("created_at").notNull(),
+});
+
+// ─── Invites: MySQL ───
+
+export const mysqlInvites = mysqlTable("_invites", {
+  id: mysqlText("id").primaryKey(),
+  email: mysqlText("email"),
+  tokenHash: mysqlText("token_hash").notNull(),
+  role: mysqlText("role").notNull().default("user"),
+  invitedBy: mysqlText("invited_by").notNull(),
+  maxUses: mysqlInt("max_uses").default(1),
+  useCount: mysqlInt("use_count").notNull().default(0),
+  expiresAt: mysqlBigint("expires_at", { mode: "number" }).notNull(),
+  createdAt: mysqlText("created_at").notNull(),
+});
+
+// ─── Organizations: SQLite ───
+
+export const sqliteOrganizations = sqliteTable("_organizations", {
+  id: sqliteText("id").primaryKey(),
+  name: sqliteText("name").notNull(),
+  slug: sqliteText("slug").notNull().unique(),
+  ownerId: sqliteText("owner_id").notNull(),
+  createdAt: sqliteText("created_at").notNull(),
+  updatedAt: sqliteText("updated_at").notNull(),
+});
+
+export const sqliteOrganizationMembers = sqliteTable("_organization_members", {
+  id: sqliteText("id").primaryKey(),
+  orgId: sqliteText("org_id").notNull(),
+  userId: sqliteText("user_id").notNull(),
+  role: sqliteText("role").notNull(),
+  createdAt: sqliteText("created_at").notNull(),
+});
+
+export const sqliteOrganizationInvites = sqliteTable("_organization_invites", {
+  id: sqliteText("id").primaryKey(),
+  orgId: sqliteText("org_id").notNull(),
+  email: sqliteText("email").notNull(),
+  role: sqliteText("role").notNull().default("member"),
+  tokenHash: sqliteText("token_hash").notNull(),
+  invitedBy: sqliteText("invited_by").notNull(),
+  expiresAt: sqliteInteger("expires_at").notNull(),
+  createdAt: sqliteText("created_at").notNull(),
+});
+
+// ─── Organizations: Postgres ───
+
+export const pgOrganizations = pgTable("_organizations", {
+  id: pgText("id").primaryKey(),
+  name: pgText("name").notNull(),
+  slug: pgText("slug").notNull().unique(),
+  ownerId: pgText("owner_id").notNull(),
+  createdAt: pgText("created_at").notNull(),
+  updatedAt: pgText("updated_at").notNull(),
+});
+
+export const pgOrganizationMembers = pgTable("_organization_members", {
+  id: pgText("id").primaryKey(),
+  orgId: pgText("org_id").notNull(),
+  userId: pgText("user_id").notNull(),
+  role: pgText("role").notNull(),
+  createdAt: pgText("created_at").notNull(),
+});
+
+export const pgOrganizationInvites = pgTable("_organization_invites", {
+  id: pgText("id").primaryKey(),
+  orgId: pgText("org_id").notNull(),
+  email: pgText("email").notNull(),
+  role: pgText("role").notNull().default("member"),
+  tokenHash: pgText("token_hash").notNull(),
+  invitedBy: pgText("invited_by").notNull(),
+  expiresAt: pgBigint("expires_at", { mode: "number" }).notNull(),
+  createdAt: pgText("created_at").notNull(),
+});
+
+// ─── Organizations: MySQL ───
+
+export const mysqlOrganizations = mysqlTable("_organizations", {
+  id: mysqlText("id").primaryKey(),
+  name: mysqlText("name").notNull(),
+  slug: mysqlText("slug").notNull(),
+  ownerId: mysqlText("owner_id").notNull(),
+  createdAt: mysqlText("created_at").notNull(),
+  updatedAt: mysqlText("updated_at").notNull(),
+});
+
+export const mysqlOrganizationMembers = mysqlTable("_organization_members", {
+  id: mysqlText("id").primaryKey(),
+  orgId: mysqlText("org_id").notNull(),
+  userId: mysqlText("user_id").notNull(),
+  role: mysqlText("role").notNull(),
+  createdAt: mysqlText("created_at").notNull(),
+});
+
+export const mysqlOrganizationInvites = mysqlTable("_organization_invites", {
+  id: mysqlText("id").primaryKey(),
+  orgId: mysqlText("org_id").notNull(),
+  email: mysqlText("email").notNull(),
+  role: mysqlText("role").notNull().default("member"),
+  tokenHash: mysqlText("token_hash").notNull(),
+  invitedBy: mysqlText("invited_by").notNull(),
+  expiresAt: mysqlBigint("expires_at", { mode: "number" }).notNull(),
+  createdAt: mysqlText("created_at").notNull(),
+});
+
+// ─── JWT Revocations: SQLite ───
+
+export const sqliteJwtRevocations = sqliteTable("_jwt_revocations", {
+  id: sqliteText("id").primaryKey(),
+  jti: sqliteText("jti").notNull().unique(),
+  expiresAt: sqliteInteger("expires_at").notNull(),
+  createdAt: sqliteText("created_at").notNull(),
+});
+
+// ─── JWT Revocations: Postgres ───
+
+export const pgJwtRevocations = pgTable("_jwt_revocations", {
+  id: pgText("id").primaryKey(),
+  jti: pgText("jti").notNull().unique(),
+  expiresAt: pgBigint("expires_at", { mode: "number" }).notNull(),
+  createdAt: pgText("created_at").notNull(),
+});
+
+// ─── JWT Revocations: MySQL ───
+
+export const mysqlJwtRevocations = mysqlTable("_jwt_revocations", {
+  id: mysqlText("id").primaryKey(),
+  jti: mysqlText("jti").notNull(),
+  expiresAt: mysqlBigint("expires_at", { mode: "number" }).notNull(),
+  createdAt: mysqlText("created_at").notNull(),
+});
+
 // ─── Dialect-aware getter ───
 
 export interface InternalSchema {
@@ -305,6 +464,20 @@ export interface InternalSchema {
     | typeof sqlitePasskeyCredentials
     | typeof pgPasskeyCredentials
     | typeof mysqlPasskeyCredentials;
+  invites: typeof sqliteInvites | typeof pgInvites | typeof mysqlInvites;
+  organizations: typeof sqliteOrganizations | typeof pgOrganizations | typeof mysqlOrganizations;
+  organizationMembers:
+    | typeof sqliteOrganizationMembers
+    | typeof pgOrganizationMembers
+    | typeof mysqlOrganizationMembers;
+  organizationInvites:
+    | typeof sqliteOrganizationInvites
+    | typeof pgOrganizationInvites
+    | typeof mysqlOrganizationInvites;
+  jwtRevocations:
+    | typeof sqliteJwtRevocations
+    | typeof pgJwtRevocations
+    | typeof mysqlJwtRevocations;
 }
 
 export function getInternalSchema(dialect: Dialect): InternalSchema {
@@ -319,6 +492,11 @@ export function getInternalSchema(dialect: Dialect): InternalSchema {
       mfaTotp: pgMfaTotp,
       mfaBackupCodes: pgMfaBackupCodes,
       passkeyCredentials: pgPasskeyCredentials,
+      invites: pgInvites,
+      organizations: pgOrganizations,
+      organizationMembers: pgOrganizationMembers,
+      organizationInvites: pgOrganizationInvites,
+      jwtRevocations: pgJwtRevocations,
     };
   }
   if (dialect === "mysql") {
@@ -332,6 +510,11 @@ export function getInternalSchema(dialect: Dialect): InternalSchema {
       mfaTotp: mysqlMfaTotp,
       mfaBackupCodes: mysqlMfaBackupCodes,
       passkeyCredentials: mysqlPasskeyCredentials,
+      invites: mysqlInvites,
+      organizations: mysqlOrganizations,
+      organizationMembers: mysqlOrganizationMembers,
+      organizationInvites: mysqlOrganizationInvites,
+      jwtRevocations: mysqlJwtRevocations,
     };
   }
   return {
@@ -344,5 +527,10 @@ export function getInternalSchema(dialect: Dialect): InternalSchema {
     mfaTotp: sqliteMfaTotp,
     mfaBackupCodes: sqliteMfaBackupCodes,
     passkeyCredentials: sqlitePasskeyCredentials,
+    invites: sqliteInvites,
+    organizations: sqliteOrganizations,
+    organizationMembers: sqliteOrganizationMembers,
+    organizationInvites: sqliteOrganizationInvites,
+    jwtRevocations: sqliteJwtRevocations,
   };
 }

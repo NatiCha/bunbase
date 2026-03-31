@@ -245,7 +245,7 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
       return res.json() as Promise<{ user: Record<string, unknown> }>;
     },
 
-    async login(data: { email: string; password: string }) {
+    async login(data: { email?: string; username?: string; identifier?: string; password: string }) {
       const res = await fetch(`${baseUrl}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -489,6 +489,263 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
         });
         return res.json() as Promise<{ deleted: boolean }>;
       },
+    },
+
+    // ─── Sessions ───
+    sessions: {
+      async list() {
+        const res = await fetch(`${baseUrl}/auth/sessions`, {
+          credentials,
+          headers: authHeaders(),
+        });
+        return res.json() as Promise<{
+          sessions: Array<{
+            id: string;
+            createdAt: string;
+            expiresAt: number;
+            userAgent: string | null;
+            ipAddress: string | null;
+            current: boolean;
+          }>;
+        }>;
+      },
+      async revoke(id: string) {
+        const res = await fetch(`${baseUrl}/auth/sessions/${id}`, {
+          method: "DELETE",
+          headers: apiKey
+            ? { Authorization: `Bearer ${apiKey}` }
+            : { "X-CSRF-Token": getCsrfToken() },
+          credentials,
+        });
+        return res.json() as Promise<{ revoked: boolean }>;
+      },
+      async revokeOthers() {
+        const res = await fetch(`${baseUrl}/auth/sessions/revoke-others`, {
+          method: "POST",
+          headers: mutationHeaders(),
+          credentials,
+        });
+        return res.json() as Promise<{ revokedCount: number }>;
+      },
+    },
+
+    // ─── Account Deletion ───
+    async deleteAccount(password?: string) {
+      const res = await fetch(`${baseUrl}/auth/delete-account`, {
+        method: "POST",
+        headers: mutationHeaders(),
+        credentials,
+        body: password ? JSON.stringify({ password }) : "{}",
+      });
+      return res.json() as Promise<{ deleted: boolean }>;
+    },
+
+    // ─── Guest Auth ───
+    guest: {
+      async create() {
+        const res = await fetch(`${baseUrl}/auth/guest`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+        });
+        return res.json() as Promise<{ guestId: string }>;
+      },
+      async convert(data: { email: string; password: string }) {
+        const res = await fetch(`${baseUrl}/auth/guest/convert`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(data),
+        });
+        return res.json() as Promise<{ user: Record<string, unknown> }>;
+      },
+    },
+
+    // ─── SMS OTP ───
+    smsOtp: {
+      async request(phone: string) {
+        const res = await fetch(`${baseUrl}/auth/sms-otp/request`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone }),
+        });
+        return res.json();
+      },
+      async verify(phone: string, code: string) {
+        const res = await fetch(`${baseUrl}/auth/sms-otp/verify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ phone, code }),
+        });
+        return res.json() as Promise<{ user: Record<string, unknown> }>;
+      },
+    },
+
+    // ─── Invitations ───
+    invites: {
+      async create(data: { email?: string; role?: string; maxUses?: number }) {
+        const res = await fetch(`${baseUrl}/auth/invites`, {
+          method: "POST",
+          headers: mutationHeaders(),
+          credentials,
+          body: JSON.stringify(data),
+        });
+        return res.json() as Promise<{ invite: Record<string, unknown> }>;
+      },
+      async list() {
+        const res = await fetch(`${baseUrl}/auth/invites`, {
+          credentials,
+          headers: authHeaders(),
+        });
+        return res.json() as Promise<{ invites: Array<Record<string, unknown>> }>;
+      },
+      async delete(id: string) {
+        const res = await fetch(`${baseUrl}/auth/invites/${id}`, {
+          method: "DELETE",
+          headers: apiKey
+            ? { Authorization: `Bearer ${apiKey}` }
+            : { "X-CSRF-Token": getCsrfToken() },
+          credentials,
+        });
+        return res.json() as Promise<{ deleted: boolean }>;
+      },
+      async validate(token: string) {
+        const res = await fetch(`${baseUrl}/auth/invites/validate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        });
+        return res.json() as Promise<{ valid: boolean; email?: string }>;
+      },
+    },
+
+    // ─── Organizations ───
+    organizations: {
+      async create(data: { name: string; slug?: string }) {
+        const res = await fetch(`${baseUrl}/auth/organizations`, {
+          method: "POST",
+          headers: mutationHeaders(),
+          credentials,
+          body: JSON.stringify(data),
+        });
+        return res.json() as Promise<{ organization: Record<string, unknown> }>;
+      },
+      async list() {
+        const res = await fetch(`${baseUrl}/auth/organizations`, {
+          credentials,
+          headers: authHeaders(),
+        });
+        return res.json() as Promise<{ organizations: Array<Record<string, unknown>> }>;
+      },
+      async get(id: string) {
+        const res = await fetch(`${baseUrl}/auth/organizations/${id}`, {
+          credentials,
+          headers: authHeaders(),
+        });
+        return res.json() as Promise<{
+          organization: Record<string, unknown>;
+          members: Array<Record<string, unknown>>;
+        }>;
+      },
+      async update(id: string, data: { name: string }) {
+        const res = await fetch(`${baseUrl}/auth/organizations/${id}`, {
+          method: "PATCH",
+          headers: mutationHeaders(),
+          credentials,
+          body: JSON.stringify(data),
+        });
+        return res.json() as Promise<{ organization: Record<string, unknown> }>;
+      },
+      async delete(id: string) {
+        const res = await fetch(`${baseUrl}/auth/organizations/${id}`, {
+          method: "DELETE",
+          headers: apiKey
+            ? { Authorization: `Bearer ${apiKey}` }
+            : { "X-CSRF-Token": getCsrfToken() },
+          credentials,
+        });
+        return res.json() as Promise<{ deleted: boolean }>;
+      },
+      async listMembers(orgId: string) {
+        const res = await fetch(`${baseUrl}/auth/organizations/${orgId}/members`, {
+          credentials,
+          headers: authHeaders(),
+        });
+        return res.json() as Promise<{ members: Array<Record<string, unknown>> }>;
+      },
+      async updateMember(orgId: string, userId: string, data: { role: string }) {
+        const res = await fetch(`${baseUrl}/auth/organizations/${orgId}/members/${userId}`, {
+          method: "PATCH",
+          headers: mutationHeaders(),
+          credentials,
+          body: JSON.stringify(data),
+        });
+        return res.json() as Promise<{ member: Record<string, unknown> }>;
+      },
+      async removeMember(orgId: string, userId: string) {
+        const res = await fetch(`${baseUrl}/auth/organizations/${orgId}/members/${userId}`, {
+          method: "DELETE",
+          headers: apiKey
+            ? { Authorization: `Bearer ${apiKey}` }
+            : { "X-CSRF-Token": getCsrfToken() },
+          credentials,
+        });
+        return res.json() as Promise<{ removed: boolean }>;
+      },
+      async leave(orgId: string) {
+        const res = await fetch(`${baseUrl}/auth/organizations/${orgId}/leave`, {
+          method: "POST",
+          headers: mutationHeaders(),
+          credentials,
+        });
+        return res.json() as Promise<{ left: boolean }>;
+      },
+      async invite(orgId: string, data: { email: string; role?: string }) {
+        const res = await fetch(`${baseUrl}/auth/organizations/${orgId}/invites`, {
+          method: "POST",
+          headers: mutationHeaders(),
+          credentials,
+          body: JSON.stringify(data),
+        });
+        return res.json() as Promise<{ invite: Record<string, unknown> }>;
+      },
+      async listInvites(orgId: string) {
+        const res = await fetch(`${baseUrl}/auth/organizations/${orgId}/invites`, {
+          credentials,
+          headers: authHeaders(),
+        });
+        return res.json() as Promise<{ invites: Array<Record<string, unknown>> }>;
+      },
+      async deleteInvite(orgId: string, inviteId: string) {
+        const res = await fetch(`${baseUrl}/auth/organizations/${orgId}/invites/${inviteId}`, {
+          method: "DELETE",
+          headers: apiKey
+            ? { Authorization: `Bearer ${apiKey}` }
+            : { "X-CSRF-Token": getCsrfToken() },
+          credentials,
+        });
+        return res.json() as Promise<{ deleted: boolean }>;
+      },
+      async acceptInvite(token: string) {
+        const res = await fetch(`${baseUrl}/auth/organization-invites/accept`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ token }),
+        });
+        return res.json() as Promise<{ organization: Record<string, unknown> }>;
+      },
+    },
+
+    // ─── JWT ───
+    async refresh(refreshToken: string) {
+      const res = await fetch(`${baseUrl}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+      return res.json() as Promise<{ accessToken: string; expiresIn: number }>;
     },
 
     apiKeys: {

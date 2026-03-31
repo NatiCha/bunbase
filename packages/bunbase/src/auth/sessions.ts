@@ -4,20 +4,34 @@ import type { InternalSchema } from "../core/internal-schema.ts";
 
 let cleanupCounter = 0;
 
+export interface CreateSessionOptions {
+  mfaVerified?: number | null;
+  userAgent?: string;
+  ipAddress?: string;
+  isGuest?: number;
+}
+
 export async function createSession(
   db: AnyDb,
   schema: InternalSchema,
   userId: string,
   ttlSeconds: number = 30 * 24 * 60 * 60,
-  mfaVerified?: number | null,
+  mfaVerifiedOrOpts?: number | null | CreateSessionOptions,
 ): Promise<string> {
   const id = Bun.randomUUIDv7();
   const expiresAt = Math.floor(Date.now() / 1000) + ttlSeconds;
   const createdAt = new Date().toISOString();
 
   const values: Record<string, unknown> = { id, userId, expiresAt, createdAt };
-  if (mfaVerified !== undefined) {
-    values.mfaVerified = mfaVerified;
+
+  if (typeof mfaVerifiedOrOpts === "object" && mfaVerifiedOrOpts !== null) {
+    const opts = mfaVerifiedOrOpts;
+    if (opts.mfaVerified !== undefined) values.mfaVerified = opts.mfaVerified;
+    if (opts.userAgent) values.userAgent = opts.userAgent;
+    if (opts.ipAddress) values.ipAddress = opts.ipAddress;
+    if (opts.isGuest !== undefined) values.isGuest = opts.isGuest;
+  } else if (mfaVerifiedOrOpts !== undefined) {
+    values.mfaVerified = mfaVerifiedOrOpts;
   }
 
   await (db as any).insert(schema.sessions).values(values);
@@ -31,6 +45,9 @@ export interface SessionRow {
   expires_at: number;
   mfa_verified: number | null;
   created_at: string;
+  user_agent: string | null;
+  ip_address: string | null;
+  is_guest: number | null;
 }
 
 export async function getSession(
@@ -51,6 +68,9 @@ export async function getSession(
     expires_at: row.expiresAt,
     mfa_verified: row.mfaVerified ?? row.mfa_verified ?? null,
     created_at: row.createdAt,
+    user_agent: row.userAgent ?? row.user_agent ?? null,
+    ip_address: row.ipAddress ?? row.ip_address ?? null,
+    is_guest: row.isGuest ?? row.is_guest ?? null,
   };
 
   const now = Math.floor(Date.now() / 1000);

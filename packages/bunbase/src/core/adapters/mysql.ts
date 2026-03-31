@@ -123,11 +123,19 @@ export class MysqlAdapter implements DatabaseAdapter {
       )
     `);
 
-    // Add mfa_verified column to sessions if missing (migration for existing databases)
-    try {
-      await this.sql.unsafe("ALTER TABLE `_sessions` ADD COLUMN `mfa_verified` INTEGER");
-    } catch {
-      // Column already exists
+    // Migration: add columns to _sessions if missing
+    const sessionCols = [
+      "ALTER TABLE `_sessions` ADD COLUMN `mfa_verified` INTEGER",
+      "ALTER TABLE `_sessions` ADD COLUMN `user_agent` TEXT",
+      "ALTER TABLE `_sessions` ADD COLUMN `ip_address` TEXT",
+      "ALTER TABLE `_sessions` ADD COLUMN `is_guest` INTEGER DEFAULT 0",
+    ];
+    for (const stmt of sessionCols) {
+      try {
+        await this.sql.unsafe(stmt);
+      } catch {
+        // Column already exists
+      }
     }
 
     await this.sql.unsafe(`
@@ -169,6 +177,71 @@ export class MysqlAdapter implements DatabaseAdapter {
       )
     `);
 
+    await this.sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS \`_invites\` (
+        \`id\` TEXT NOT NULL,
+        \`email\` TEXT,
+        \`token_hash\` TEXT NOT NULL,
+        \`role\` TEXT NOT NULL DEFAULT 'user',
+        \`invited_by\` TEXT NOT NULL,
+        \`max_uses\` INTEGER DEFAULT 1,
+        \`use_count\` INTEGER NOT NULL DEFAULT 0,
+        \`expires_at\` BIGINT NOT NULL,
+        \`created_at\` TEXT NOT NULL DEFAULT (NOW()),
+        PRIMARY KEY (\`id\`(191))
+      )
+    `);
+
+    await this.sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS \`_organizations\` (
+        \`id\` TEXT NOT NULL,
+        \`name\` TEXT NOT NULL,
+        \`slug\` TEXT NOT NULL,
+        \`owner_id\` TEXT NOT NULL,
+        \`created_at\` TEXT NOT NULL DEFAULT (NOW()),
+        \`updated_at\` TEXT NOT NULL DEFAULT (NOW()),
+        PRIMARY KEY (\`id\`(191)),
+        UNIQUE KEY \`idx_org_slug\` (\`slug\`(191))
+      )
+    `);
+
+    await this.sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS \`_organization_members\` (
+        \`id\` TEXT NOT NULL,
+        \`org_id\` TEXT NOT NULL,
+        \`user_id\` TEXT NOT NULL,
+        \`role\` TEXT NOT NULL,
+        \`created_at\` TEXT NOT NULL DEFAULT (NOW()),
+        PRIMARY KEY (\`id\`(191)),
+        UNIQUE KEY \`idx_org_members_unique\` (\`org_id\`(191), \`user_id\`(191))
+      )
+    `);
+
+    await this.sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS \`_organization_invites\` (
+        \`id\` TEXT NOT NULL,
+        \`org_id\` TEXT NOT NULL,
+        \`email\` TEXT NOT NULL,
+        \`role\` TEXT NOT NULL DEFAULT 'member',
+        \`token_hash\` TEXT NOT NULL,
+        \`invited_by\` TEXT NOT NULL,
+        \`expires_at\` BIGINT NOT NULL,
+        \`created_at\` TEXT NOT NULL DEFAULT (NOW()),
+        PRIMARY KEY (\`id\`(191))
+      )
+    `);
+
+    await this.sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS \`_jwt_revocations\` (
+        \`id\` TEXT NOT NULL,
+        \`jti\` TEXT NOT NULL,
+        \`expires_at\` BIGINT NOT NULL,
+        \`created_at\` TEXT NOT NULL DEFAULT (NOW()),
+        PRIMARY KEY (\`id\`(191)),
+        UNIQUE KEY \`idx_jwt_jti\` (\`jti\`(191))
+      )
+    `);
+
     // Indexes — MySQL uses CREATE INDEX IF NOT EXISTS syntax differently; use DROP+CREATE or just swallow errors
     const idxStmts = [
       "CREATE INDEX idx_sessions_user_id ON `_sessions`(`user_id`(191))",
@@ -182,6 +255,11 @@ export class MysqlAdapter implements DatabaseAdapter {
       "CREATE UNIQUE INDEX idx_api_keys_hash ON `_api_keys`(`key_hash`)",
       "CREATE INDEX idx_mfa_backup_codes_user ON `_mfa_backup_codes`(`user_id`(191))",
       "CREATE INDEX idx_passkey_credentials_user ON `_passkey_credentials`(`user_id`(191))",
+      "CREATE INDEX idx_invites_token_hash ON `_invites`(`token_hash`(191))",
+      "CREATE INDEX idx_org_members_user ON `_organization_members`(`user_id`(191))",
+      "CREATE INDEX idx_org_members_org ON `_organization_members`(`org_id`(191))",
+      "CREATE INDEX idx_org_invites_org ON `_organization_invites`(`org_id`(191))",
+      "CREATE INDEX idx_jwt_revocations_expires ON `_jwt_revocations`(`expires_at`)",
     ];
     for (const stmt of idxStmts) {
       try {

@@ -118,10 +118,28 @@ export class PostgresAdapter implements DatabaseAdapter {
       )
     `;
 
-    // Add mfa_verified column to sessions if missing (migration for existing databases)
+    // Migration: add columns to _sessions if missing
     await this.sql`
       DO $$ BEGIN
         ALTER TABLE _sessions ADD COLUMN mfa_verified INTEGER;
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$
+    `;
+    await this.sql`
+      DO $$ BEGIN
+        ALTER TABLE _sessions ADD COLUMN user_agent TEXT;
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$
+    `;
+    await this.sql`
+      DO $$ BEGIN
+        ALTER TABLE _sessions ADD COLUMN ip_address TEXT;
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$
+    `;
+    await this.sql`
+      DO $$ BEGIN
+        ALTER TABLE _sessions ADD COLUMN is_guest INTEGER DEFAULT 0;
       EXCEPTION WHEN duplicate_column THEN NULL;
       END $$
     `;
@@ -161,6 +179,63 @@ export class PostgresAdapter implements DatabaseAdapter {
       )
     `;
 
+    await this.sql`
+      CREATE TABLE IF NOT EXISTS _invites (
+        id TEXT PRIMARY KEY,
+        email TEXT,
+        token_hash TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'user',
+        invited_by TEXT NOT NULL,
+        max_uses INTEGER DEFAULT 1,
+        use_count INTEGER NOT NULL DEFAULT 0,
+        expires_at BIGINT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
+      )
+    `;
+
+    await this.sql`
+      CREATE TABLE IF NOT EXISTS _organizations (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        slug TEXT NOT NULL UNIQUE,
+        owner_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (NOW()::TEXT),
+        updated_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
+      )
+    `;
+
+    await this.sql`
+      CREATE TABLE IF NOT EXISTS _organization_members (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
+      )
+    `;
+
+    await this.sql`
+      CREATE TABLE IF NOT EXISTS _organization_invites (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'member',
+        token_hash TEXT NOT NULL,
+        invited_by TEXT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
+      )
+    `;
+
+    await this.sql`
+      CREATE TABLE IF NOT EXISTS _jwt_revocations (
+        id TEXT PRIMARY KEY,
+        jti TEXT NOT NULL UNIQUE,
+        expires_at BIGINT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
+      )
+    `;
+
     // Indexes
     await this.sql`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON _sessions(user_id)`;
     await this.sql`CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON _sessions(expires_at)`;
@@ -181,6 +256,19 @@ export class PostgresAdapter implements DatabaseAdapter {
       .sql`CREATE INDEX IF NOT EXISTS idx_mfa_backup_codes_user ON _mfa_backup_codes(user_id)`;
     await this
       .sql`CREATE INDEX IF NOT EXISTS idx_passkey_credentials_user ON _passkey_credentials(user_id)`;
+
+    // Invite, org, JWT indexes
+    await this.sql`CREATE INDEX IF NOT EXISTS idx_invites_token_hash ON _invites(token_hash)`;
+    await this
+      .sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_org_members_unique ON _organization_members(org_id, user_id)`;
+    await this
+      .sql`CREATE INDEX IF NOT EXISTS idx_org_members_user ON _organization_members(user_id)`;
+    await this
+      .sql`CREATE INDEX IF NOT EXISTS idx_org_members_org ON _organization_members(org_id)`;
+    await this
+      .sql`CREATE INDEX IF NOT EXISTS idx_org_invites_org ON _organization_invites(org_id)`;
+    await this
+      .sql`CREATE INDEX IF NOT EXISTS idx_jwt_revocations_expires ON _jwt_revocations(expires_at)`;
   }
 
   async rawQuery<T = Record<string, unknown>>(

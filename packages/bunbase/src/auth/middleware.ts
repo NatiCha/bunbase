@@ -132,6 +132,12 @@ export async function extractAuth(
         }
       }
 
+      // Guest session — return synthetic user without DB lookup
+      if (session.is_guest === 1) {
+        const guestUuid = session.user_id.replace(/^guest:/, "");
+        return { id: session.user_id, email: "", role: "guest" } as AuthUser;
+      }
+
       const rows = await (db as any)
         .select()
         .from(usersTable)
@@ -148,9 +154,26 @@ export async function extractAuth(
   }
 
   // Fall back to bearer token (no cookie, or cookie was invalid/expired)
-  const apiKey = extractBearerToken(req);
-  if (apiKey) {
-    return getApiKeyUser(db, internalSchema, apiKey, usersTable);
+  const bearerToken = extractBearerToken(req);
+  if (bearerToken) {
+    // Check if it's a JWT (has 3 dot-separated parts)
+    if (bearerToken.split(".").length === 3) {
+      // Try JWT verification
+      try {
+        const { verifyJwt } = await import("./jwt/core.ts");
+        const jwtConfig = (globalThis as any).__bunbaseJwtConfig;
+        if (jwtConfig?.enabled && jwtConfig?.secret) {
+          const payload = await verifyJwt(bearerToken, jwtConfig.secret, db, internalSchema);
+          if (payload) {
+            return { id: payload.sub, email: payload.email, role: payload.role } as AuthUser;
+          }
+        }
+      } catch {
+        // Not a valid JWT, fall through to API key check
+      }
+    }
+
+    return getApiKeyUser(db, internalSchema, bearerToken, usersTable);
   }
 
   return null;

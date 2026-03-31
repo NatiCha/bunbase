@@ -75,11 +75,19 @@ export class SqliteAdapter implements DatabaseAdapter {
       )
     `);
 
-    // Add mfa_verified column to sessions if missing (migration for existing databases)
-    try {
-      this.sqlite.run("ALTER TABLE _sessions ADD COLUMN mfa_verified INTEGER");
-    } catch {
-      // Column already exists
+    // Migration: add columns to _sessions if missing
+    const sessionMigrations = [
+      "ALTER TABLE _sessions ADD COLUMN mfa_verified INTEGER",
+      "ALTER TABLE _sessions ADD COLUMN user_agent TEXT",
+      "ALTER TABLE _sessions ADD COLUMN ip_address TEXT",
+      "ALTER TABLE _sessions ADD COLUMN is_guest INTEGER DEFAULT 0",
+    ];
+    for (const stmt of sessionMigrations) {
+      try {
+        this.sqlite.run(stmt);
+      } catch {
+        // Column already exists
+      }
     }
 
     this.sqlite.run(`
@@ -117,6 +125,63 @@ export class SqliteAdapter implements DatabaseAdapter {
       )
     `);
 
+    this.sqlite.run(`
+      CREATE TABLE IF NOT EXISTS _invites (
+        id TEXT PRIMARY KEY,
+        email TEXT,
+        token_hash TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'user',
+        invited_by TEXT NOT NULL,
+        max_uses INTEGER DEFAULT 1,
+        use_count INTEGER NOT NULL DEFAULT 0,
+        expires_at INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+
+    this.sqlite.run(`
+      CREATE TABLE IF NOT EXISTS _organizations (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        slug TEXT NOT NULL UNIQUE,
+        owner_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+
+    this.sqlite.run(`
+      CREATE TABLE IF NOT EXISTS _organization_members (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+
+    this.sqlite.run(`
+      CREATE TABLE IF NOT EXISTS _organization_invites (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'member',
+        token_hash TEXT NOT NULL,
+        invited_by TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+
+    this.sqlite.run(`
+      CREATE TABLE IF NOT EXISTS _jwt_revocations (
+        id TEXT PRIMARY KEY,
+        jti TEXT NOT NULL UNIQUE,
+        expires_at INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+
     // Indexes
     this.sqlite.run("CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON _sessions(user_id)");
     this.sqlite.run("CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON _sessions(expires_at)");
@@ -144,6 +209,30 @@ export class SqliteAdapter implements DatabaseAdapter {
     );
     this.sqlite.run(
       "CREATE INDEX IF NOT EXISTS idx_passkey_credentials_user ON _passkey_credentials(user_id)",
+    );
+
+    // Invite indexes
+    this.sqlite.run(
+      "CREATE INDEX IF NOT EXISTS idx_invites_token_hash ON _invites(token_hash)",
+    );
+
+    // Organization indexes
+    this.sqlite.run(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_org_members_unique ON _organization_members(org_id, user_id)",
+    );
+    this.sqlite.run(
+      "CREATE INDEX IF NOT EXISTS idx_org_members_user ON _organization_members(user_id)",
+    );
+    this.sqlite.run(
+      "CREATE INDEX IF NOT EXISTS idx_org_members_org ON _organization_members(org_id)",
+    );
+    this.sqlite.run(
+      "CREATE INDEX IF NOT EXISTS idx_org_invites_org ON _organization_invites(org_id)",
+    );
+
+    // JWT revocation indexes
+    this.sqlite.run(
+      "CREATE INDEX IF NOT EXISTS idx_jwt_revocations_expires ON _jwt_revocations(expires_at)",
     );
   }
 

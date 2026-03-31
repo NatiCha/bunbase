@@ -144,6 +144,97 @@ export type AfterPasskeyRegisterFn = (ctx: AfterPasskeyRegisterContext) => void 
 export type AfterPasskeyLoginFn = (ctx: AfterPasskeyLoginContext) => void | Promise<void>;
 export type AfterPasskeyRemoveFn = (ctx: AfterPasskeyRemoveContext) => void | Promise<void>;
 
+// ─── Account Deletion Hooks ───
+
+export type BeforeAccountDeleteContext = {
+  userId: string;
+  req: Request;
+};
+
+export type AfterAccountDeleteContext = {
+  userId: string;
+  email: string;
+};
+
+export type BeforeAccountDeleteFn = (ctx: BeforeAccountDeleteContext) => void | Promise<void>;
+export type AfterAccountDeleteFn = (ctx: AfterAccountDeleteContext) => void | Promise<void>;
+
+// ─── Guest Auth Hooks ───
+
+export type AfterGuestCreateContext = {
+  guestId: string;
+};
+
+export type AfterGuestConvertContext = {
+  guestId: string;
+  userId: string;
+  email: string;
+};
+
+export type AfterGuestCreateFn = (ctx: AfterGuestCreateContext) => void | Promise<void>;
+export type AfterGuestConvertFn = (ctx: AfterGuestConvertContext) => void | Promise<void>;
+
+// ─── SMS OTP Hooks ───
+
+export type BeforeSmsOtpLoginContext = {
+  phone: string;
+  req: Request;
+};
+
+export type AfterSmsOtpLoginContext = {
+  user: Record<string, unknown>;
+  userId: string;
+};
+
+export type BeforeSmsOtpLoginFn = (ctx: BeforeSmsOtpLoginContext) => void | Promise<void>;
+export type AfterSmsOtpLoginFn = (ctx: AfterSmsOtpLoginContext) => void | Promise<void>;
+
+// ─── Invitation Hooks ───
+
+export type AfterInviteCreateContext = {
+  inviteId: string;
+  email?: string;
+  invitedBy: string;
+};
+
+export type AfterInviteAcceptContext = {
+  inviteId: string;
+  userId: string;
+  email: string;
+};
+
+export type AfterInviteCreateFn = (ctx: AfterInviteCreateContext) => void | Promise<void>;
+export type AfterInviteAcceptFn = (ctx: AfterInviteAcceptContext) => void | Promise<void>;
+
+// ─── Organization Hooks ───
+
+export type AfterOrgCreateContext = {
+  organization: Record<string, unknown>;
+  userId: string;
+};
+
+export type AfterOrgMemberAddContext = {
+  orgId: string;
+  userId: string;
+  role: string;
+};
+
+export type AfterOrgMemberRemoveContext = {
+  orgId: string;
+  userId: string;
+};
+
+export type AfterOrgInviteAcceptContext = {
+  orgId: string;
+  userId: string;
+  email: string;
+};
+
+export type AfterOrgCreateFn = (ctx: AfterOrgCreateContext) => void | Promise<void>;
+export type AfterOrgMemberAddFn = (ctx: AfterOrgMemberAddContext) => void | Promise<void>;
+export type AfterOrgMemberRemoveFn = (ctx: AfterOrgMemberRemoveContext) => void | Promise<void>;
+export type AfterOrgInviteAcceptFn = (ctx: AfterOrgInviteAcceptContext) => void | Promise<void>;
+
 export interface AuthHooks {
   beforeRegister?: BeforeRegisterFn;
   afterRegister?: AfterRegisterFn;
@@ -167,6 +258,23 @@ export interface AuthHooks {
   afterPasskeyRegister?: AfterPasskeyRegisterFn;
   afterPasskeyLogin?: AfterPasskeyLoginFn;
   afterPasskeyRemove?: AfterPasskeyRemoveFn;
+  // Account deletion
+  beforeAccountDelete?: BeforeAccountDeleteFn;
+  afterAccountDelete?: AfterAccountDeleteFn;
+  // Guest auth
+  afterGuestCreate?: AfterGuestCreateFn;
+  afterGuestConvert?: AfterGuestConvertFn;
+  // SMS OTP
+  beforeSmsOtpLogin?: BeforeSmsOtpLoginFn;
+  afterSmsOtpLogin?: AfterSmsOtpLoginFn;
+  // Invitations
+  afterInviteCreate?: AfterInviteCreateFn;
+  afterInviteAccept?: AfterInviteAcceptFn;
+  // Organizations
+  afterOrgCreate?: AfterOrgCreateFn;
+  afterOrgMemberAdd?: AfterOrgMemberAddFn;
+  afterOrgMemberRemove?: AfterOrgMemberRemoveFn;
+  afterOrgInviteAccept?: AfterOrgInviteAcceptFn;
 }
 
 export function defineAuthHooks(hooks: AuthHooks): AuthHooks {

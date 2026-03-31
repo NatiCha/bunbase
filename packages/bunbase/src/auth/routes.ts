@@ -18,6 +18,7 @@ import { setCsrfCookie, validateCsrf } from "./csrf.ts";
 import { extractAuth, extractSessionId, isBearerOnly } from "./middleware.ts";
 import { hashPassword, verifyPassword } from "./passwords.ts";
 import { checkRateLimit, getClientIp } from "./rate-limit.ts";
+import { validateAndConsumeInvite } from "./invitations.ts";
 import { createSession, deleteSession } from "./sessions.ts";
 import { hashToken } from "./tokens.ts";
 
@@ -211,6 +212,25 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
             );
           }
 
+          // Invitation check (when required)
+          let inviteRole: string | undefined;
+          if (config.auth.invitations.enabled && config.auth.invitations.required) {
+            const inviteCode = raw.inviteCode;
+            if (!inviteCode || typeof inviteCode !== "string") {
+              return jsonError("BAD_REQUEST", "Invite code is required to register", 400);
+            }
+            const inviteResult = await validateAndConsumeInvite(
+              db,
+              internalSchema,
+              inviteCode,
+              email,
+            );
+            if (!inviteResult) {
+              return jsonError("BAD_REQUEST", "Invalid or expired invite code", 400);
+            }
+            inviteRole = inviteResult.role;
+          }
+
           // Check existing user via Drizzle
           const existingRows = await (db as any)
             .select({ id: usersTable.id })
@@ -228,7 +248,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
             id,
             email,
             passwordHash: passwordHash,
-            role: "user",
+            role: inviteRole ?? "user",
             ...signupExtrasByKey,
           };
 
@@ -349,10 +369,14 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
             return jsonError("BAD_REQUEST", "Invalid JSON body", 400);
           }
 
-          const valSchema = z.object({
-            email: z.email(),
-            password: z.string(),
-          });
+          // Support email, username, or identifier login
+          const valSchema = z.object({ password: z.string() }).and(
+            z.union([
+              z.object({ email: z.email() }),
+              z.object({ username: z.string().min(1) }),
+              z.object({ identifier: z.string().min(1) }),
+            ]),
+          );
 
           const result = valSchema.safeParse(body);
           if (!result.success) {
@@ -363,11 +387,16 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
             );
           }
 
-          const { email, password } = result.data;
+          const { password } = result.data;
+          const email = "email" in result.data ? result.data.email : undefined;
+          const username = "username" in result.data ? result.data.username : undefined;
+          const identifier = "identifier" in result.data ? result.data.identifier : undefined;
+
+          const loginEmail = email ?? (identifier?.includes("@") ? identifier : undefined);
 
           if (authHooks?.beforeLogin) {
             try {
-              await authHooks.beforeLogin({ email, req });
+              await authHooks.beforeLogin({ email: loginEmail ?? username ?? identifier ?? "", req });
             } catch (err) {
               if (err instanceof ApiError) {
                 return jsonError(err.code, err.message, err.status);
@@ -376,10 +405,26 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
             }
           }
 
-          const rows = await (db as any)
-            .select()
-            .from(usersTable)
-            .where(sql`lower(${usersTable.email}) = lower(${email})`);
+          let rows: any[];
+          if (loginEmail) {
+            rows = await (db as any)
+              .select()
+              .from(usersTable)
+              .where(sql`lower(${usersTable.email}) = lower(${loginEmail})`);
+          } else if (username || identifier) {
+            // Username login — look up by configured field
+            const usernameField = config.auth.usernameLogin.field;
+            if (!config.auth.usernameLogin.enabled || !usersTable[usernameField]) {
+              return jsonError("BAD_REQUEST", "Username login is not enabled", 400);
+            }
+            const lookupValue = username ?? identifier;
+            rows = await (db as any)
+              .select()
+              .from(usersTable)
+              .where(eq(usersTable[usernameField], lookupValue));
+          } else {
+            return jsonError("VALIDATION_ERROR", "Email, username, or identifier is required", 400);
+          }
 
           const user = rows[0];
           if (!user) {

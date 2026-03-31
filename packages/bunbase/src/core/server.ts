@@ -7,16 +7,24 @@ import pkg from "../../package.json";
 import { handleAdminApi, pushRequestLog } from "../admin/routes.ts";
 import { errorResponse } from "../api/helpers.ts";
 import type { AuthUser } from "../api/types.ts";
+import { createAccountDeletionRoutes } from "../auth/account-deletion.ts";
 import { createApiKeyRoutes } from "../auth/api-keys.ts";
 import { isCsrfExempt, validateCsrf } from "../auth/csrf.ts";
 import { createEmailRoutes } from "../auth/email.ts";
+import { createGuestRoutes } from "../auth/guest.ts";
+import { createInvitationRoutes } from "../auth/invitations.ts";
+import { createJwtRoutes } from "../auth/jwt/routes.ts";
 import { extractAuth as extractAuthFromReq, isBearerOnly } from "../auth/middleware.ts";
 import { createOAuthRoutes } from "../auth/oauth/routes.ts";
 import { createTotpRoutes } from "../auth/mfa/totp.ts";
+import { createOrganizationRoutes } from "../auth/organizations/routes.ts";
 import { createPasskeyRoutes } from "../auth/passkeys.ts";
 import { createPasswordlessRoutes } from "../auth/passwordless.ts";
 import { hashPassword } from "../auth/passwords.ts";
 import { createAuthRoutes } from "../auth/routes.ts";
+import { createSessionManagementRoutes } from "../auth/session-management.ts";
+import { createSmsOtpRoutes } from "../auth/sms/routes.ts";
+import type { SmsTransport } from "../auth/sms/types.ts";
 import { addCorsHeaders, handleCorsPreflightOrNull } from "../cors.ts";
 import { generateAllCrudHandlers } from "../crud/handler.ts";
 import type { AuthHooks } from "../hooks/auth-types.ts";
@@ -82,6 +90,10 @@ export interface CreateServerOptions<
    * table has an `emailVerified` column and `auth.emailVerification.autoSend` is true.
    */
   mailer?: Mailer;
+  /**
+   * Optional SMS transport for phone-based OTP authentication.
+   */
+  smsTransport?: SmsTransport;
 }
 
 /** Runtime BunBase server instance. */
@@ -286,6 +298,86 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
       })
     : {};
 
+  // Session management routes
+  const sessionManagementRoutes = createSessionManagementRoutes({
+    db,
+    internalSchema,
+    config,
+    extractAuth,
+  });
+
+  // Account deletion routes (enabled by default)
+  const accountDeletionRoutes = config.auth.accountDeletion.enabled
+    ? createAccountDeletionRoutes({
+        db,
+        internalSchema,
+        config,
+        usersTable,
+        extractAuth,
+        authHooks,
+      })
+    : {};
+
+  // Guest auth routes (only when enabled)
+  const guestRoutes = config.auth.guestAuth.enabled
+    ? createGuestRoutes({
+        db,
+        internalSchema,
+        config,
+        usersTable,
+        authHooks,
+      })
+    : {};
+
+  // SMS OTP routes (only when enabled)
+  const smsOtpRoutes = config.auth.mfa.smsOtp.enabled
+    ? createSmsOtpRoutes({
+        db,
+        internalSchema,
+        config,
+        usersTable,
+        smsTransport: options.smsTransport,
+        authHooks,
+      })
+    : {};
+
+  // Invitation routes (only when enabled)
+  const invitationRoutes = config.auth.invitations.enabled
+    ? createInvitationRoutes({
+        db,
+        internalSchema,
+        config,
+        extractAuth,
+        authHooks,
+      })
+    : {};
+
+  // Organization routes (only when enabled)
+  const organizationRoutes = config.auth.organizations.enabled
+    ? createOrganizationRoutes({
+        db,
+        internalSchema,
+        config,
+        extractAuth,
+        authHooks,
+      })
+    : {};
+
+  // JWT routes (only when enabled)
+  const jwtRoutes = config.auth.jwt.enabled
+    ? createJwtRoutes({
+        db,
+        internalSchema,
+        config,
+        usersTable,
+      })
+    : {};
+
+  // Store JWT config on globalThis for middleware JWT detection
+  if (config.auth.jwt.enabled) {
+    (globalThis as any).__bunbaseJwtConfig = config.auth.jwt;
+  }
+
   // Storage driver for admin operations
   const adminStorage = createStorageDriver(config);
 
@@ -301,6 +393,13 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     passwordlessRoutes,
     totpRoutes,
     passkeyRoutes,
+    sessionManagementRoutes,
+    accountDeletionRoutes,
+    guestRoutes,
+    smsOtpRoutes,
+    invitationRoutes,
+    organizationRoutes,
+    jwtRoutes,
     crudExact,
   ]) {
     for (const [path, handlers] of Object.entries(routeSet)) {

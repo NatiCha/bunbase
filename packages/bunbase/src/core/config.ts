@@ -98,6 +98,62 @@ export interface BunBaseConfig {
         /** Characters per backup code. Default: 8. */
         length?: number;
       };
+      smsOtp?: {
+        /** Enable SMS OTP login. Default: false. */
+        enabled?: boolean;
+        /** Code TTL in seconds. Default: 300. */
+        ttl?: number;
+        /** Number of digits. Default: 6. */
+        length?: number;
+      };
+    };
+    usernameLogin?: {
+      /** Enable username-based login. Default: false. */
+      enabled?: boolean;
+      /** Column name in users table. Default: "username". */
+      field?: string;
+    };
+    accountDeletion?: {
+      /** Enable account deletion. Default: true. */
+      enabled?: boolean;
+      /** Require password confirmation. Default: true. */
+      requirePassword?: boolean;
+    };
+    guestAuth?: {
+      /** Enable anonymous/guest sessions. Default: false. */
+      enabled?: boolean;
+      /** Guest session TTL in seconds. Default: 86400 (24h). */
+      ttl?: number;
+    };
+    invitations?: {
+      /** Enable invitation system. Default: false. */
+      enabled?: boolean;
+      /** Require invite code for registration. Default: false. */
+      required?: boolean;
+      /** Invite TTL in seconds. Default: 604800 (7 days). */
+      ttl?: number;
+      /** Default max uses per invite. Default: 1. */
+      maxUsesDefault?: number;
+    };
+    organizations?: {
+      /** Enable organizations/teams. Default: false. */
+      enabled?: boolean;
+      /** Allowed roles. Default: ["owner", "admin", "member"]. */
+      roles?: string[];
+      /** Max orgs per user. Default: 10. */
+      maxOrgsPerUser?: number;
+      /** Org invite TTL in seconds. Default: 604800. */
+      inviteTtl?: number;
+    };
+    jwt?: {
+      /** Enable JWT mode instead of cookie sessions. Default: false. */
+      enabled?: boolean;
+      /** HMAC secret. Falls back to BUNBASE_JWT_SECRET env var. */
+      secret?: string;
+      /** Access token TTL in seconds. Default: 900 (15 min). */
+      accessTokenTtl?: number;
+      /** Refresh token TTL in seconds. Default: 604800 (7 days). */
+      refreshTokenTtl?: number;
     };
   };
   storage?: {
@@ -225,6 +281,41 @@ export interface ResolvedConfig {
         count: number;
         length: number;
       };
+      smsOtp: {
+        enabled: boolean;
+        ttl: number;
+        length: number;
+      };
+    };
+    usernameLogin: {
+      enabled: boolean;
+      field: string;
+    };
+    accountDeletion: {
+      enabled: boolean;
+      requirePassword: boolean;
+    };
+    guestAuth: {
+      enabled: boolean;
+      ttl: number;
+    };
+    invitations: {
+      enabled: boolean;
+      required: boolean;
+      ttl: number;
+      maxUsesDefault: number;
+    };
+    organizations: {
+      enabled: boolean;
+      roles: string[];
+      maxOrgsPerUser: number;
+      inviteTtl: number;
+    };
+    jwt: {
+      enabled: boolean;
+      secret: string | undefined;
+      accessTokenTtl: number;
+      refreshTokenTtl: number;
     };
   };
   storage: {
@@ -378,6 +469,41 @@ export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
           count: config?.auth?.mfa?.backupCodes?.count ?? 10,
           length: config?.auth?.mfa?.backupCodes?.length ?? 8,
         },
+        smsOtp: {
+          enabled: config?.auth?.mfa?.smsOtp?.enabled ?? false,
+          ttl: config?.auth?.mfa?.smsOtp?.ttl ?? 300,
+          length: config?.auth?.mfa?.smsOtp?.length ?? 6,
+        },
+      },
+      usernameLogin: {
+        enabled: config?.auth?.usernameLogin?.enabled ?? false,
+        field: config?.auth?.usernameLogin?.field ?? "username",
+      },
+      accountDeletion: {
+        enabled: config?.auth?.accountDeletion?.enabled ?? true,
+        requirePassword: config?.auth?.accountDeletion?.requirePassword ?? true,
+      },
+      guestAuth: {
+        enabled: config?.auth?.guestAuth?.enabled ?? false,
+        ttl: config?.auth?.guestAuth?.ttl ?? 86400,
+      },
+      invitations: {
+        enabled: config?.auth?.invitations?.enabled ?? false,
+        required: config?.auth?.invitations?.required ?? false,
+        ttl: config?.auth?.invitations?.ttl ?? 604800,
+        maxUsesDefault: config?.auth?.invitations?.maxUsesDefault ?? 1,
+      },
+      organizations: {
+        enabled: config?.auth?.organizations?.enabled ?? false,
+        roles: config?.auth?.organizations?.roles ?? ["owner", "admin", "member"],
+        maxOrgsPerUser: config?.auth?.organizations?.maxOrgsPerUser ?? 10,
+        inviteTtl: config?.auth?.organizations?.inviteTtl ?? 604800,
+      },
+      jwt: {
+        enabled: config?.auth?.jwt?.enabled ?? false,
+        secret: config?.auth?.jwt?.secret ?? process.env.BUNBASE_JWT_SECRET,
+        accessTokenTtl: config?.auth?.jwt?.accessTokenTtl ?? 900,
+        refreshTokenTtl: config?.auth?.jwt?.refreshTokenTtl ?? 604800,
       },
     },
     storage: {
@@ -416,6 +542,12 @@ export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
 
     if (resolved.cors.origins.length === 0) {
       throw new Error("BunBase: cors.origins is required in production");
+    }
+
+    if (resolved.auth.jwt.enabled && !resolved.auth.jwt.secret) {
+      throw new Error(
+        "BunBase: auth.jwt.secret or BUNBASE_JWT_SECRET env var is required when JWT mode is enabled in production",
+      );
     }
   }
 

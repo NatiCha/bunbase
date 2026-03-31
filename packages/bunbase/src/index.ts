@@ -10,6 +10,11 @@ export { ApiError, requireAuth } from "./api/helpers.ts";
 export type { AuthUser, BunBaseErrorCode, BunBaseErrorEnvelope } from "./api/types.ts";
 export { encrypt, decrypt, resolveMfaEncryptionKey } from "./auth/encryption.ts";
 export { isBearerOnly } from "./auth/middleware.ts";
+export { signJwt, verifyJwt, revokeJwt, isJwtToken } from "./auth/jwt/core.ts";
+export type { JwtPayload } from "./auth/jwt/core.ts";
+export { getOrgMembership, getUserOrganizations, requireOrgRole } from "./auth/organizations/helpers.ts";
+export type { SmsMessage, SmsTransport } from "./auth/sms/types.ts";
+export { validateAndConsumeInvite } from "./auth/invitations.ts";
 export { getMfaStatus, generateBackupCodes } from "./auth/mfa/index.ts";
 export { createGenericOAuthProvider as defineOAuthProvider } from "./auth/oauth/generic.ts";
 export type {
@@ -83,6 +88,35 @@ export type {
   AfterPasskeyLoginFn,
   AfterPasskeyRemoveContext,
   AfterPasskeyRemoveFn,
+  // Account deletion hooks
+  BeforeAccountDeleteContext,
+  BeforeAccountDeleteFn,
+  AfterAccountDeleteContext,
+  AfterAccountDeleteFn,
+  // Guest auth hooks
+  AfterGuestCreateContext,
+  AfterGuestCreateFn,
+  AfterGuestConvertContext,
+  AfterGuestConvertFn,
+  // SMS OTP hooks
+  BeforeSmsOtpLoginContext,
+  BeforeSmsOtpLoginFn,
+  AfterSmsOtpLoginContext,
+  AfterSmsOtpLoginFn,
+  // Invitation hooks
+  AfterInviteCreateContext,
+  AfterInviteCreateFn,
+  AfterInviteAcceptContext,
+  AfterInviteAcceptFn,
+  // Organization hooks
+  AfterOrgCreateContext,
+  AfterOrgCreateFn,
+  AfterOrgMemberAddContext,
+  AfterOrgMemberAddFn,
+  AfterOrgMemberRemoveContext,
+  AfterOrgMemberRemoveFn,
+  AfterOrgInviteAcceptContext,
+  AfterOrgInviteAcceptFn,
 } from "./hooks/auth-types.ts";
 export { defineAuthHooks } from "./hooks/auth-types.ts";
 export type {
@@ -135,6 +169,9 @@ export {
   isSet,
   monthStart,
   now,
+  orgAdmin,
+  orgMember,
+  orgOwner,
   ownerOnly,
   todayEnd,
   todayStart,

@@ -59,6 +59,18 @@ const CSRF_EXEMPT_PATHS = new Set([
   // Passkey auth (stateless, like login)
   "/auth/passkeys/login/options",
   "/auth/passkeys/login/verify",
+  // SMS OTP (stateless, like login)
+  "/auth/sms-otp/request",
+  "/auth/sms-otp/verify",
+  // Guest auth (no existing session)
+  "/auth/guest",
+  "/auth/guest/convert",
+  // Invite validation (public)
+  "/auth/invites/validate",
+  // Org invite acceptance
+  "/auth/organization-invites/accept",
+  // JWT refresh (stateless)
+  "/auth/refresh",
 ]);
 
 export function isCsrfExempt(pathname: string): boolean {
