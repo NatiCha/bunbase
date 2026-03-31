@@ -34,6 +34,12 @@ export interface BunBaseConfig {
     };
     oauth?: {
       redirectUrl?: string; // required in production
+      /**
+       * Base URL of this BunBase server, used to build OAuth callback URLs.
+       * Defaults to `http://localhost:3001` in development.
+       * In production, set this to your BunBase server's public URL (e.g. `https://db.example.com`).
+       */
+      callbackBaseUrl?: string;
       google?: OAuthProviderConfig;
       github?: OAuthProviderConfig;
       discord?: OAuthProviderConfig;
@@ -247,6 +253,7 @@ export interface ResolvedConfig {
     };
     oauth?: {
       redirectUrl?: string;
+      callbackBaseUrl?: string;
       google?: OAuthProviderConfig;
       github?: OAuthProviderConfig;
       discord?: OAuthProviderConfig;
