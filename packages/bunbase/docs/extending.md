@@ -59,8 +59,10 @@ Your custom routes are now available at `/api/stats` and `/api/my-tasks`.
 
 ## Constraints
 
-- All extend routes **must** be under `/api/`. BunBase throws a startup error for any route outside this prefix. This ensures CSRF protection is automatically applied to all mutation methods (`POST`, `PATCH`, `DELETE`).
+- All HTTP extend routes **must** be under `/api/`. BunBase throws a startup error for any route outside this prefix. This ensures CSRF protection is automatically applied to all mutation methods (`POST`, `PATCH`, `DELETE`).
+- WebSocket routes are exempt from the `/api/` prefix requirement (WebSocket connections require explicit `new WebSocket()` calls and are not CSRF-vulnerable).
 - Path collisions with generated CRUD routes throw a startup error.
+- WebSocket routes cannot override the built-in `/realtime` endpoint.
 
 ## Context
 
@@ -122,6 +124,89 @@ const res = await fetch("/api/my-tasks", {
   },
   body: JSON.stringify({ title: "New Task" }),
 });
+```
+
+## WebSocket routes
+
+Add WebSocket endpoints to `extend` using the `websocket` property on a route definition. Use `defineWebSocket` for full TypeScript inference of `ws.data`.
+
+```ts
+import { createServer, defineWebSocket } from "bunbase";
+
+const bunbase = createServer({
+  schema,
+  rules,
+  extend: (ctx) => ({
+    "/bridge": {
+      websocket: defineWebSocket({
+        // Optional: return data to attach to ws.data, or a Response to reject
+        async upgrade(req) {
+          const auth = await ctx.extractAuth(req);
+          if (!auth) return new Response("Unauthorized", { status: 401 });
+          return { userId: auth.id, deviceId: new URL(req.url).searchParams.get("device") };
+        },
+        open(ws) {
+          console.log(`Connected: ${ws.data.userId}`); // typed from upgrade()
+        },
+        message(ws, message) {
+          ws.send(`echo: ${message}`);
+        },
+        close(ws, code, reason) {
+          console.log(`Disconnected: ${ws.data.userId}`);
+        },
+      }),
+    },
+  }),
+});
+```
+
+### Handlers
+
+| Handler | Required | Description |
+|---------|----------|-------------|
+| `upgrade(req)` | No | Called on HTTP upgrade request. Return data for `ws.data`, or a `Response` to reject the connection. Defaults to `{}`. |
+| `open(ws)` | No | Called when the WebSocket connection is established. |
+| `message(ws, message)` | Yes | Called when a message is received. |
+| `close(ws, code, reason)` | No | Called when the connection closes. |
+| `error(ws, error)` | No | Called on WebSocket error. |
+
+### Per-path configuration
+
+Each WebSocket route can set `idleTimeout` (seconds, default 120) and `maxPayloadLength` (bytes, default 16 MB). Since Bun only allows one global config, BunBase uses the most permissive values across all routes.
+
+```ts
+websocket: defineWebSocket({
+  message(ws, msg) { /* ... */ },
+  idleTimeout: 300,
+  maxPayloadLength: 64 * 1024 * 1024, // 64 MB
+}),
+```
+
+### Mixed HTTP + WebSocket
+
+A single path can have both HTTP method handlers and a `websocket` definition:
+
+```ts
+"/api/bridge": {
+  GET: (req) => Response.json({ status: "ok" }),
+  websocket: defineWebSocket({
+    message(ws, msg) { ws.send(msg); },
+  }),
+},
+```
+
+Regular HTTP requests are handled normally; only requests with the `Upgrade: websocket` header trigger the WebSocket upgrade.
+
+### Coexistence with realtime
+
+Extend WebSocket routes work alongside BunBase's built-in `/realtime` endpoint. Both share Bun's single `websocket` handler object — BunBase dispatches to the correct handler automatically.
+
+### Connecting from the client
+
+```ts
+const ws = new WebSocket("ws://localhost:3000/bridge?device=abc");
+ws.onmessage = (e) => console.log(e.data);
+ws.onopen = () => ws.send("hello");
 ```
 
 ## Next steps

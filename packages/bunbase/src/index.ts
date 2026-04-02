@@ -45,8 +45,14 @@ export type {
 } from "./core/config.ts";
 export { defineConfig } from "./core/config.ts";
 export type { AnyColumn, AnyDb, AnyTable, Dialect } from "./core/db-types.ts";
-export type { BunBaseServer, CreateServerOptions, ExtendContext, RouteMap } from "./core/server.ts";
-export { createServer } from "./core/server.ts";
+export type {
+  BunBaseServer,
+  CreateServerOptions,
+  ExtendContext,
+  ExtendWebSocketDef,
+  RouteMap,
+} from "./core/server.ts";
+export { createServer, defineWebSocket } from "./core/server.ts";
 export type { FilterOperators } from "./crud/filters.ts";
 export { defineRelations, MAX_RELATION_DEPTH } from "./crud/relations.ts";
 export type {

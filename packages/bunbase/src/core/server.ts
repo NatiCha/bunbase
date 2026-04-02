@@ -1,3 +1,4 @@
+import type { ServerWebSocket } from "bun";
 import { readFileSync, writeFileSync } from "node:fs";
 import type { AnyRelations } from "drizzle-orm/relations";
 
@@ -53,10 +54,38 @@ import { getInternalSchema } from "./internal-schema.ts";
  * @module
  */
 
-export type RouteMap = Record<
+/** Internal routing key attached to ws.data for dispatching to the correct extend handler. */
+const WS_PATH_KEY = "__bunbase_ws_path" as const;
+
+/** Per-path WebSocket definition provided by the consumer via extend. */
+export interface ExtendWebSocketDef<TData = Record<string, never>> {
+  /** Called on HTTP upgrade request. Return data to attach to ws.data, or a Response to reject the upgrade. */
+  upgrade?: (req: Request) => TData | Response | Promise<TData | Response>;
+  open?: (ws: ServerWebSocket<TData>) => void | Promise<void>;
+  message: (ws: ServerWebSocket<TData>, message: string | Buffer) => void | Promise<void>;
+  close?: (ws: ServerWebSocket<TData>, code: number, reason: string) => void | Promise<void>;
+  error?: (ws: ServerWebSocket<TData>, error: Error) => void | Promise<void>;
+  idleTimeout?: number;
+  maxPayloadLength?: number;
+}
+
+/** Identity function for TypeScript inference of ws.data type. Consistent with defineRules/defineHooks. */
+export function defineWebSocket<TData>(
+  def: ExtendWebSocketDef<TData>,
+): ExtendWebSocketDef<TData> {
+  return def;
+}
+
+export type RouteHandlers = Record<
   string,
-  Record<string, (req: Request) => Response | Promise<Response>>
+  (req: Request) => Response | Promise<Response>
 >;
+
+export type RouteDefinition = RouteHandlers & {
+  websocket?: ExtendWebSocketDef<any>;
+};
+
+export type RouteMap = Record<string, RouteDefinition>;
 
 /** Context passed to `extend` route builders. */
 export interface ExtendContext {
@@ -446,25 +475,46 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
   }
 
   // Merge extend routes (if provided)
-  // Extend routes must live under /api/* so the same CORS/CSRF protections apply.
+  // HTTP-only extend routes must live under /api/* so CORS/CSRF protections apply.
+  // WebSocket routes are exempt from the /api/ prefix requirement since WebSocket
+  // connections require explicit new WebSocket() calls and aren't CSRF-vulnerable.
+  const extendWsRoutes = new Map<string, ExtendWebSocketDef<any>>();
+
   if (options.extend) {
     const filesContext = createFilesContext(db, adminStorage, internalSchema.files);
     const extendRoutes = options.extend({ db, extractAuth, files: filesContext });
-    for (const [path, handlers] of Object.entries(extendRoutes)) {
-      if (!path.startsWith("/api/")) {
-        throw new Error(
-          `BunBase: extend routes must be under /api/. Got: "${path}". This ensures CSRF protection is applied automatically.`,
-        );
+    for (const [path, definition] of Object.entries(extendRoutes)) {
+      const { websocket, ...httpHandlers } = definition;
+      const hasHttp = Object.keys(httpHandlers).length > 0;
+
+      if (hasHttp) {
+        if (!path.startsWith("/api/")) {
+          throw new Error(
+            `BunBase: extend routes must be under /api/. Got: "${path}". This ensures CSRF protection is applied automatically.`,
+          );
+        }
+        if (httpRoutes[path]) {
+          throw new Error(`BunBase: Cannot merge extend routes due to path collision: ${path}`);
+        }
+        if (crudPattern[path]) {
+          throw new Error(
+            `BunBase: Cannot merge extend routes due to path collision with CRUD item route: ${path}`,
+          );
+        }
+        httpRoutes[path] = httpHandlers;
       }
-      if (httpRoutes[path]) {
-        throw new Error(`BunBase: Cannot merge extend routes due to path collision: ${path}`);
+
+      if (websocket) {
+        if (path === "/realtime") {
+          throw new Error(
+            "BunBase: Cannot override built-in /realtime WebSocket endpoint.",
+          );
+        }
+        if (extendWsRoutes.has(path)) {
+          throw new Error(`BunBase: Duplicate WebSocket path: ${path}`);
+        }
+        extendWsRoutes.set(path, websocket);
       }
-      if (crudPattern[path]) {
-        throw new Error(
-          `BunBase: Cannot merge extend routes due to path collision with CRUD item route: ${path}`,
-        );
-      }
-      httpRoutes[path] = handlers;
     }
   }
 
@@ -533,20 +583,62 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     // Mutable server reference needed by WS handlers for server.publish()
     let bunServer: ReturnType<typeof Bun.serve>;
 
-    const websocketHandlers =
-      realtimeManager && realtimePresence
-        ? {
-            async message(ws: any, raw: string | Buffer) {
-              await handleWebSocketMessage(ws, raw, bunServer, realtimeManager!, realtimePresence!);
-            },
-            close(ws: any) {
-              handleWebSocketClose(ws, bunServer, realtimeManager!, realtimePresence!);
-            },
-            open(_ws: any) {
-              // Connection established — nothing to do here
-            },
-          }
-        : undefined;
+    // Unified WebSocket handler — dispatches to extend WS routes or realtime based on ws.data.
+    // Bun.serve() only allows one `websocket` handler object, so all WS connections share it.
+    const hasAnyWebSockets =
+      !!(realtimeManager && realtimePresence) || extendWsRoutes.size > 0;
+
+    // Merge WS configs — use most permissive values since Bun allows only one config
+    let wsIdleTimeout = 120;
+    let wsMaxPayloadLength = 16 * 1024 * 1024;
+    for (const def of extendWsRoutes.values()) {
+      if (def.idleTimeout !== undefined)
+        wsIdleTimeout = Math.max(wsIdleTimeout, def.idleTimeout);
+      if (def.maxPayloadLength !== undefined)
+        wsMaxPayloadLength = Math.max(wsMaxPayloadLength, def.maxPayloadLength);
+    }
+
+    const websocketHandlers = hasAnyWebSockets
+      ? {
+          open(ws: any) {
+            if (WS_PATH_KEY in ws.data) {
+              extendWsRoutes.get(ws.data[WS_PATH_KEY])?.open?.(ws);
+            }
+          },
+          async message(ws: any, raw: string | Buffer) {
+            if (WS_PATH_KEY in ws.data) {
+              await extendWsRoutes.get(ws.data[WS_PATH_KEY])?.message(ws, raw);
+            } else if (realtimeManager && realtimePresence) {
+              await handleWebSocketMessage(
+                ws,
+                raw,
+                bunServer,
+                realtimeManager,
+                realtimePresence,
+              );
+            }
+          },
+          close(ws: any, code: number, reason: string) {
+            if (WS_PATH_KEY in ws.data) {
+              extendWsRoutes.get(ws.data[WS_PATH_KEY])?.close?.(ws, code, reason);
+            } else if (realtimeManager && realtimePresence) {
+              handleWebSocketClose(
+                ws,
+                bunServer,
+                realtimeManager,
+                realtimePresence,
+              );
+            }
+          },
+          error(ws: any, error: Error) {
+            if (WS_PATH_KEY in ws.data) {
+              extendWsRoutes.get(ws.data[WS_PATH_KEY])?.error?.(ws, error);
+            }
+          },
+          idleTimeout: wsIdleTimeout,
+          maxPayloadLength: wsMaxPayloadLength,
+        }
+      : undefined;
 
     // Extract main request handler as a named function so the SPA catch-all
     // route forwarders can call it without duplicating the handler body in a route.
@@ -592,8 +684,25 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
         return new Response("WebSocket upgrade failed", { status: 400 });
       }
 
+      // WebSocket upgrade for extend routes — also before request cloning.
+      // Only attempt upgrade when the client sends the Upgrade: websocket header.
+      const wsDef = extendWsRoutes.get(pathname);
+      if (wsDef && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+        let upgradeData: Record<string, unknown> = {};
+        if (wsDef.upgrade) {
+          const result = await wsDef.upgrade(req);
+          if (result instanceof Response) return result;
+          upgradeData = result as Record<string, unknown>;
+        }
+        const upgraded = srv.upgrade(req, {
+          data: { ...upgradeData, [WS_PATH_KEY]: pathname },
+        });
+        if (upgraded) return undefined as unknown as Response;
+        return new Response("WebSocket upgrade failed", { status: 400 });
+      }
+
       // Inject socket IP header for all HTTP routes. Must happen after the WebSocket
-      // path above since cloning req would invalidate the native handle needed by srv.upgrade().
+      // paths above since cloning req would invalidate the native handle needed by srv.upgrade().
       // We always overwrite any client-provided value to prevent spoofing.
       const enrichedHeaders = new Headers(req.headers);
       enrichedHeaders.set("x-bunbase-socket-ip", socketIp);
@@ -709,11 +818,20 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
       "/_admin/*": () => new Response(Bun.file(adminHTMLPath)),
     };
 
+    // Forward extend WS paths so they reach masterFetch for upgrade handling
+    const extendWsForwards = Object.fromEntries(
+      Array.from(extendWsRoutes.keys()).map((path) => [
+        path,
+        (req: Request, srv: any) => masterFetch(req, srv),
+      ]),
+    );
+
     const frontendRoutes: Record<string, unknown> = config.frontend?.html
       ? {
           "/api/*": (req: Request, srv: any) => masterFetch(req, srv),
           "/files/*": (req: Request, srv: any) => masterFetch(req, srv),
           "/realtime": (req: Request, srv: any) => masterFetch(req, srv),
+          ...extendWsForwards,
           // SPA catch-all — served via Bun's HTML bundler (HMR, TSX, CSS)
           "/*": config.frontend?.html,
         }
@@ -748,6 +866,12 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     console.log(`Admin UI: ${server.url}_admin`);
     if (config.realtime.enabled) {
       console.log(`Realtime WebSocket: ${String(server.url).replace(/^http/, "ws")}realtime`);
+    }
+    if (extendWsRoutes.size > 0) {
+      const wsBase = String(server.url).replace(/^http/, "ws");
+      for (const path of extendWsRoutes.keys()) {
+        console.log(`  WebSocket: ${wsBase}${path.slice(1)}`);
+      }
     }
     if (options.mailer) {
       console.log("  Email: mailer configured");
