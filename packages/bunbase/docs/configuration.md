@@ -91,6 +91,10 @@ const config = defineConfig({
   cors: {
     // Allowed origins (required in production)
     origins: ["https://your-app.com"],
+    // Additional request headers to allow (appended to defaults: Content-Type, Authorization, X-CSRF-Token)
+    allowHeaders: ["mcp-session-id", "mcp-protocol-version"],
+    // Response headers to expose to the browser (appended to defaults)
+    exposeHeaders: ["mcp-session-id"],
   },
 
   realtime: {
@@ -291,6 +295,18 @@ When set, only files matching these MIME types are accepted. When unset, all typ
 List of allowed CORS origins. **Required in production** — BunBase will throw an error on startup if not configured.
 
 In development mode, all origins are allowed regardless of this setting.
+
+### `cors.allowHeaders`
+
+Additional request headers to allow in CORS preflight responses. These are **appended** to the defaults (`Content-Type`, `Authorization`, `X-CSRF-Token`).
+
+Default: `[]`
+
+### `cors.exposeHeaders`
+
+Response headers to expose to the browser via `Access-Control-Expose-Headers`. These are **appended** to the defaults (none by default).
+
+Default: `[]`
 
 ### `realtime.enabled`
 

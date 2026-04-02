@@ -185,6 +185,10 @@ export interface BunBaseConfig {
   };
   cors?: {
     origins?: string[]; // required in production
+    /** Additional request headers to allow (appended to defaults: Content-Type, Authorization, X-CSRF-Token). */
+    allowHeaders?: string[];
+    /** Response headers to expose to the browser (appended to defaults). */
+    exposeHeaders?: string[];
   };
   realtime?: {
     enabled?: boolean;
@@ -356,6 +360,8 @@ export interface ResolvedConfig {
   };
   cors: {
     origins: string[];
+    allowHeaders: string[];
+    exposeHeaders: string[];
   };
   realtime: {
     enabled: boolean;
@@ -541,6 +547,8 @@ export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
     },
     cors: {
       origins: config?.cors?.origins ?? [],
+      allowHeaders: config?.cors?.allowHeaders ?? [],
+      exposeHeaders: config?.cors?.exposeHeaders ?? [],
     },
     realtime: {
       enabled: config?.realtime?.enabled ?? false,

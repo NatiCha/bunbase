@@ -13,7 +13,17 @@ function corsHeaders(origin: string, config: ResolvedConfig): Headers {
 
   headers.set("Access-Control-Allow-Origin", origin);
   headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-  headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token");
+
+  const allowHeaders = ["Content-Type", "Authorization", "X-CSRF-Token"];
+  if (config.cors.allowHeaders.length > 0) {
+    allowHeaders.push(...config.cors.allowHeaders);
+  }
+  headers.set("Access-Control-Allow-Headers", allowHeaders.join(", "));
+
+  if (config.cors.exposeHeaders.length > 0) {
+    headers.set("Access-Control-Expose-Headers", config.cors.exposeHeaders.join(", "));
+  }
+
   headers.set("Access-Control-Allow-Credentials", "true");
   headers.set("Access-Control-Max-Age", "86400");
   headers.set("Vary", "Origin");

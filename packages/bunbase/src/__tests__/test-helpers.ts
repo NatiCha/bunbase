@@ -88,6 +88,8 @@ export function makeResolvedConfig(overrides: DeepPartialResolvedConfig = {}): R
     },
     cors: {
       origins: corsOverrides.origins ?? [],
+      allowHeaders: corsOverrides.allowHeaders ?? [],
+      exposeHeaders: corsOverrides.exposeHeaders ?? [],
     },
     realtime: {
       enabled: realtimeOverrides.enabled ?? false,

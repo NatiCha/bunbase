@@ -75,3 +75,47 @@ test("withCors injects CORS headers on normal responses", async () => {
   expect(response.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
   expect(await response.text()).toBe("ok");
 });
+
+// Custom headers
+
+test("allowHeaders appended to default allowed headers", () => {
+  const config = makeResolvedConfig({
+    development: true,
+    cors: { allowHeaders: ["mcp-session-id", "mcp-protocol-version"] },
+  });
+  const req = new Request("http://localhost/api/test", {
+    method: "OPTIONS",
+    headers: { Origin: "http://localhost:5173" },
+  });
+
+  const preflight = handleCorsPreflightOrNull(req, config);
+  const allowHeaders = preflight?.headers.get("Access-Control-Allow-Headers") ?? "";
+  expect(allowHeaders).toContain("Content-Type");
+  expect(allowHeaders).toContain("Authorization");
+  expect(allowHeaders).toContain("X-CSRF-Token");
+  expect(allowHeaders).toContain("mcp-session-id");
+  expect(allowHeaders).toContain("mcp-protocol-version");
+});
+
+test("exposeHeaders set when configured", () => {
+  const config = makeResolvedConfig({
+    development: true,
+    cors: { exposeHeaders: ["mcp-session-id"] },
+  });
+  const req = new Request("http://localhost/api/data", {
+    headers: { Origin: "http://localhost:5173" },
+  });
+
+  const response = addCorsHeaders(new Response("OK"), req, config);
+  expect(response.headers.get("Access-Control-Expose-Headers")).toBe("mcp-session-id");
+});
+
+test("exposeHeaders not set when empty", () => {
+  const config = makeResolvedConfig({ development: true });
+  const req = new Request("http://localhost/api/data", {
+    headers: { Origin: "http://localhost:5173" },
+  });
+
+  const response = addCorsHeaders(new Response("OK"), req, config);
+  expect(response.headers.get("Access-Control-Expose-Headers")).toBeNull();
+});

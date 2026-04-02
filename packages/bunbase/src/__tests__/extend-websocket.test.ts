@@ -33,8 +33,22 @@ function waitForOpen(ws: WebSocket, timeout = 3000): Promise<void> {
   if (ws.readyState === WebSocket.OPEN) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("waitForOpen: timeout")), timeout);
-    ws.addEventListener("open", () => { clearTimeout(timer); resolve(); }, { once: true });
-    ws.addEventListener("error", (e) => { clearTimeout(timer); reject(e); }, { once: true });
+    ws.addEventListener(
+      "open",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+    ws.addEventListener(
+      "error",
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+      { once: true },
+    );
   });
 }
 
@@ -42,17 +56,28 @@ function waitForClose(ws: WebSocket, timeout = 3000): Promise<void> {
   if (ws.readyState === WebSocket.CLOSED) return Promise.resolve();
   return new Promise((resolve) => {
     const timer = setTimeout(resolve, timeout);
-    ws.addEventListener("close", () => { clearTimeout(timer); resolve(); }, { once: true });
+    ws.addEventListener(
+      "close",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
   });
 }
 
 function waitForMessage(ws: WebSocket, timeout = 3000): Promise<string> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("waitForMessage: timeout")), timeout);
-    ws.addEventListener("message", (event) => {
-      clearTimeout(timer);
-      resolve(event.data as string);
-    }, { once: true });
+    ws.addEventListener(
+      "message",
+      (event) => {
+        clearTimeout(timer);
+        resolve(event.data as string);
+      },
+      { once: true },
+    );
   });
 }
 
@@ -77,18 +102,18 @@ beforeAll(async () => {
       database: { driver: "sqlite", url: dbPath },
       development: true,
     }),
-    extend: (ctx) => ({
+    extend: (_ctx) => ({
       // Basic echo WebSocket — no upgrade function
       "/echo": {
         websocket: defineWebSocket({
-          open(ws) {
+          open(_ws) {
             events.push("echo:open");
           },
           message(ws, message) {
             events.push("echo:message");
             ws.send(`echo:${message}`);
           },
-          close(ws, code, reason) {
+          close(_ws, _code, _reason) {
             events.push("echo:close");
           },
         }),
@@ -107,23 +132,32 @@ beforeAll(async () => {
           open(ws) {
             events.push(`bridge:open:${ws.data.deviceId}`);
           },
-          message(ws, message) {
+          message(ws, _message) {
             ws.data.counter++;
             ws.send(JSON.stringify({ deviceId: ws.data.deviceId, count: ws.data.counter }));
           },
-          close(ws, code, reason) {
+          close(ws, _code, _reason) {
             events.push(`bridge:close:${ws.data.deviceId}`);
           },
         }),
       },
       // Mixed: HTTP + WebSocket on same path
       "/api/hybrid": {
-        GET: (req) => Response.json({ type: "http" }),
+        GET: (_req) => Response.json({ type: "http" }),
         websocket: defineWebSocket({
-          message(ws, message) {
+          message(ws, _message) {
             ws.send("hybrid-ws");
           },
         }),
+      },
+      // Unscoped routes — outside /api/, no CSRF
+      "/.well-known/test": {
+        unscoped: true,
+        GET: () => Response.json({ ok: true }),
+      },
+      "/token": {
+        unscoped: true,
+        POST: () => Response.json({ granted: true }),
       },
     }),
   });
@@ -140,7 +174,9 @@ afterAll(() => {
   server?.stop();
   try {
     rmSync(root, { recursive: true, force: true });
-  } catch { /* best-effort */ }
+  } catch {
+    /* best-effort */
+  }
 });
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -189,8 +225,8 @@ test("upgrade() attaches typed data to ws.data", async () => {
 test("upgrade() returning Response rejects the connection", async () => {
   const res = await fetch(`${base}/bridge?token=reject`, {
     headers: {
-      "Upgrade": "websocket",
-      "Connection": "Upgrade",
+      Upgrade: "websocket",
+      Connection: "Upgrade",
       "Sec-WebSocket-Key": btoa(crypto.randomUUID()),
       "Sec-WebSocket-Version": "13",
     },
@@ -258,6 +294,24 @@ test("HTTP-only extend routes still require /api/ prefix", () => {
   }).toThrow(/extend routes must be under \/api\//);
 });
 
+test("error message mentions unscoped opt-out", () => {
+  expect(() => {
+    createServer({
+      schema: { users },
+      rules: {},
+      config: makeResolvedConfig({
+        database: { driver: "sqlite", url: ":memory:" },
+        development: true,
+      }),
+      extend: () => ({
+        "/custom": {
+          GET: () => new Response("nope"),
+        },
+      }),
+    });
+  }).toThrow(/unscoped: true/);
+});
+
 test("cannot override /realtime WebSocket path", () => {
   expect(() => {
     createServer({
@@ -276,4 +330,48 @@ test("cannot override /realtime WebSocket path", () => {
       }),
     });
   }).toThrow(/Cannot override built-in \/realtime/);
+});
+
+// ─── Unscoped routes ──────────────────────────────────────────────────────────
+
+test("unscoped route outside /api/ works", async () => {
+  const res = await fetch(`${base}/.well-known/test`);
+  expect(res.status).toBe(200);
+  const json = await res.json();
+  expect(json.ok).toBe(true);
+});
+
+test("unscoped route does not require CSRF for POST", async () => {
+  // POST without CSRF headers — should succeed because unscoped routes
+  // are outside /api/ and CSRF only applies to /api/ paths
+  const res = await fetch(`${base}/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ grant_type: "test" }),
+  });
+  expect(res.status).toBe(200);
+  const json = await res.json();
+  expect(json.granted).toBe(true);
+});
+
+test("unscoped route cannot collide with reserved paths", () => {
+  const reservedPaths = ["/health", "/_admin/custom", "/auth/custom", "/realtime", "/files/test"];
+  for (const path of reservedPaths) {
+    expect(() => {
+      createServer({
+        schema: { users },
+        rules: {},
+        config: makeResolvedConfig({
+          database: { driver: "sqlite", url: ":memory:" },
+          development: true,
+        }),
+        extend: () => ({
+          [path]: {
+            unscoped: true,
+            GET: () => new Response("nope"),
+          },
+        }),
+      });
+    }).toThrow(/collides with reserved path/);
+  }
 });

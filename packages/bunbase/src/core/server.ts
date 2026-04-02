@@ -1,5 +1,5 @@
-import type { ServerWebSocket } from "bun";
 import { readFileSync, writeFileSync } from "node:fs";
+import type { ServerWebSocket } from "bun";
 import type { AnyRelations } from "drizzle-orm/relations";
 
 const adminHTMLPath = new URL("../../dist/admin/index.html", import.meta.url);
@@ -70,19 +70,20 @@ export interface ExtendWebSocketDef<TData = Record<string, never>> {
 }
 
 /** Identity function for TypeScript inference of ws.data type. Consistent with defineRules/defineHooks. */
-export function defineWebSocket<TData>(
-  def: ExtendWebSocketDef<TData>,
-): ExtendWebSocketDef<TData> {
+export function defineWebSocket<TData>(def: ExtendWebSocketDef<TData>): ExtendWebSocketDef<TData> {
   return def;
 }
 
-export type RouteHandlers = Record<
-  string,
-  (req: Request) => Response | Promise<Response>
->;
+export type RouteHandlers = Record<string, (req: Request) => Response | Promise<Response>>;
 
 export type RouteDefinition = RouteHandlers & {
   websocket?: ExtendWebSocketDef<any>;
+  /**
+   * When `true`, the route is exempt from the `/api/` prefix requirement.
+   * Unscoped routes do not receive CSRF protection — use for OAuth endpoints,
+   * well-known URIs, file downloads, and other externally-consumed paths.
+   */
+  unscoped?: boolean;
 };
 
 export type RouteMap = Record<string, RouteDefinition>;
@@ -479,19 +480,34 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
   // WebSocket routes are exempt from the /api/ prefix requirement since WebSocket
   // connections require explicit new WebSocket() calls and aren't CSRF-vulnerable.
   const extendWsRoutes = new Map<string, ExtendWebSocketDef<any>>();
+  const unscopedPaths: string[] = [];
+
+  // Reserved path prefixes that unscoped routes must not collide with
+  const reservedPrefixes = ["/health", "/_admin", "/auth/", "/realtime", "/files/"];
 
   if (options.extend) {
     const filesContext = createFilesContext(db, adminStorage, internalSchema.files);
     const extendRoutes = options.extend({ db, extractAuth, files: filesContext });
     for (const [path, definition] of Object.entries(extendRoutes)) {
-      const { websocket, ...httpHandlers } = definition;
+      const { websocket, unscoped, ...httpHandlers } = definition;
       const hasHttp = Object.keys(httpHandlers).length > 0;
 
       if (hasHttp) {
-        if (!path.startsWith("/api/")) {
+        if (!unscoped && !path.startsWith("/api/")) {
           throw new Error(
-            `BunBase: extend routes must be under /api/. Got: "${path}". This ensures CSRF protection is applied automatically.`,
+            `BunBase: extend routes must be under /api/. Got: "${path}". ` +
+              "This ensures CSRF protection is applied automatically. " +
+              "Use `unscoped: true` to opt out of this requirement.",
           );
+        }
+        if (unscoped) {
+          for (const prefix of reservedPrefixes) {
+            if (path === prefix || path.startsWith(prefix)) {
+              throw new Error(
+                `BunBase: unscoped extend route "${path}" collides with reserved path "${prefix}".`,
+              );
+            }
+          }
         }
         if (httpRoutes[path]) {
           throw new Error(`BunBase: Cannot merge extend routes due to path collision: ${path}`);
@@ -502,13 +518,12 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
           );
         }
         httpRoutes[path] = httpHandlers;
+        if (unscoped) unscopedPaths.push(path);
       }
 
       if (websocket) {
         if (path === "/realtime") {
-          throw new Error(
-            "BunBase: Cannot override built-in /realtime WebSocket endpoint.",
-          );
+          throw new Error("BunBase: Cannot override built-in /realtime WebSocket endpoint.");
         }
         if (extendWsRoutes.has(path)) {
           throw new Error(`BunBase: Duplicate WebSocket path: ${path}`);
@@ -585,15 +600,13 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
 
     // Unified WebSocket handler — dispatches to extend WS routes or realtime based on ws.data.
     // Bun.serve() only allows one `websocket` handler object, so all WS connections share it.
-    const hasAnyWebSockets =
-      !!(realtimeManager && realtimePresence) || extendWsRoutes.size > 0;
+    const hasAnyWebSockets = !!(realtimeManager && realtimePresence) || extendWsRoutes.size > 0;
 
     // Merge WS configs — use most permissive values since Bun allows only one config
     let wsIdleTimeout = 120;
     let wsMaxPayloadLength = 16 * 1024 * 1024;
     for (const def of extendWsRoutes.values()) {
-      if (def.idleTimeout !== undefined)
-        wsIdleTimeout = Math.max(wsIdleTimeout, def.idleTimeout);
+      if (def.idleTimeout !== undefined) wsIdleTimeout = Math.max(wsIdleTimeout, def.idleTimeout);
       if (def.maxPayloadLength !== undefined)
         wsMaxPayloadLength = Math.max(wsMaxPayloadLength, def.maxPayloadLength);
     }
@@ -609,25 +622,14 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
             if (WS_PATH_KEY in ws.data) {
               await extendWsRoutes.get(ws.data[WS_PATH_KEY])?.message(ws, raw);
             } else if (realtimeManager && realtimePresence) {
-              await handleWebSocketMessage(
-                ws,
-                raw,
-                bunServer,
-                realtimeManager,
-                realtimePresence,
-              );
+              await handleWebSocketMessage(ws, raw, bunServer, realtimeManager, realtimePresence);
             }
           },
           close(ws: any, code: number, reason: string) {
             if (WS_PATH_KEY in ws.data) {
               extendWsRoutes.get(ws.data[WS_PATH_KEY])?.close?.(ws, code, reason);
             } else if (realtimeManager && realtimePresence) {
-              handleWebSocketClose(
-                ws,
-                bunServer,
-                realtimeManager,
-                realtimePresence,
-              );
+              handleWebSocketClose(ws, bunServer, realtimeManager, realtimePresence);
             }
           },
           error(ws: any, error: Error) {
@@ -818,9 +820,10 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
       "/_admin/*": () => new Response(Bun.file(adminHTMLPath)),
     };
 
-    // Forward extend WS paths so they reach masterFetch for upgrade handling
-    const extendWsForwards = Object.fromEntries(
-      Array.from(extendWsRoutes.keys()).map((path) => [
+    // Forward extend WS + unscoped paths so they reach masterFetch instead
+    // of being swallowed by the SPA catch-all (/*).
+    const extendForwards = Object.fromEntries(
+      [...extendWsRoutes.keys(), ...unscopedPaths].map((path) => [
         path,
         (req: Request, srv: any) => masterFetch(req, srv),
       ]),
@@ -831,7 +834,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
           "/api/*": (req: Request, srv: any) => masterFetch(req, srv),
           "/files/*": (req: Request, srv: any) => masterFetch(req, srv),
           "/realtime": (req: Request, srv: any) => masterFetch(req, srv),
-          ...extendWsForwards,
+          ...extendForwards,
           // SPA catch-all — served via Bun's HTML bundler (HMR, TSX, CSS)
           "/*": config.frontend?.html,
         }

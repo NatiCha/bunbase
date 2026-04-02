@@ -59,7 +59,8 @@ Your custom routes are now available at `/api/stats` and `/api/my-tasks`.
 
 ## Constraints
 
-- All HTTP extend routes **must** be under `/api/`. BunBase throws a startup error for any route outside this prefix. This ensures CSRF protection is automatically applied to all mutation methods (`POST`, `PATCH`, `DELETE`).
+- By default, HTTP extend routes **must** be under `/api/`. This ensures CSRF protection is automatically applied to all mutation methods (`POST`, `PATCH`, `DELETE`).
+- Use `unscoped: true` to opt out of the `/api/` prefix requirement (see [Unscoped routes](#unscoped-routes) below).
 - WebSocket routes are exempt from the `/api/` prefix requirement (WebSocket connections require explicit `new WebSocket()` calls and are not CSRF-vulnerable).
 - Path collisions with generated CRUD routes throw a startup error.
 - WebSocket routes cannot override the built-in `/realtime` endpoint.
@@ -125,6 +126,45 @@ const res = await fetch("/api/my-tasks", {
   body: JSON.stringify({ title: "New Task" }),
 });
 ```
+
+## Unscoped routes
+
+Routes outside `/api/` are useful for OAuth endpoints, well-known URIs, file downloads, and other externally-consumed paths. Set `unscoped: true` to opt out of the `/api/` prefix requirement:
+
+```ts
+extend: (ctx) => ({
+  // Normal route — under /api/, CSRF protected
+  "/api/v1/health": { GET: () => Response.json({ status: "ok" }) },
+
+  // Unscoped — outside /api/, no CSRF
+  "/.well-known/oauth-authorization-server": {
+    unscoped: true,
+    GET: () => Response.json({ issuer: "https://auth.example.com" }),
+  },
+
+  "/token": {
+    unscoped: true,
+    POST: async (req) => {
+      // OAuth token endpoint — no CSRF needed
+      const body = await req.json();
+      return Response.json({ access_token: "..." });
+    },
+  },
+
+  "/install.sh": {
+    unscoped: true,
+    GET: () => new Response("#!/bin/sh\ncurl ...", {
+      headers: { "Content-Type": "text/plain" },
+    }),
+  },
+})
+```
+
+**Key behavior:**
+
+- CSRF is **not** applied to unscoped routes (CSRF only covers `/api/` and `/_admin/api/` paths).
+- Unscoped routes cannot collide with reserved paths: `/health`, `/_admin*`, `/auth/*`, `/realtime`, `/files/*`.
+- CORS headers are still applied to unscoped routes.
 
 ## WebSocket routes
 
