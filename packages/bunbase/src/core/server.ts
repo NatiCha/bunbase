@@ -17,7 +17,7 @@ import { createGuestRoutes } from "../auth/guest.ts";
 import { createInvitationRoutes } from "../auth/invitations.ts";
 import { createJwtRoutes } from "../auth/jwt/routes.ts";
 import { createTotpRoutes } from "../auth/mfa/totp.ts";
-import { extractAuth as extractAuthFromReq, isBearerOnly } from "../auth/middleware.ts";
+import { extractAuth as extractAuthFromReq, extractSessionId } from "../auth/middleware.ts";
 import { createOAuthRoutes } from "../auth/oauth/routes.ts";
 import { createOrganizationRoutes } from "../auth/organizations/routes.ts";
 import { createPasskeyRoutes } from "../auth/passkeys.ts";
@@ -711,13 +711,14 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
       req = new Request(req, { headers: enrichedHeaders });
 
       // CSRF check for state-changing mutations — covers both /api/ and /_admin/api/.
-      // Skipped for bearer-only requests (no session cookie present) since CSRF attacks
-      // require the victim's browser to send cookies automatically.
+      // Skipped when no session cookie is present since CSRF attacks require the
+      // victim's browser to send cookies automatically. This covers bearer-only
+      // requests as well as fully public/token-based endpoints (e.g. client portals).
       if (
         (pathname.startsWith("/api/") || pathname.startsWith("/_admin/api/")) &&
         ["POST", "PATCH", "DELETE"].includes(req.method) &&
         !isCsrfExempt(pathname) &&
-        !isBearerOnly(req)
+        extractSessionId(req) !== null
       ) {
         if (!validateCsrf(req)) {
           return addCorsHeaders(
