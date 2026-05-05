@@ -24,7 +24,7 @@
     "bunbase": "workspace:*",
     "class-variance-authority": "^0.7",
     "clsx": "^2",
-    "drizzle-orm": "1.0.0-beta.15-859cf75",
+    "drizzle-orm": "1.0.0-rc.1",
     "lucide-react": "^0.469",
     "react": "^19",
     "react-dom": "^19",
@@ -35,6 +35,6 @@
     "@types/bun": "latest",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "drizzle-kit": "^1.0.0-beta.15-859cf75"
+    "drizzle-kit": "1.0.0-rc.1"
   }
 }

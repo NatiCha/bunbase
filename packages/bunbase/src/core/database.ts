@@ -74,7 +74,8 @@ function createPostgresDatabase(
   const { drizzle } = require("drizzle-orm/bun-sql") as typeof import("drizzle-orm/bun-sql");
 
   const client = new SQL(config.database.url);
-  const db = drizzle({ client, schema: schema as any, relations: relations as any });
+  // rc.1 removed RQBv1 for postgres; bun-sql/postgres `drizzle()` no longer accepts `schema`.
+  const db = drizzle({ client, relations: relations as any });
   const adapter = new PostgresAdapter(config.database.url);
 
   return { db, dialect: "postgres", adapter };

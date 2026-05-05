@@ -18,7 +18,7 @@ export type AnyDb<
   TRelations extends AnyRelations = AnyRelations,
 > =
   | SQLiteBunDatabase<TSchema, TRelations>
-  | BunSQLDatabase<TSchema, TRelations>
+  | BunSQLDatabase<TRelations>
   | BunMySqlDatabase<TSchema, TRelations>;
 
 /**
