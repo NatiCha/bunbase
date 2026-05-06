@@ -24,6 +24,13 @@ export interface DatabaseConfig {
   user?: string;
   password?: string;
   dbName?: string;
+  /** Connection pool tuning (Postgres/MySQL only). Ignored for SQLite. */
+  pool?: {
+    /** Max concurrent connections per pool. Default: Bun.SQL default (10). */
+    max?: number;
+    /** Idle timeout in seconds before a connection is closed. Default: Bun.SQL default. */
+    idleTimeout?: number;
+  };
 }
 
 export interface BunBaseConfig {
@@ -253,6 +260,11 @@ export function defineConfig(config: BunBaseConfig): BunBaseConfig {
 export interface ResolvedDatabaseConfig {
   driver: "sqlite" | "postgres" | "mysql";
   url: string; // normalized connection string
+  /** Connection pool config (Postgres/MySQL). undefined leaves Bun.SQL defaults. */
+  pool?: {
+    max?: number;
+    idleTimeout?: number;
+  };
 }
 
 /** Fully-resolved BunBase runtime configuration with defaults applied. */
@@ -395,7 +407,7 @@ function resolveDatabaseConfig(config?: BunBaseConfig): ResolvedDatabaseConfig {
       if (!url) {
         throw new Error("BunBase: database.url or database.host is required for Postgres");
       }
-      return { driver: "postgres", url };
+      return { driver: "postgres", url, pool: db.pool };
     }
     if (db.driver === "mysql") {
       const url =
@@ -406,7 +418,7 @@ function resolveDatabaseConfig(config?: BunBaseConfig): ResolvedDatabaseConfig {
       if (!url) {
         throw new Error("BunBase: database.url or database.host is required for MySQL");
       }
-      return { driver: "mysql", url };
+      return { driver: "mysql", url, pool: db.pool };
     }
     // SQLite
     return { driver: "sqlite", url: db.url ?? db.path ?? "./data/db.sqlite" };

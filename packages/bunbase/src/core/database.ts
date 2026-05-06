@@ -65,18 +65,26 @@ function createSqliteDatabase(
   return { db, dialect: "sqlite", adapter };
 }
 
+function buildSqlOptions(url: string, pool?: { max?: number; idleTimeout?: number }) {
+  const opts: { url: string; max?: number; idleTimeout?: number } = { url };
+  if (pool?.max !== undefined) opts.max = pool.max;
+  if (pool?.idleTimeout !== undefined) opts.idleTimeout = pool.idleTimeout;
+  return opts;
+}
+
 function createPostgresDatabase(
   config: ResolvedConfig,
-  schema?: Record<string, unknown>,
+  _schema?: Record<string, unknown>,
   relations?: unknown,
 ): DatabaseResult {
   const { SQL } = require("bun") as typeof import("bun");
   const { drizzle } = require("drizzle-orm/bun-sql") as typeof import("drizzle-orm/bun-sql");
 
-  const client = new SQL(config.database.url);
+  const sqlOpts = buildSqlOptions(config.database.url, config.database.pool);
+  const client = new SQL(sqlOpts);
   // rc.1 removed RQBv1 for postgres; bun-sql/postgres `drizzle()` no longer accepts `schema`.
   const db = drizzle({ client, relations: relations as any });
-  const adapter = new PostgresAdapter(config.database.url);
+  const adapter = new PostgresAdapter(config.database.url, config.database.pool);
 
   return { db, dialect: "postgres", adapter };
 }
@@ -90,9 +98,10 @@ function createMysqlDatabase(
   const { drizzle } =
     require("drizzle-orm/bun-sql/mysql") as typeof import("drizzle-orm/bun-sql/mysql");
 
-  const client = new SQL(config.database.url);
+  const sqlOpts = buildSqlOptions(config.database.url, config.database.pool);
+  const client = new SQL(sqlOpts);
   const db = drizzle({ client, schema: schema as any, relations: relations as any });
-  const adapter = new MysqlAdapter(config.database.url);
+  const adapter = new MysqlAdapter(config.database.url, config.database.pool);
 
   return { db, dialect: "mysql", adapter };
 }

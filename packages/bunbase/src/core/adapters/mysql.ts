@@ -1,14 +1,28 @@
 import type { DatabaseAdapter } from "../adapter.ts";
 
+interface PoolOptions {
+  max?: number;
+  idleTimeout?: number;
+}
+
+function buildSqlOptions(url: string, pool?: PoolOptions) {
+  const opts: { url: string; max?: number; idleTimeout?: number } = { url };
+  if (pool?.max !== undefined) opts.max = pool.max;
+  if (pool?.idleTimeout !== undefined) opts.idleTimeout = pool.idleTimeout;
+  return opts;
+}
+
 export class MysqlAdapter implements DatabaseAdapter {
   readonly dialect = "mysql" as const;
   private sql: any; // Bun.SQL instance
   private connectionUrl: string;
+  private pool?: PoolOptions;
 
-  constructor(connectionUrl: string) {
+  constructor(connectionUrl: string, pool?: PoolOptions) {
     const { SQL } = require("bun") as typeof import("bun");
     this.connectionUrl = connectionUrl;
-    this.sql = new SQL(connectionUrl);
+    this.pool = pool;
+    this.sql = new SQL(buildSqlOptions(connectionUrl, pool));
   }
 
   /**
@@ -32,7 +46,8 @@ export class MysqlAdapter implements DatabaseAdapter {
 
       // Connect to the built-in "mysql" system database (always exists)
       url.pathname = "/mysql";
-      const maintenance = new SQL(url.toString());
+      // Maintenance pool is used for a single CREATE DATABASE — cap at 1 conn.
+      const maintenance = new SQL({ url: url.toString(), max: 1 });
       try {
         await maintenance.unsafe(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
         console.log(`[BunBase] Created database "${dbName}"`);
@@ -42,7 +57,7 @@ export class MysqlAdapter implements DatabaseAdapter {
 
       // Reconnect the main pool to the (now-existing) database
       await this.sql.end();
-      this.sql = new SQL(this.connectionUrl);
+      this.sql = new SQL(buildSqlOptions(this.connectionUrl, this.pool));
     }
   }
 
