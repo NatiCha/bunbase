@@ -370,22 +370,42 @@ export function generateCrudHandlers(
     }
 
     let createdRecord: Record<string, unknown> | null = null;
+    let insertError: unknown = null;
     try {
       const returning = await (db as any).insert(table).values(insertData).returning();
       createdRecord = returning[0] ?? null;
-    } catch {
-      // MySQL doesn't support RETURNING — fall back to select by id
+    } catch (err) {
+      insertError = err;
+      // MySQL doesn't support RETURNING — fall back to select by id.
+      // Only attempt the fallback when the caller supplied an id; otherwise
+      // we have no way to locate the row, so surface the underlying error.
       const insertedId = insertData.id ?? insertData[idColumn.name];
       if (insertedId) {
-        const rows = await (db as any).select().from(table).where(eq(idColumn, insertedId));
-        createdRecord = rows[0] ?? null;
+        try {
+          const rows = await (db as any).select().from(table).where(eq(idColumn, insertedId));
+          createdRecord = rows[0] ?? null;
+        } catch (selectErr) {
+          console.error(
+            `[BunBase] insert RETURNING and id-fallback both failed for "${tableName}":`,
+            err,
+            selectErr,
+          );
+        }
+      } else {
+        console.error(
+          `[BunBase] insert RETURNING failed for "${tableName}" and no id was supplied for fallback:`,
+          err,
+        );
       }
     }
 
     if (!createdRecord) {
+      const detail = insertError instanceof Error ? insertError.message : String(insertError ?? '');
       return errorResponse(
         "INTERNAL_SERVER_ERROR",
-        "Record was created but could not be retrieved",
+        detail
+          ? `Insert failed: ${detail}`
+          : "Record was created but could not be retrieved",
         500,
       );
     }
