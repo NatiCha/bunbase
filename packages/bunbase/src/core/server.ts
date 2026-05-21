@@ -74,7 +74,23 @@ export function defineWebSocket<TData>(def: ExtendWebSocketDef<TData>): ExtendWe
   return def;
 }
 
-export type RouteHandlers = Record<string, (req: Request) => Response | Promise<Response>>;
+/**
+ * HTTP methods recognized by the extend-route API. The Fetch standard
+ * normalizes `Request#method` to upper-case, so route definitions must use
+ * upper-case keys to be reachable at runtime.
+ */
+export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
+
+/**
+ * Map of HTTP method → handler. Narrowed to {@link HttpMethod} so that
+ * `RouteDefinition` (a `RouteHandlers & { skipLog?, unscoped?, websocket? }`
+ * intersection) is satisfiable by a plain object literal under strict TS.
+ * A wide `Record<string, …>` index signature would force `skipLog: boolean`
+ * to also satisfy the handler signature, which it can't.
+ */
+export type RouteHandlers = Partial<
+  Record<HttpMethod, (req: Request) => Response | Promise<Response>>
+>;
 
 export type RouteDefinition = RouteHandlers & {
   websocket?: ExtendWebSocketDef<any>;
@@ -800,7 +816,9 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
       // Exact match HTTP routes
       const routeHandlers = httpRoutes[pathname];
       if (routeHandlers) {
-        const handler = routeHandlers[req.method];
+        // req.method is normalized to upper-case per Fetch spec, but TS sees
+        // it as `string` — cast to the narrowed key type.
+        const handler = routeHandlers[req.method as HttpMethod];
         if (handler) {
           const response = await handler(req);
           if (!skipLogPaths.has(pathname)) {

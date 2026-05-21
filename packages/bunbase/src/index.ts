@@ -50,6 +50,9 @@ export type {
   CreateServerOptions,
   ExtendContext,
   ExtendWebSocketDef,
+  HttpMethod,
+  RouteDefinition,
+  RouteHandlers,
   RouteMap,
 } from "./core/server.ts";
 export { createServer, defineWebSocket } from "./core/server.ts";
