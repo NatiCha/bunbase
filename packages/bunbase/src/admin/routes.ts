@@ -1,4 +1,4 @@
-import { desc, eq, getColumns, getTableName } from "drizzle-orm";
+import { desc, eq, getColumns, getTableName, lt } from "drizzle-orm";
 import { z } from "zod/v4";
 import type { AuthUser } from "../api/types.ts";
 import { extractAuth } from "../auth/middleware.ts";
@@ -20,6 +20,10 @@ export interface RequestLogEntry {
   timestamp: string;
 }
 
+const REQUEST_LOG_MAX_ROWS = 500;
+const REQUEST_LOG_TRIM_EVERY = 50;
+let requestLogTrimCounter = 0;
+
 export async function pushRequestLog(
   db: AnyDb,
   internalSchema: InternalSchema,
@@ -36,23 +40,26 @@ export async function pushRequestLog(
     timestamp: entry.timestamp,
   });
 
-  // Trim to 500 most recent entries — use raw SQL since subquery-based delete
-  // is cleaner in raw SQL than Drizzle's API
+  // Trim to the most recent REQUEST_LOG_MAX_ROWS entries. Throttle so we
+  // don't pay a SELECT on every insert. Follow-up: idle servers never trim
+  // because this counter only advances on writes — a setInterval-based
+  // background trimmer would fix that cleanly.
+  requestLogTrimCounter = (requestLogTrimCounter + 1) % REQUEST_LOG_TRIM_EVERY;
+  if (requestLogTrimCounter !== 0) return;
+
   try {
-    // Delete older entries beyond 500
-    // SQLite requires LIMIT before OFFSET, so use a large limit
-    const oldRows = await (db as any)
-      .select({ id: logs.id })
+    // Single statement: delete rows older than the row at position MAX-1
+    // in descending-by-timestamp order. Drizzle compiles a subquery in
+    // WHERE that is dialect-portable (sqlite/postgres/mysql) and uses
+    // idx_request_logs_timestamp on both sides of the comparison.
+    // Boundary: <MAX rows → subquery empty → lt(ts, NULL) matches nothing.
+    const cutoff = (db as any)
+      .select({ ts: logs.timestamp })
       .from(logs)
       .orderBy(desc(logs.timestamp))
-      .limit(999999)
-      .offset(500);
-
-    if (oldRows.length > 0) {
-      for (const row of oldRows) {
-        await (db as any).delete(logs).where(eq(logs.id, row.id));
-      }
-    }
+      .limit(1)
+      .offset(REQUEST_LOG_MAX_ROWS - 1);
+    await (db as any).delete(logs).where(lt(logs.timestamp, cutoff));
   } catch {
     // Non-critical — just log trimming
   }

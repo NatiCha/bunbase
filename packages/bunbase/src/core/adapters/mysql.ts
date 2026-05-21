@@ -5,64 +5,67 @@ interface PoolOptions {
   idleTimeout?: number;
 }
 
-function buildSqlOptions(url: string, pool?: PoolOptions) {
+export function buildSqlOptions(url: string, pool?: PoolOptions) {
   const opts: { url: string; max?: number; idleTimeout?: number } = { url };
   if (pool?.max !== undefined) opts.max = pool.max;
   if (pool?.idleTimeout !== undefined) opts.idleTimeout = pool.idleTimeout;
   return opts;
 }
 
+/**
+ * Probe the target MySQL database and CREATE DATABASE if missing.
+ * Runs against a throwaway `max:1` SQL client that is closed before returning
+ * so the caller can build the real shared pool afterwards. Must run before
+ * the shared client is constructed because Drizzle holds the SQL reference
+ * with no swap API.
+ */
+export async function ensureDatabaseExists(connectionUrl: string): Promise<void> {
+  const { SQL } = require("bun") as typeof import("bun");
+  const probe = new SQL({ url: connectionUrl, max: 1 });
+  try {
+    await probe`SELECT 1`;
+    return;
+  } catch (err: any) {
+    const msg: string = err?.message ?? "";
+    if (!msg.includes("Unknown database")) {
+      throw err;
+    }
+
+    const url = new URL(connectionUrl);
+    const dbName = url.pathname.replace(/^\//, "");
+    if (!dbName) throw err;
+
+    url.pathname = "/mysql";
+    const maintenance = new SQL({ url: url.toString(), max: 1 });
+    try {
+      await maintenance.unsafe(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
+      console.log(`[BunBase] Created database "${dbName}"`);
+    } finally {
+      await maintenance.end();
+    }
+  } finally {
+    await probe.end().catch(() => {});
+  }
+}
+
 export class MysqlAdapter implements DatabaseAdapter {
   readonly dialect = "mysql" as const;
-  private sql: any; // Bun.SQL instance
+  // Shared SQL client — owned by this adapter for lifecycle (close()).
+  // The same instance is held by the drizzle client; do NOT close it from the
+  // drizzle side. Closing one silently closes the other.
+  private sql: any;
   private connectionUrl: string;
-  private pool?: PoolOptions;
 
-  constructor(connectionUrl: string, pool?: PoolOptions) {
-    const { SQL } = require("bun") as typeof import("bun");
+  constructor(sql: any, connectionUrl: string) {
+    this.sql = sql;
     this.connectionUrl = connectionUrl;
-    this.pool = pool;
-    this.sql = new SQL(buildSqlOptions(connectionUrl, pool));
-  }
-
-  /**
-   * Ensure the target database exists. MySQL supports `CREATE DATABASE IF NOT EXISTS`
-   * natively, so we connect to the server without a database and create it.
-   */
-  private async ensureDatabase(): Promise<void> {
-    const { SQL } = require("bun") as typeof import("bun");
-    try {
-      await this.sql`SELECT 1`;
-    } catch (err: any) {
-      const msg: string = err?.message ?? "";
-      // Only auto-create for "Unknown database" — other errors (auth, network) should surface
-      if (!msg.includes("Unknown database")) {
-        throw err;
-      }
-
-      const url = new URL(this.connectionUrl);
-      const dbName = url.pathname.replace(/^\//, "");
-      if (!dbName) throw err;
-
-      // Connect to the built-in "mysql" system database (always exists)
-      url.pathname = "/mysql";
-      // Maintenance pool is used for a single CREATE DATABASE — cap at 1 conn.
-      const maintenance = new SQL({ url: url.toString(), max: 1 });
-      try {
-        await maintenance.unsafe(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
-        console.log(`[BunBase] Created database "${dbName}"`);
-      } finally {
-        await maintenance.end();
-      }
-
-      // Reconnect the main pool to the (now-existing) database
-      await this.sql.end();
-      this.sql = new SQL(buildSqlOptions(this.connectionUrl, this.pool));
-    }
   }
 
   async bootstrapInternalTables(): Promise<void> {
-    await this.ensureDatabase();
+    // Auto-create the target DB if missing, BEFORE the shared SQL pool issues
+    // its first query. `new SQL(...)` in Bun is lazy — no connection until
+    // first query — so we're safe to do this here.
+    await ensureDatabaseExists(this.connectionUrl);
 
     await this.sql.unsafe(`
       CREATE TABLE IF NOT EXISTS \`_sessions\` (

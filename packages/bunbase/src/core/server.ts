@@ -84,6 +84,17 @@ export type RouteDefinition = RouteHandlers & {
    * well-known URIs, file downloads, and other externally-consumed paths.
    */
   unscoped?: boolean;
+  /**
+   * When `true`, this route does not write a row to `_request_logs`.
+   * Use for diagnostic endpoints (e.g. `/api/debug/dump`) that must answer
+   * even when the DB log table is wedged.
+   *
+   * Independent from `unscoped`: `unscoped` exempts the route from the
+   * `/api/` prefix requirement (and the CSRF coupling that implies);
+   * `skipLog` only controls the per-request log insert. Combine them when
+   * you want both, set them independently when you don't.
+   */
+  skipLog?: boolean;
 };
 
 export type RouteMap = Record<string, RouteDefinition>;
@@ -481,6 +492,10 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
   // connections require explicit new WebSocket() calls and aren't CSRF-vulnerable.
   const extendWsRoutes = new Map<string, ExtendWebSocketDef<any>>();
   const unscopedPaths: string[] = [];
+  const skipLogPaths = new Set<string>();
+  // For pattern routes the original path string is dropped (only the regex
+  // survives), so we look up skipLog by the regex source when matching.
+  const skipLogPatternPaths = new Set<string>();
 
   // Reserved path prefixes that unscoped routes must not collide with
   const reservedPrefixes = ["/health", "/_admin", "/auth/", "/realtime", "/files/"];
@@ -489,7 +504,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     const filesContext = createFilesContext(db, adminStorage, internalSchema.files);
     const extendRoutes = options.extend({ db, extractAuth, files: filesContext });
     for (const [path, definition] of Object.entries(extendRoutes)) {
-      const { websocket, unscoped, ...httpHandlers } = definition;
+      const { websocket, unscoped, skipLog, ...httpHandlers } = definition;
       const hasHttp = Object.keys(httpHandlers).length > 0;
 
       if (hasHttp) {
@@ -519,6 +534,13 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
         }
         httpRoutes[path] = httpHandlers;
         if (unscoped) unscopedPaths.push(path);
+        if (skipLog) {
+          if (path.includes(":")) {
+            skipLogPatternPaths.add(path);
+          } else {
+            skipLogPaths.add(path);
+          }
+        }
       }
 
       if (websocket) {
@@ -528,6 +550,9 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
         if (extendWsRoutes.has(path)) {
           throw new Error(`BunBase: Duplicate WebSocket path: ${path}`);
         }
+        // Note: `skipLog` is silently ignored on WS-only routes. WebSocket
+        // connections never write `_request_logs`, so the flag would be a
+        // no-op here.
         extendWsRoutes.set(path, websocket);
       }
     }
@@ -556,6 +581,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
   const patternRoutes: Array<{
     pattern: RegExp;
     handlers: Record<string, (req: Request) => Response | Promise<Response>>;
+    skipLog: boolean;
   }> = [];
 
   // Convert Express-style :param routes from httpRoutes to regex patterns
@@ -565,15 +591,17 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
       patternRoutes.push({
         pattern: regex,
         handlers: handlers as Record<string, (req: Request) => Response | Promise<Response>>,
+        skipLog: skipLogPatternPaths.has(path),
       });
       delete httpRoutes[path];
     }
   }
 
-  // Add CRUD item routes (/api/{table}/:id) to patternRoutes
+  // Add CRUD item routes (/api/{table}/:id) to patternRoutes.
+  // CRUD-generated routes always log — extend routes are the only opt-out surface.
   for (const [path, handlers] of Object.entries(crudPattern)) {
     const regex = new RegExp(`^${path.replace(/:[a-zA-Z]+/g, "([^/]+)")}$`);
-    patternRoutes.push({ pattern: regex, handlers });
+    patternRoutes.push({ pattern: regex, handlers, skipLog: false });
   }
 
   function listen(port?: number) {
@@ -745,22 +773,27 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
           usersTable,
         );
         const durationMs = Date.now() - start;
-        const user = await extractAuthFromReq(
-          req,
-          db,
-          internalSchema,
-          usersTable,
-          config.serviceKey,
-        ).catch(() => null);
-        await pushRequestLog(db, internalSchema, {
-          id: Bun.randomUUIDv7(),
-          method: req.method,
-          path: pathname,
-          status: response.status,
-          durationMs,
-          userId: user?.id ?? null,
-          timestamp: new Date().toISOString(),
-        });
+        // Fire-and-forget — DB writes for the log row must not block the
+        // response. If the pool is wedged, the handler has already produced
+        // a response; we just lose the log row.
+        void (async () => {
+          const user = await extractAuthFromReq(
+            req,
+            db,
+            internalSchema,
+            usersTable,
+            config.serviceKey,
+          ).catch(() => null);
+          await pushRequestLog(db, internalSchema, {
+            id: Bun.randomUUIDv7(),
+            method: req.method,
+            path: pathname,
+            status: response.status,
+            durationMs,
+            userId: user?.id ?? null,
+            timestamp: new Date().toISOString(),
+          });
+        })().catch((err) => console.warn("[BunBase] Failed to log request:", err));
         return addCorsHeaders(response, req, config);
       }
 
@@ -770,19 +803,27 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
         const handler = routeHandlers[req.method];
         if (handler) {
           const response = await handler(req);
-          await logRequest(db, internalSchema, req, pathname, start, response, null);
+          if (!skipLogPaths.has(pathname)) {
+            logRequest(db, internalSchema, req, pathname, start, response, null).catch((err) =>
+              console.warn("[BunBase] Failed to log request:", err),
+            );
+          }
           return addCorsHeaders(response, req, config);
         }
         return addCorsHeaders(new Response("Method Not Allowed", { status: 405 }), req, config);
       }
 
       // Pattern match HTTP routes (file routes + CRUD item routes with params)
-      for (const { pattern, handlers } of patternRoutes) {
+      for (const { pattern, handlers, skipLog } of patternRoutes) {
         if (pattern.test(pathname)) {
           const handler = handlers[req.method];
           if (handler) {
             const response = await handler(req);
-            await logRequest(db, internalSchema, req, pathname, start, response, null);
+            if (!skipLog) {
+              logRequest(db, internalSchema, req, pathname, start, response, null).catch((err) =>
+                console.warn("[BunBase] Failed to log request:", err),
+              );
+            }
             return addCorsHeaders(response, req, config);
           }
           return addCorsHeaders(new Response("Method Not Allowed", { status: 405 }), req, config);
@@ -806,7 +847,9 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
       } else {
         notFound = errorResponse("NOT_FOUND", "Route not found", 404);
       }
-      await logRequest(db, internalSchema, req, pathname, start, notFound, null);
+      logRequest(db, internalSchema, req, pathname, start, notFound, null).catch((err) =>
+        console.warn("[BunBase] Failed to log request:", err),
+      );
       return addCorsHeaders(notFound, req, config);
     }
 

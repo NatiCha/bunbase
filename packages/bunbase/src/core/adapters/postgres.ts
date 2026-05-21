@@ -5,66 +5,69 @@ interface PoolOptions {
   idleTimeout?: number;
 }
 
-function buildSqlOptions(url: string, pool?: PoolOptions) {
+export function buildSqlOptions(url: string, pool?: PoolOptions) {
   const opts: { url: string; max?: number; idleTimeout?: number } = { url };
   if (pool?.max !== undefined) opts.max = pool.max;
   if (pool?.idleTimeout !== undefined) opts.idleTimeout = pool.idleTimeout;
   return opts;
 }
 
+/**
+ * Probe the target Postgres database and CREATE DATABASE if missing.
+ * Runs against a throwaway `max:1` SQL client that is closed before returning
+ * so the caller can build the real shared pool afterwards. Must run before
+ * the shared client is constructed because Drizzle holds the SQL reference
+ * with no swap API — re-pointing it post-hoc is not supported.
+ */
+export async function ensureDatabaseExists(connectionUrl: string): Promise<void> {
+  const { SQL } = require("bun") as typeof import("bun");
+  const probe = new SQL({ url: connectionUrl, max: 1 });
+  try {
+    await probe`SELECT 1`;
+    return;
+  } catch (err: any) {
+    const msg: string = err?.message ?? "";
+    if (!msg.includes("does not exist") && !msg.includes("database")) {
+      throw err;
+    }
+
+    const url = new URL(connectionUrl);
+    const dbName = url.pathname.replace(/^\//, "");
+    if (!dbName) throw err;
+
+    url.pathname = "/postgres";
+    const maintenance = new SQL({ url: url.toString(), max: 1 });
+    try {
+      await maintenance.unsafe(`CREATE DATABASE "${dbName}"`);
+      console.log(`[BunBase] Created database "${dbName}"`);
+    } finally {
+      await maintenance.end();
+    }
+  } finally {
+    await probe.end().catch(() => {
+      // Probe may have errored before the connection was usable; ignore.
+    });
+  }
+}
+
 export class PostgresAdapter implements DatabaseAdapter {
   readonly dialect = "postgres" as const;
-  private sql: any; // Bun.SQL instance
+  // Shared SQL client — owned by this adapter for lifecycle (close()).
+  // The same instance is held by the drizzle client; do NOT close it from the
+  // drizzle side. Closing one silently closes the other.
+  private sql: any;
   private connectionUrl: string;
-  private pool?: PoolOptions;
 
-  constructor(connectionUrl: string, pool?: PoolOptions) {
-    const { SQL } = require("bun") as typeof import("bun");
+  constructor(sql: any, connectionUrl: string) {
+    this.sql = sql;
     this.connectionUrl = connectionUrl;
-    this.pool = pool;
-    this.sql = new SQL(buildSqlOptions(connectionUrl, pool));
-  }
-
-  /**
-   * Ensure the target database exists. If not, connect to the default
-   * "postgres" maintenance database and CREATE DATABASE automatically —
-   * the same zero-config experience users get with SQLite.
-   */
-  private async ensureDatabase(): Promise<void> {
-    const { SQL } = require("bun") as typeof import("bun");
-    try {
-      // Probe the connection — this will throw if the DB doesn't exist
-      await this.sql`SELECT 1`;
-    } catch (err: any) {
-      const msg: string = err?.message ?? "";
-      if (!msg.includes("does not exist") && !msg.includes("database")) {
-        throw err; // Unrelated error — surface it
-      }
-
-      // Parse the database name out of the connection URL
-      const url = new URL(this.connectionUrl);
-      const dbName = url.pathname.replace(/^\//, "");
-      if (!dbName) throw err;
-
-      // Connect to the maintenance DB and create the target DB
-      url.pathname = "/postgres";
-      // Maintenance pool is used for a single CREATE DATABASE — cap at 1 conn.
-      const maintenance = new SQL({ url: url.toString(), max: 1 });
-      try {
-        await maintenance.unsafe(`CREATE DATABASE "${dbName}"`);
-        console.log(`[BunBase] Created database "${dbName}"`);
-      } finally {
-        await maintenance.end();
-      }
-
-      // Reconnect the main pool to the (now-existing) database
-      await this.sql.end();
-      this.sql = new SQL(buildSqlOptions(this.connectionUrl, this.pool));
-    }
   }
 
   async bootstrapInternalTables(): Promise<void> {
-    await this.ensureDatabase();
+    // Auto-create the target DB if missing, BEFORE the shared SQL pool issues
+    // its first query. `new SQL(...)` in Bun is lazy — no connection until
+    // first query — so we're safe to do this here.
+    await ensureDatabaseExists(this.connectionUrl);
     await this.sql`
       CREATE TABLE IF NOT EXISTS _sessions (
         id TEXT PRIMARY KEY,

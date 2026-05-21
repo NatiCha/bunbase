@@ -1,8 +1,11 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { DatabaseAdapter } from "./adapter.ts";
-import { MysqlAdapter } from "./adapters/mysql.ts";
-import { PostgresAdapter } from "./adapters/postgres.ts";
+import { buildSqlOptions as buildMysqlSqlOptions, MysqlAdapter } from "./adapters/mysql.ts";
+import {
+  buildSqlOptions as buildPostgresSqlOptions,
+  PostgresAdapter,
+} from "./adapters/postgres.ts";
 import { SqliteAdapter } from "./adapters/sqlite.ts";
 import type { ResolvedConfig } from "./config.ts";
 import type { AnyDb, Dialect } from "./db-types.ts";
@@ -65,13 +68,6 @@ function createSqliteDatabase(
   return { db, dialect: "sqlite", adapter };
 }
 
-function buildSqlOptions(url: string, pool?: { max?: number; idleTimeout?: number }) {
-  const opts: { url: string; max?: number; idleTimeout?: number } = { url };
-  if (pool?.max !== undefined) opts.max = pool.max;
-  if (pool?.idleTimeout !== undefined) opts.idleTimeout = pool.idleTimeout;
-  return opts;
-}
-
 function createPostgresDatabase(
   config: ResolvedConfig,
   _schema?: Record<string, unknown>,
@@ -80,11 +76,15 @@ function createPostgresDatabase(
   const { SQL } = require("bun") as typeof import("bun");
   const { drizzle } = require("drizzle-orm/bun-sql") as typeof import("drizzle-orm/bun-sql");
 
-  const sqlOpts = buildSqlOptions(config.database.url, config.database.pool);
+  // Build the SQL pool once and share it between drizzle and the adapter so
+  // `pool.max` caps real socket count. Bun.SQL is lazy — no connection is
+  // opened until the first query, which happens inside bootstrapInternalTables
+  // after `ensureDatabaseExists` has guaranteed the target DB exists.
+  const sqlOpts = buildPostgresSqlOptions(config.database.url, config.database.pool);
   const client = new SQL(sqlOpts);
   // rc.1 removed RQBv1 for postgres; bun-sql/postgres `drizzle()` no longer accepts `schema`.
   const db = drizzle({ client, relations: relations as any });
-  const adapter = new PostgresAdapter(config.database.url, config.database.pool);
+  const adapter = new PostgresAdapter(client, config.database.url);
 
   return { db, dialect: "postgres", adapter };
 }
@@ -98,10 +98,10 @@ function createMysqlDatabase(
   const { drizzle } =
     require("drizzle-orm/bun-sql/mysql") as typeof import("drizzle-orm/bun-sql/mysql");
 
-  const sqlOpts = buildSqlOptions(config.database.url, config.database.pool);
+  const sqlOpts = buildMysqlSqlOptions(config.database.url, config.database.pool);
   const client = new SQL(sqlOpts);
   const db = drizzle({ client, schema: schema as any, relations: relations as any });
-  const adapter = new MysqlAdapter(config.database.url, config.database.pool);
+  const adapter = new MysqlAdapter(client, config.database.url);
 
   return { db, dialect: "mysql", adapter };
 }

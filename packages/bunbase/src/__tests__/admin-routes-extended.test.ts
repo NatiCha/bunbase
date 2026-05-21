@@ -96,8 +96,9 @@ test("pushRequestLog inserts a log entry", async () => {
 
 test("pushRequestLog trims to 500 most recent entries", async () => {
   const { sqlite, db, internalSchema } = setupDb();
-  // Insert 505 entries — oldest should be trimmed
-  for (let i = 1; i <= 505; i++) {
+  // Trim is throttled to every 50th insert. Insert enough rows for at least
+  // one post-cap trim to fire (650 = 500 cap + 3 throttle windows).
+  for (let i = 1; i <= 650; i++) {
     await pushRequestLog(db, internalSchema, {
       id: `log-${i}`,
       method: "GET",
@@ -110,7 +111,11 @@ test("pushRequestLog trims to 500 most recent entries", async () => {
   }
 
   const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM _request_logs").get();
-  expect(count?.n).toBeLessThanOrEqual(500);
+  // Trim is throttled to every 50th insert, so the count can briefly drift
+  // above 500 between windows. Loose bound: cap + throttle window = 550.
+  // Without trim, 650 inserts would leave 650 rows; if count is ≤ 550 we
+  // know throttled trim is working.
+  expect(count?.n).toBeLessThanOrEqual(550);
   sqlite.close();
 });
 
