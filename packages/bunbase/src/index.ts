@@ -27,6 +27,8 @@ export {
 } from "./auth/organizations/helpers.ts";
 export type { SmsMessage, SmsTransport } from "./auth/sms/types.ts";
 export type {
+  AccountDeletionConfirmation,
+  AuthResult,
   BunBaseAPI,
   ChannelClient,
   ListParams,

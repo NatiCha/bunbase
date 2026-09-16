@@ -212,7 +212,8 @@ you don't use `auth.mfa.totp`, skip.
 `POST /auth/mfa/totp/verify`. Previously these paths fully logged the user in
 (the bypass this release fixes).
 
-`auth.login` now returns the discriminated union
+`auth.login`, `auth.magicLink.verify`, `auth.otp.verify`, and `auth.smsOtp.verify`
+now return the discriminated union
 `{ user } | { mfaRequired: true; mfaMethods: string[] }`.
 
 **Detect.**
@@ -226,7 +227,7 @@ TOTP entry screen, then call the verify endpoint:
 const result = await client.auth.login({ email, password });
 if ("mfaRequired" in result) {
   // show TOTP input, then:
-  await client.auth.mfa.verify({ code });   // completes the pending session
+  await client.auth.mfa.verify(code);   // completes the pending session
 } else {
   // result.user is authenticated
 }
@@ -333,3 +334,28 @@ upgrade is complete.
   enable passkeys must install it; ordinary consumers do not need the provider.
 - Use `serverFields` in clients for columns filled by server hooks, as described
   in [the client guide](./client.md#server-assigned-fields).
+
+## Organization rule helpers now require the database
+
+**Detect.** Search for `orgMember(`, `orgAdmin(`, and `orgOwner(`.
+
+**Fix.** These helpers now return `Promise<boolean>` and require the current
+rule's database as their third argument. The old two-argument placeholders did
+not check membership. Omitted database arguments now deny access at runtime and
+fail TypeScript checks.
+
+```ts
+update: ({ record, auth, db }) => orgAdmin(record?.orgId as string, auth, db)
+```
+
+When combining checks, use `await orgAdmin(orgId, auth, db)` inside an async rule.
+Do not use an unawaited promise in a boolean condition. Use persisted record
+organization IDs for update/delete, and protect that field from reassignment.
+
+**Verify.** A nonmember must receive 403. Members cannot perform admin/owner
+operations; organization admins cannot perform owner-only operations. Removing
+membership must deny the next request.
+
+File deletion now enforces SQL predicates returned by the collection's delete
+rule and supplies the parent `record` to boolean rules. Check that owners can
+still delete files and nonowners cannot; orphaned file records are denied.

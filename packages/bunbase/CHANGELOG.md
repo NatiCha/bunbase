@@ -28,6 +28,18 @@ consuming app).
 
 ### Security fixes
 
+- File deletion enforces SQL ownership predicates and provides the parent record
+  to boolean rules before removing storage data or metadata.
+- `orgMember`, `orgAdmin`, and `orgOwner` now verify persisted membership and role.
+  **Breaking:** pass `(orgId, auth, db)` and return or await the resulting promise.
+
+- Pending MFA sessions cannot alter enrollment, disable MFA, or regenerate backup
+  codes. TOTP steps, backup codes, and invitation uses are claimed atomically.
+- Expanded relationships apply the related table's hidden-field policy, including
+  custom secrets and aliased password-hash columns.
+- Ownership transfers roll back completely on SQLite/PostgreSQL/MySQL and reject
+  competing transfers. Mandatory MFA uses each server's own configuration.
+
 - **Field policy / sensitive-field protection.** New `fields` option on
   `createServer` and a `defineFields` helper. `passwordHash`/`password_hash` are
   now stripped from **every** output path — HTTP bodies, pagination cursors, and
@@ -60,6 +72,13 @@ consuming app).
   SQL; request bodies are size-limited; local storage has a path-traversal guard.
 
 ### Features / DX
+
+- SDK passwordless login methods expose the MFA result union; account deletion
+  accepts `{ confirmEmail }` or `{ password }` as well as the existing password string.
+- SDK list requests support `count: true`; totals honor permissions and filters
+  and remain independent of cursor position.
+- Invite-required registration treats `inviteCode` as an auth parameter instead
+  of a user-table column.
 
 - Fixed MySQL bootstrap failing on invitation role defaults by using the required
   parenthesized expression syntax for TEXT columns. Verified defaults on MySQL 9.7.2.

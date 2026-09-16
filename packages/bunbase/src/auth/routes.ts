@@ -195,7 +195,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
           const { email, password } = result.data;
 
           const extraFields = Object.entries(raw).filter(
-            ([key]) => key !== "email" && key !== "password",
+            ([key]) => key !== "email" && key !== "password" && key !== "inviteCode",
           );
 
           const signupExtrasByKey: Record<string, unknown> = {};
@@ -566,7 +566,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
 
     "/auth/me": {
       async GET(req: Request): Promise<Response> {
-        const user = await extractAuth(req, db, internalSchema, usersTable);
+        const user = await extractAuth(req, db, internalSchema, usersTable, undefined, config);
         if (!user) {
           return jsonError("UNAUTHORIZED", "Not authenticated", 401);
         }
@@ -585,7 +585,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
           return jsonError("FORBIDDEN", "Invalid CSRF token", 403);
         }
 
-        const user = await extractAuth(req, db, internalSchema, usersTable);
+        const user = await extractAuth(req, db, internalSchema, usersTable, undefined, config);
         if (!user) {
           return jsonError("UNAUTHORIZED", "Not authenticated", 401);
         }

@@ -139,12 +139,23 @@ curl -X POST http://localhost:3000/auth/otp/verify \
 // Magic link
 await client.auth.magicLink.request("alice@example.com");
 // User clicks the link in their email, or:
-const { user } = await client.auth.magicLink.verify(token);
+const result = await client.auth.magicLink.verify(token);
+if ("mfaRequired" in result) {
+  // Prompt for the authenticator code, then complete login:
+  await client.auth.mfa.verify(authenticatorCode);
+} else {
+  console.log(result.user);
+}
 
 // Email OTP
 await client.auth.otp.request("alice@example.com");
-const { user } = await client.auth.otp.verify("alice@example.com", "483921");
+const otpResult = await client.auth.otp.verify("alice@example.com", "483921");
+// Handle the same MFA challenge or user result as above.
 ```
+
+For users with TOTP enrolled, both verification methods return
+`{ mfaRequired: true, mfaMethods: ["totp"] }` instead of `{ user }`. The SDK types
+reflect both outcomes; `onAuthStateChange` reports a login only after MFA completes.
 
 ## Security notes
 

@@ -16,6 +16,8 @@ type TableKeys<S> = {
 export interface ListParams<TExpand extends string = string> {
   /** JSON filter object encoded into `?filter=...`. */
   filter?: Record<string, unknown>;
+  /** Include the total number of authorized, filtered records. */
+  count?: boolean;
   cursor?: string;
   limit?: number;
   sort?: string;
@@ -28,7 +30,17 @@ export interface ListResponse<T> {
   data: T[];
   nextCursor: string | null;
   hasMore: boolean;
+  total?: number;
 }
+
+/** Successful authentication or a pending second-factor challenge. */
+export type AuthResult =
+  | { user: Record<string, unknown> }
+  | { mfaRequired: true; mfaMethods: string[] };
+
+export type AccountDeletionConfirmation =
+  | { password: string; confirmEmail?: never }
+  | { confirmEmail: string; password?: never };
 
 type ExpandKeys<TSelect> = Extract<keyof TSelect, string>;
 
@@ -260,6 +272,7 @@ export function createBunBaseClient<
           if (params?.filter) {
             url.searchParams.set("filter", JSON.stringify(params.filter));
           }
+          if (params?.count !== undefined) url.searchParams.set("count", String(params.count));
           if (params?.cursor) url.searchParams.set("cursor", params.cursor);
           if (params?.limit != null) url.searchParams.set("limit", String(params.limit));
           if (params?.sort) url.searchParams.set("sort", params.sort);
@@ -372,10 +385,8 @@ export function createBunBaseClient<
       username?: string;
       identifier?: string;
       password: string;
-    }): Promise<{ user: Record<string, unknown> } | { mfaRequired: true; mfaMethods: string[] }> {
-      const result = await request<
-        { user: Record<string, unknown> } | { mfaRequired: true; mfaMethods: string[] }
-      >("/auth/login", {
+    }): Promise<AuthResult> {
+      const result = await request<AuthResult>("/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -471,13 +482,13 @@ export function createBunBaseClient<
         });
       },
       async verify(token: string) {
-        const result = await request<{ user: Record<string, unknown> }>("/auth/magic-link/verify", {
+        const result = await request<AuthResult>("/auth/magic-link/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ token }),
           fallbackMessage: "Magic link verification failed",
         });
-        if (result?.user) emitAuthState({ user: result.user });
+        if ("user" in result) emitAuthState({ user: result.user });
         return result;
       },
     },
@@ -493,13 +504,13 @@ export function createBunBaseClient<
         });
       },
       async verify(email: string, code: string) {
-        const result = await request<{ user: Record<string, unknown> }>("/auth/otp/verify", {
+        const result = await request<AuthResult>("/auth/otp/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, code }),
           fallbackMessage: "OTP verification failed",
         });
-        if (result?.user) emitAuthState({ user: result.user });
+        if ("user" in result) emitAuthState({ user: result.user });
         return result;
       },
     },
@@ -665,11 +676,13 @@ export function createBunBaseClient<
     },
 
     // ─── Account Deletion ───
-    async deleteAccount(password?: string) {
+    async deleteAccount(confirmation?: string | AccountDeletionConfirmation) {
       const result = await request<{ deleted: boolean }>("/auth/delete-account", {
         method: "POST",
         headers: mutationHeaders(),
-        body: password ? JSON.stringify({ password }) : "{}",
+        body: JSON.stringify(
+          typeof confirmation === "string" ? { password: confirmation } : (confirmation ?? {}),
+        ),
         fallbackMessage: "Account deletion failed",
       });
       emitAuthState({ user: null });
@@ -708,13 +721,13 @@ export function createBunBaseClient<
         });
       },
       async verify(phone: string, code: string) {
-        const result = await request<{ user: Record<string, unknown> }>("/auth/sms-otp/verify", {
+        const result = await request<AuthResult>("/auth/sms-otp/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ phone, code }),
           fallbackMessage: "SMS OTP verification failed",
         });
-        if (result?.user) emitAuthState({ user: result.user });
+        if ("user" in result) emitAuthState({ user: result.user });
         return result;
       },
     },

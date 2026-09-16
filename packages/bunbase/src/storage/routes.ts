@@ -79,11 +79,12 @@ export function createFileRoutes(deps: FileRouteDeps) {
     }
   }
 
-  const ensureReadAccess = async (
+  const ensureRecordAccess = async (
     collection: string,
     recordId: string,
     auth: Awaited<ReturnType<typeof extractAuth>>,
     req: Request,
+    operation: "get" | "delete",
   ): Promise<Response | null> => {
     const table = collectionTables.get(collection);
     if (!table) {
@@ -101,10 +102,18 @@ export function createFileRoutes(deps: FileRouteDeps) {
     }
 
     const { headers, query } = extractHeadersAndQuery(req);
-    const readRule = rules?.[collection]?.view ?? rules?.[collection]?.get;
-    const ruleResult = await evaluateRule(readRule, {
+    const records = await (db as any).select().from(table).where(eq(idColumn, recordId)).limit(1);
+    const record = records[0];
+    if (!record) return jsonError("FORBIDDEN", "Access denied", 403);
+
+    const rule =
+      operation === "delete"
+        ? rules?.[collection]?.delete
+        : (rules?.[collection]?.view ?? rules?.[collection]?.get);
+    const ruleResult = await evaluateRule(rule, {
       auth,
       id: recordId,
+      record,
       body: {},
       headers,
       query,
@@ -133,7 +142,7 @@ export function createFileRoutes(deps: FileRouteDeps) {
   return {
     "/files/:collection/:recordId": {
       async POST(req: Request): Promise<Response> {
-        const user = await extractAuth(req, db, internalSchema, usersTable);
+        const user = await extractAuth(req, db, internalSchema, usersTable, undefined, config);
         if (!user) {
           return jsonError("UNAUTHORIZED", "Not authenticated", 401);
         }
@@ -257,7 +266,7 @@ export function createFileRoutes(deps: FileRouteDeps) {
 
     "/files/:id": {
       async GET(req: Request): Promise<Response> {
-        const user = await extractAuth(req, db, internalSchema, usersTable);
+        const user = await extractAuth(req, db, internalSchema, usersTable, undefined, config);
         if (!user) {
           return jsonError("UNAUTHORIZED", "Not authenticated", 401);
         }
@@ -277,11 +286,12 @@ export function createFileRoutes(deps: FileRouteDeps) {
           return jsonError("NOT_FOUND", "File not found", 404);
         }
 
-        const accessError = await ensureReadAccess(
+        const accessError = await ensureRecordAccess(
           fileRecord.collection,
           fileRecord.recordId,
           user,
           req,
+          "get",
         );
         if (accessError) {
           return accessError;
@@ -303,7 +313,7 @@ export function createFileRoutes(deps: FileRouteDeps) {
       },
 
       async DELETE(req: Request): Promise<Response> {
-        const user = await extractAuth(req, db, internalSchema, usersTable);
+        const user = await extractAuth(req, db, internalSchema, usersTable, undefined, config);
         if (!user) {
           return jsonError("UNAUTHORIZED", "Not authenticated", 401);
         }
@@ -323,19 +333,14 @@ export function createFileRoutes(deps: FileRouteDeps) {
           return jsonError("NOT_FOUND", "File not found", 404);
         }
 
-        const { headers, query } = extractHeadersAndQuery(req);
-        const deleteRuleResult = await evaluateRule(rules?.[fileRecord.collection]?.delete, {
-          auth: user,
-          id: fileRecord.recordId,
-          body: {},
-          headers,
-          query,
-          method: "DELETE",
-          db,
-        });
-        if (!deleteRuleResult.allowed) {
-          return jsonError("FORBIDDEN", "Access denied", 403);
-        }
+        const accessError = await ensureRecordAccess(
+          fileRecord.collection,
+          fileRecord.recordId,
+          user,
+          req,
+          "delete",
+        );
+        if (accessError) return accessError;
 
         await storage.delete(fileRecord.storagePath);
         await (db as any).delete(files).where(eq(files.id, fileId));

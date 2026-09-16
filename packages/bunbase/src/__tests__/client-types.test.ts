@@ -39,3 +39,28 @@ test("clients without serverFields retain all required insert columns", () => {
   // @ts-expect-error serverFields only accepts columns present in the schema.
   createBunBaseClient({ url: "http://localhost", schema, serverFields: { projects: ["missing"] } });
 });
+
+test("every login method exposes the same MFA challenge union", () => {
+  const client = createBunBaseClient({ url: "http://localhost", schema });
+  type Result = { user: Record<string, unknown> } | { mfaRequired: true; mfaMethods: string[] };
+  expectTypeOf<Awaited<ReturnType<typeof client.auth.login>>>().toEqualTypeOf<Result>();
+  expectTypeOf<Awaited<ReturnType<typeof client.auth.magicLink.verify>>>().toEqualTypeOf<Result>();
+  expectTypeOf<Awaited<ReturnType<typeof client.auth.otp.verify>>>().toEqualTypeOf<Result>();
+  expectTypeOf<Awaited<ReturnType<typeof client.auth.smsOtp.verify>>>().toEqualTypeOf<Result>();
+});
+
+test("SDK and React list options expose counts and optional totals", () => {
+  const client = createBunBaseClient({ url: "http://localhost", schema });
+  const react = createBunBaseReact({ url: "http://localhost", schema });
+  expectTypeOf<
+    NonNullable<Parameters<typeof client.api.projects.list>[0]>["count"]
+  >().toEqualTypeOf<boolean | undefined>();
+  expectTypeOf<Awaited<ReturnType<typeof client.api.projects.list>>["total"]>().toEqualTypeOf<
+    number | undefined
+  >();
+  expectTypeOf<
+    Awaited<
+      ReturnType<ReturnType<typeof react.api.projects.infiniteQueryOptions>["queryFn"]>
+    >["total"]
+  >().toEqualTypeOf<number | undefined>();
+});

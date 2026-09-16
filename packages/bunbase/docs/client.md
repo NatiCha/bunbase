@@ -50,6 +50,10 @@ const { data, nextCursor, hasMore } = await client.api.posts.list({
 // Get a single post
 const post = await client.api.posts.get("post-id");
 
+// Optional total across all authorized, filtered records, not just this page
+const page = await client.api.posts.list({ filter: { published: 1 }, count: true });
+console.log(page.total); // omitted unless count: true was requested
+
 // Create a post
 const newPost = await client.api.posts.create({
   title: "Hello World",

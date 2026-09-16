@@ -1,9 +1,10 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 import { z } from "zod/v4";
 import type { AuthUser } from "../../api/types.ts";
 import type { ResolvedConfig } from "../../core/config.ts";
 import type { AnyDb } from "../../core/db-types.ts";
 import type { InternalSchema } from "../../core/internal-schema.ts";
+import { affectedRows } from "../../core/write-result.ts";
 import type { AuthHooks } from "../../hooks/auth-types.ts";
 import { decrypt, encrypt, resolveMfaEncryptionKey } from "../encryption.ts";
 import { extractSessionId } from "../middleware.ts";
@@ -169,7 +170,8 @@ export function createTotpRoutes(deps: TotpRouteDeps) {
 
       // Decrypt secret and verify code
       const secretBase32 = await decrypt(totpRow.encryptedSecret, encryptionKey);
-      const delta = validateTotpCode(secretBase32, code, totpConfig.window);
+      const now = Math.floor(Date.now() / 1000);
+      const delta = validateTotpCode(secretBase32, code, totpConfig.window, now);
       if (delta === null) {
         return jsonError("UNAUTHORIZED", "Invalid TOTP code", 401);
       }
@@ -252,7 +254,8 @@ export function createTotpRoutes(deps: TotpRouteDeps) {
       }
 
       const secretBase32 = await decrypt(totpRow.encryptedSecret, encryptionKey);
-      const delta = validateTotpCode(secretBase32, code, totpConfig.window);
+      const now = Math.floor(Date.now() / 1000);
+      const delta = validateTotpCode(secretBase32, code, totpConfig.window, now);
       if (delta === null) {
         return jsonError("UNAUTHORIZED", "Invalid TOTP code", 401);
       }
@@ -260,16 +263,23 @@ export function createTotpRoutes(deps: TotpRouteDeps) {
       // Replay guard: reject any code whose absolute time-step has already been
       // accepted. Within a code's still-valid window a TOTP would otherwise be
       // reusable. We persist the highest accepted step per enrollment.
-      const usedStep = getTotpStep() + delta;
-      const lastUsedStep = totpRow.lastUsedStep ?? totpRow.last_used_step ?? null;
-      if (lastUsedStep !== null && usedStep <= lastUsedStep) {
-        return jsonError("UNAUTHORIZED", "TOTP code already used", 401);
-      }
-
-      await (db as any)
+      const usedStep = getTotpStep(now) + delta;
+      const claimed = await (db as any)
         .update(internalSchema.mfaTotp)
         .set({ lastUsedStep: usedStep })
-        .where(eq(internalSchema.mfaTotp.id, totpRow.id));
+        .where(
+          and(
+            eq(internalSchema.mfaTotp.id, totpRow.id),
+            eq(internalSchema.mfaTotp.verified, 1),
+            or(
+              isNull(internalSchema.mfaTotp.lastUsedStep),
+              lt(internalSchema.mfaTotp.lastUsedStep, usedStep),
+            ),
+          ),
+        );
+      if (affectedRows(claimed) !== 1) {
+        return jsonError("UNAUTHORIZED", "TOTP code already used", 401);
+      }
 
       // Upgrade session to fully verified
       await updateSessionMfaVerified(db, internalSchema, pending.sessionId, 1);

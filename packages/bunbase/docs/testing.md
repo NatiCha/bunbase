@@ -178,8 +178,9 @@ test("create requires auth", async () => {
 ## BunBase database regression suite
 
 When contributing to BunBase, run `bun run test` from the repository root. Alongside
-the main tests, it runs seven SQLite database/SDK regressions in a separate process
-so the migration-error unit tests' module mocks cannot replace the real migrator.
+the main tests, it runs SQLite database/SDK and atomic-security regressions in a
+separate process so the migration-error unit tests' module mocks cannot replace
+the real migrator.
 
 The same seven scenarios run against PostgreSQL when `BUNBASE_TEST_POSTGRES_URL`
 is set. From the repository root:
@@ -193,9 +194,22 @@ generated migrations; it does not erase migration history or internal tables whe
 finished. Each fixture uses unique user-table names and removes its user tables.
 SQLite uses temporary files that are removed automatically. Without a PostgreSQL
 URL, PostgreSQL cases report skips; SQLite still runs. Leave
-`BUNBASE_TEST_MYSQL_URL` unset to skip the separate MySQL smoke test.
+`BUNBASE_TEST_MYSQL_URL` unset to skip MySQL checks.
 
 Coverage includes timestamp/JSON/boolean/null round-trips, SDK CRUD over HTTP,
 205 matching records across cursor pages with duplicate sort values, optional and
 to-many relations, denied/filtered relationship access, and adding a defaulted
 column while preserving existing rows and safely rerunning the migration.
+
+The atomic-security suite runs on SQLite by default and on PostgreSQL/MySQL when
+their test URLs are set. It checks single-use TOTP and backup codes, concurrent
+invitation consumption, competing ownership transfers, and rollback after a
+failure at each write in a transfer. It creates temporary triggers for failure
+injection and removes them afterward. Use dedicated test databases with permission
+to create tables, triggers, and (on PostgreSQL) trigger functions.
+
+```sh
+BUNBASE_TEST_POSTGRES_URL="postgresql://user:password@localhost:5432/bunbase_test" \
+BUNBASE_TEST_MYSQL_URL="mysql://user:password@localhost:3306/bunbase_test" \
+bun run test:databases
+```

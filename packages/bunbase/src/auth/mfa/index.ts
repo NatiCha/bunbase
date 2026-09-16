@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import type { AnyDb } from "../../core/db-types.ts";
 import type { InternalSchema } from "../../core/internal-schema.ts";
+import { affectedRows } from "../../core/write-result.ts";
 import { hashToken } from "../tokens.ts";
 
 /**
@@ -123,11 +124,11 @@ export async function verifyBackupCode(
   const row = rows[0];
   if (!row) return false;
 
-  // Mark as used
-  await (db as any)
+  // Claim the code atomically; a concurrent verifier must not reuse it.
+  const claimed = await (db as any)
     .update(schema.mfaBackupCodes)
     .set({ used: 1 })
-    .where(eq(schema.mfaBackupCodes.id, row.id));
+    .where(and(eq(schema.mfaBackupCodes.id, row.id), eq(schema.mfaBackupCodes.used, 0)));
 
-  return true;
+  return affectedRows(claimed) === 1;
 }

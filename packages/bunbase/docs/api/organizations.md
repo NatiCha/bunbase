@@ -44,6 +44,11 @@ Roles form a hierarchy: `owner > admin > member`. The creator of an org is autom
 | `GET` | `/auth/organizations/:id` | member | Get org + members |
 | `PATCH` | `/auth/organizations/:id` | admin | Update org name |
 | `DELETE` | `/auth/organizations/:id` | owner | Delete org |
+| `POST` | `/auth/organizations/:id/transfer-ownership` | owner | Transfer ownership to an existing member with `{ "userId": "..." } |
+
+Ownership transfer updates the organization and both membership roles in one
+transaction. The previous owner becomes an admin. A competing ownership or
+membership change returns `409`; a failed transfer rolls back all changes.
 
 ### Members
 
@@ -89,6 +94,11 @@ await client.auth.organizations.removeMember(organization.id, bob.id);
 ```
 
 ## Using org membership in rules
+
+For generated record routes, use the asynchronous `orgMember`, `orgAdmin`, or
+`orgOwner` helpers with `(orgId, auth, db)`. Return or await their promise; they
+query persisted membership and enforce the built-in role hierarchy. See
+[organization rule helpers](/rules/#orgmember-orgadmin-and-orgowner).
 
 Use the `requireOrgRole` helper in extend routes, or check membership in hooks:
 

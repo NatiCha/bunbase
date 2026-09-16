@@ -216,6 +216,32 @@ const rules = defineRules({
 });
 ```
 
+### `orgMember`, `orgAdmin`, and `orgOwner`
+
+These asynchronous helpers check persisted membership in the target organization:
+
+- `orgMember(orgId, auth, db)` accepts `member`, `admin`, and `owner`.
+- `orgAdmin(orgId, auth, db)` accepts `admin` and `owner`.
+- `orgOwner(orgId, auth, db)` accepts only `owner`.
+
+Return their promise directly from a rule, or `await` it when combining checks:
+
+```ts
+import { orgAdmin } from "@naticha/bunbase";
+
+const rules = defineRules({
+  projects: {
+    update: ({ record, auth, db }) => orgAdmin(record?.orgId as string, auth, db),
+  },
+});
+```
+
+They check the supplied organization ID; they do not filter a list of records.
+Use the persisted `record.orgId` for update/delete rules, and independently prevent
+changes to that field. Global administrator status does not grant organization
+membership. Missing identities, missing organizations, and unrecognized roles
+are denied. Database errors propagate to the rule evaluator, which denies access.
+
 ### Date helpers
 
 Convenient `Date` values for time-based rules:

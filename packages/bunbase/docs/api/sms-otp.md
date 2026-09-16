@@ -98,5 +98,15 @@ defineAuthHooks({
 await client.auth.smsOtp.request("+15551234567");
 
 // Verify
-const { user } = await client.auth.smsOtp.verify("+15551234567", "123456");
+const result = await client.auth.smsOtp.verify("+15551234567", "123456");
+if ("mfaRequired" in result) {
+  // Prompt for the authenticator code and finish the pending login.
+  await client.auth.mfa.verify(authenticatorCode);
+} else {
+  console.log(result.user);
+}
 ```
+
+Users with TOTP enrolled receive `{ mfaRequired: true, mfaMethods: ["totp"] }`
+instead of `{ user }`. The SDK exposes this union and waits to emit an authenticated
+state until the second factor succeeds.

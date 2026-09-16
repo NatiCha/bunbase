@@ -54,12 +54,12 @@
   "scripts": {
     "build": "bun run build.ts",
     "type": "tsc --noEmit",
-    "test": "bun test src && bun test integration/database-regression.test.ts",
+    "test": "bun test src && bun test integration/database-regression.test.ts integration/security-regression.test.ts",
     "studio": "bunx drizzle-kit studio",
     "build:admin": "bun run build-admin.ts",
     "prepublishOnly": "bun run build && bun run type && bun run test",
     "build:types": "tsc --project tsconfig.emit.json",
-    "test:databases": "bun test integration/databases.test.ts integration/database-regression.test.ts"
+    "test:databases": "bun test integration/databases.test.ts integration/database-regression.test.ts integration/security-regression.test.ts"
   },
   "dependencies": {
     "@clack/prompts": "1.8.1",

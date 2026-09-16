@@ -209,11 +209,6 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
   (globalThis as { __bunbaseSecureDefaults?: boolean }).__bunbaseSecureDefaults =
     config.secureDefaults;
 
-  // Publish whether MFA enrollment is mandatory so the auth middleware's
-  // enrollment gate activates. Mirrors the `__bunbaseJwtConfig` pattern.
-  (globalThis as { __bunbaseMfaRequired?: boolean }).__bunbaseMfaRequired =
-    config.auth.mfa.required;
-
   // Resolve service key: config/env → persisted file → auto-generate
   if (!config.serviceKey) {
     const keyFilePath = ".bunbase-service-key";
@@ -288,6 +283,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
       internalSchema,
       usersTable,
       config.serviceKey,
+      config,
     );
 
     // Admin impersonation — only honoured when caller is a verified admin
@@ -762,6 +758,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
           internalSchema,
           usersTable,
           config.serviceKey,
+          config,
         ).catch(() => null);
         const upgraded = srv.upgrade(req, {
           data: {
@@ -847,6 +844,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
             internalSchema,
             usersTable,
             config.serviceKey,
+            config,
           ).catch(() => null);
           await pushRequestLog(db, internalSchema, {
             id: Bun.randomUUIDv7(),

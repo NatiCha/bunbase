@@ -1,9 +1,10 @@
-import { and, eq, gt, lt, sql } from "drizzle-orm";
+import { and, eq, gt, lt, or, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import type { AuthUser } from "../api/types.ts";
 import type { ResolvedConfig } from "../core/config.ts";
 import type { AnyDb } from "../core/db-types.ts";
 import type { InternalSchema } from "../core/internal-schema.ts";
+import { affectedRows } from "../core/write-result.ts";
 import type { AuthHooks } from "../hooks/auth-types.ts";
 import { validateCsrf } from "./csrf.ts";
 import { isBearerOnly } from "./middleware.ts";
@@ -234,44 +235,19 @@ export async function validateAndConsumeInvite(
   // Check email match if invite is email-specific
   if (invite.email && invite.email.toLowerCase() !== email.toLowerCase()) return null;
 
-  // Atomically claim a use slot. The conditional WHERE guards against a
-  // TOCTOU race where two concurrent registrations both pass the maxUses check
-  // and then each increment, overshooting maxUses. maxUses <= 0 means unlimited.
-  const prevUseCount = invite.useCount as number;
-  const maxUses = invite.maxUses as number;
-
-  if (maxUses > 0) {
-    // Compare-and-swap on the exact use_count we read. Portable across all three
-    // dialects (no reliance on affected-row counts). If a concurrent claim won
-    // the slot, our CAS matches zero rows and the re-read below will not show
-    // our increment, so we treat it as exhausted.
-    await (db as any)
-      .update(invites)
-      .set({ useCount: sql`${invites.useCount} + 1` })
-      .where(
-        and(
-          eq(invites.id, invite.id),
-          eq(invites.useCount, prevUseCount),
-          lt(invites.useCount, maxUses),
-        ),
-      );
-
-    const afterRows = await (db as any)
-      .select({ useCount: invites.useCount })
-      .from(invites)
-      .where(eq(invites.id, invite.id));
-    const afterUseCount = afterRows[0]?.useCount as number | undefined;
-    if (afterUseCount !== prevUseCount + 1) {
-      // CAS lost the race (or invite vanished) — slot not claimed by us.
-      return null;
-    }
-  } else {
-    // Unlimited invite — still bump the counter for accounting.
-    await (db as any)
-      .update(invites)
-      .set({ useCount: sql`${invites.useCount} + 1` })
-      .where(eq(invites.id, invite.id));
-  }
+  // Only the request whose UPDATE changed a row owns the claimed use. Reading
+  // the shared counter afterward cannot distinguish a winner from a loser.
+  const claimed = await (db as any)
+    .update(invites)
+    .set({ useCount: sql`${invites.useCount} + 1` })
+    .where(
+      and(
+        eq(invites.id, invite.id),
+        gt(invites.expiresAt, Math.floor(Date.now() / 1000)),
+        or(lt(invites.maxUses, 1), lt(invites.useCount, invites.maxUses)),
+      ),
+    );
+  if (affectedRows(claimed) !== 1) return null;
 
   return { role: invite.role };
 }

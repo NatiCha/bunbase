@@ -74,9 +74,9 @@ async function requireAdmin(
   db: AnyDb,
   internalSchema: InternalSchema,
   usersTable: any,
-  serviceKey?: string,
+  config: ResolvedConfig,
 ): Promise<{ user: AuthUser } | Response> {
-  const user = await extractAuth(req, db, internalSchema, usersTable, serviceKey);
+  const user = await extractAuth(req, db, internalSchema, usersTable, config.serviceKey, config);
   if (!user) {
     return jsonError("UNAUTHORIZED", "Not authenticated", 401);
   }
@@ -143,7 +143,7 @@ export async function handleAdminApi(
   const path = pathname.slice("/_admin/api".length) || "/";
 
   // Auth check for all admin endpoints
-  const authResult = await requireAdmin(req, db, internalSchema, usersTable, config.serviceKey);
+  const authResult = await requireAdmin(req, db, internalSchema, usersTable, config);
   if (authResult instanceof Response) return authResult;
 
   const sessions = internalSchema.sessions;

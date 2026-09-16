@@ -118,10 +118,15 @@ export async function getApiKeyUser(
 }
 
 /** Paths accessible with a pending-MFA session (mfa_verified === 0). */
-const MFA_PENDING_ALLOWED_PREFIXES = ["/auth/mfa/", "/auth/logout"];
+const MFA_PENDING_ALLOWED_PATHS = new Set([
+  "/auth/mfa/totp/verify",
+  "/auth/mfa/backup/verify",
+  "/auth/mfa/status",
+  "/auth/logout",
+]);
 
 function isMfaPendingAllowed(pathname: string): boolean {
-  return MFA_PENDING_ALLOWED_PREFIXES.some((p) => pathname.startsWith(p));
+  return MFA_PENDING_ALLOWED_PATHS.has(pathname);
 }
 
 /**
@@ -130,10 +135,16 @@ function isMfaPendingAllowed(pathname: string): boolean {
  * and read their own identity (so the client can prompt for enrollment) — but
  * nothing else until they enroll.
  */
-const MFA_ENROLLMENT_ALLOWED_PREFIXES = ["/auth/mfa/", "/auth/logout", "/auth/me"];
+const MFA_ENROLLMENT_ALLOWED_PATHS = new Set([
+  "/auth/mfa/totp/setup",
+  "/auth/mfa/totp/verify-setup",
+  "/auth/mfa/status",
+  "/auth/logout",
+  "/auth/me",
+]);
 
 function isMfaEnrollmentAllowed(pathname: string): boolean {
-  return MFA_ENROLLMENT_ALLOWED_PREFIXES.some((p) => pathname.startsWith(p));
+  return MFA_ENROLLMENT_ALLOWED_PATHS.has(pathname);
 }
 
 /** Subset of config needed by the auth gate. Kept structural to avoid a config import cycle. */
@@ -165,14 +176,8 @@ export async function extractAuth(
     return SERVICE_KEY_USER;
   }
 
-  // Mandatory-MFA flag. Prefer the explicitly passed config; fall back to a
-  // global set at server bootstrap (same pattern as __bunbaseJwtConfig) so the
-  // gate works for every extractAuth call site without threading config through
-  // each one.
-  const mfaRequired =
-    config?.auth?.mfa?.required === true ||
-    (config === undefined &&
-      (globalThis as { __bunbaseMfaRequired?: boolean }).__bunbaseMfaRequired === true);
+  // Authentication policy belongs to the server handling this request.
+  const mfaRequired = config?.auth.mfa.required === true;
 
   const sessionId = extractSessionId(req);
 

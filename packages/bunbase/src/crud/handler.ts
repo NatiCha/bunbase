@@ -133,6 +133,7 @@ export function generateCrudHandlers(
   schemaKey?: string,
   allRules?: Record<string, TableRules>,
   fieldPolicy?: FieldPolicy,
+  allFields?: FieldPolicyMap,
 ): { exact: RouteMap; pattern: RouteMap } {
   const tableName = getTableName(table);
   const columns = getColumns(table);
@@ -141,6 +142,38 @@ export function generateCrudHandlers(
 
   // Resolve the field policy (hidden / readonly / immutable) with secure defaults.
   const policy = resolveFieldPolicy(columns as Record<string, Column>, fieldPolicy);
+
+  // Relation metadata supplies the table identity that a plain recursive JSON
+  // scrubber cannot infer. Resolve policies by SQL name, including schema aliases.
+  function serializeExpanded(
+    row: Record<string, unknown>,
+    key = resolvedSchemaKey,
+    hidden = policy.hidden,
+  ): Record<string, unknown> {
+    const result = stripHidden(row, hidden);
+    const metadata = (db as any)._?.relations;
+    for (const [name, relation] of Object.entries(metadata?.[key]?.relations ?? {})) {
+      if (!(name in result)) continue;
+      const targetKey = (relation as { targetTableName: string }).targetTableName;
+      const target = metadata?.[targetKey]?.table as Table | undefined;
+      if (!target) {
+        delete result[name];
+        continue;
+      }
+      const targetPolicy = resolveFieldPolicy(
+        getColumns(target) as Record<string, Column>,
+        allFields?.[getTableName(target)],
+      );
+      const serialize = (value: unknown): unknown =>
+        value && typeof value === "object"
+          ? serializeExpanded(value as Record<string, unknown>, targetKey, targetPolicy.hidden)
+          : value;
+      result[name] = Array.isArray(row[name])
+        ? (row[name] as unknown[]).map(serialize)
+        : serialize(row[name]);
+    }
+    return result;
+  }
 
   const idColumnMaybe = columns.id as Column | undefined;
   if (!idColumnMaybe) {
@@ -187,22 +220,24 @@ export function generateCrudHandlers(
       buildWhereConditions(filter, columns as Record<string, Column>, policy.hidden),
     );
 
-    if (cursor) {
-      allConditions.push(buildCursorCondition(cursor, idColumn, sortColumn, order));
-    }
-
     if (ruleResult.whereClause) {
       allConditions.push(ruleResult.whereClause);
     }
 
-    const conditions = allConditions.filter(Boolean) as SQL[];
-    const where = conditions.length > 1 ? and(...conditions) : (conditions[0] ?? undefined);
+    const filteredWhere = and(...allConditions);
+    const where = and(
+      filteredWhere,
+      cursor ? buildCursorCondition(cursor, idColumn, sortColumn, order) : undefined,
+    );
 
     // Optional total count (honors rules + filter where-clause) for page UIs.
     // Returned as `total` alongside the page when `?count=true`.
     let total: number | undefined;
     if (url.searchParams.get("count") === "true") {
-      const countRows = await (db as any).select({ value: sqlCount() }).from(table).where(where);
+      const countRows = await (db as any)
+        .select({ value: sqlCount() })
+        .from(table)
+        .where(filteredWhere);
       total = Number(countRows[0]?.value ?? 0);
     }
 
@@ -257,7 +292,7 @@ export function generateCrudHandlers(
         for (const row of expandedRows) {
           expandedById.set(
             String((row as Record<string, unknown>).id),
-            stripHidden(row as Record<string, unknown>, policy.hidden),
+            serializeExpanded(row as Record<string, unknown>),
           );
         }
         const enriched = pageIds.map((id) => expandedById.get(id)).filter(Boolean);
@@ -450,7 +485,7 @@ export function generateCrudHandlers(
         with: allowedWith,
       });
       if (!row) return Response.json(null, { status: 404 });
-      return Response.json(stripHidden(row as Record<string, unknown>, policy.hidden));
+      return Response.json(serializeExpanded(row as Record<string, unknown>));
     }
 
     return Response.json(stripHidden(checkRows[0] as Record<string, unknown>, policy.hidden));
@@ -686,6 +721,7 @@ export function generateAllCrudHandlers(
       schemaKey,
       rules,
       fields?.[tableName],
+      fields,
     );
 
     Object.assign(exact, handlers.exact);

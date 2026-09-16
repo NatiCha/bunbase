@@ -1,5 +1,6 @@
 import { and, eq, gt } from "drizzle-orm";
 import { z } from "zod/v4";
+import { ApiError } from "../../api/helpers.ts";
 import type { AuthUser } from "../../api/types.ts";
 import type { ResolvedConfig } from "../../core/config.ts";
 import type { AnyDb } from "../../core/db-types.ts";
@@ -9,6 +10,7 @@ import { validateCsrf } from "../csrf.ts";
 import { isBearerOnly } from "../middleware.ts";
 import { hashToken } from "../tokens.ts";
 import { getOrgMembership, requireOrgRole } from "./helpers.ts";
+import { transferOwnership } from "./transfer.ts";
 
 /**
  * Organization CRUD and membership management routes.
@@ -497,32 +499,17 @@ export function createOrganizationRoutes(deps: OrgDeps) {
           return jsonError("NOT_FOUND", "Target user is not a member of this organization", 404);
         }
 
-        const now = new Date().toISOString();
-
-        // Promote target to owner, demote the previous owner to admin, and update
-        // the org's ownerId. Done as a transaction when the dialect supports it.
-        const run = async (tx: any) => {
-          await tx
-            .update(members)
-            .set({ role: "owner" })
-            .where(and(eq(members.orgId, orgId), eq(members.userId, targetUserId)));
-          await tx
-            .update(members)
-            .set({ role: "admin" })
-            .where(and(eq(members.orgId, orgId), eq(members.userId, user.id)));
-          await tx
-            .update(orgs)
-            .set({ ownerId: targetUserId, updatedAt: now })
-            .where(eq(orgs.id, orgId));
-        };
-
         try {
-          if (typeof (db as any).transaction === "function") {
-            await (db as any).transaction(run);
-          } else {
-            await run(db);
-          }
+          await transferOwnership(
+            db,
+            config.database.driver,
+            internalSchema,
+            orgId,
+            user.id,
+            targetUserId,
+          );
         } catch (err) {
+          if (err instanceof ApiError) return jsonError(err.code, err.message, err.status);
           console.error("[BunBase] transfer-ownership failed:", err);
           return jsonError("INTERNAL_ERROR", "Failed to transfer ownership", 500);
         }

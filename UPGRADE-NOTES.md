@@ -1,9 +1,30 @@
 # September 2026 dependency refresh
 
 Implemented directly in the existing checkout on September 15, 2026. Existing
-uncommitted 0.1.0 changes were retained. The combined work is being checkpointed
-on branch `0.1.0`; it is not release-ready. See [TODO.md](./TODO.md) for the ten
-review findings to address before publication. No package has been published.
+uncommitted 0.1.0 changes were retained. The combined work was checkpointed on
+branch `0.1.0`. The review follow-up below addresses the ten findings recorded in
+[TODO.md](./TODO.md). Publication still requires approval; no package has been published.
+
+## Authorization follow-up — September 16
+
+- File deletion now loads the parent record, evaluates the collection delete
+  rule with `record`, and applies its SQL predicate before removing file bytes
+  or metadata. Missing parent records are denied.
+- Organization rule helpers now query persisted memberships. `orgMember` accepts
+  member/admin/owner, `orgAdmin` admin/owner, and `orgOwner` owner. The required
+  signature is `(orgId, auth, db)` and the result must be returned or awaited.
+  Global administrator status alone does not grant organization membership.
+- Added nine HTTP regression tests, including denied-file preservation, owner
+  deletion, unknown/missing rules, nonmembers, all role levels, revoked membership,
+  and failed membership lookups. Added shared database role-query coverage.
+- `bun run verify` passed: 673 source tests plus 17 SQLite integration tests
+  (690 total), formatting, types/declarations, builds, docs, and packed-package smoke.
+- `bun run test:databases` passed all 46 tests with disposable DBngin PostgreSQL
+  and MySQL databases plus SQLite. The disposable databases were removed.
+
+The broader security scan remains incomplete. Its deferred authentication and
+CRUD checks have not been validated or fixed by this authorization follow-up.
+The fixes and regression tests are included on branch `0.1.0`. No package has been published.
 
 ## Versions
 
@@ -211,3 +232,36 @@ keyboard selection, accessible select labels, Escape dismissal, dashboard/cards/
 badges, a 390px-wide dialog/select, and admin sidebar collapse/expansion. No browser
 errors were reported; Bun emitted a development hot-update fallback warning during
 editing. All test data lived in a disposable preview database.
+
+
+## 0.1.0 review follow-up
+
+Addressed all ten review findings after checkpoint `1e502a6`:
+
+- Restricted pending MFA sessions to exact challenge/status/logout routes; MFA
+  management requires completed authentication.
+- Applied related-table field policies to expanded objects and arrays, including
+  custom hidden fields and aliased password columns.
+- Made TOTP steps, backup codes, and invite uses atomic database claims. The
+  request must actually change a row to succeed.
+- Made ownership transfer transactional on each dialect and guarded it against
+  competing transfers. Tests inject a failure at each of its three writes.
+- Removed process-global mandatory-MFA policy; HTTP, admin, file, OAuth and realtime
+  authentication receive the owning server's configuration.
+- Added SDK passwordless deletion confirmation, shared MFA response types for all
+  login methods, and optional list totals independent of cursor position.
+- Separated invitation control parameters from user-table signup fields.
+
+Validation:
+
+- `bun run verify`: **680 passed, zero failures** (664 source tests plus 16 SQLite
+  database/security regressions); typechecks, lint, builds, 31-page docs build, and
+  installed-package scaffold smoke passed.
+- `bun run test:databases` with both URLs: **43 passed, zero failures**, using SQLite,
+  DBngin PostgreSQL 18.1 and DBngin MySQL 9.7.2. This includes 27 atomic-security
+  tests across the three drivers. These counts overlap the main test run.
+- Tests used disposable databases; no application data was used. The test-created
+  external databases were removed afterward.
+
+No commits or pushes were made for this follow-up. Physical passkey enrollment
+remains a separate manual verification item.

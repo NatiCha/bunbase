@@ -146,7 +146,14 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
           return jsonError("FORBIDDEN", "Invalid CSRF token", 403);
         }
 
-        const currentUser = await extractAuth(req, db, internalSchema, usersTable);
+        const currentUser = await extractAuth(
+          req,
+          db,
+          internalSchema,
+          usersTable,
+          undefined,
+          config,
+        );
         if (!currentUser) {
           return jsonError("UNAUTHORIZED", "Not authenticated", 401);
         }
@@ -225,7 +232,14 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
           // ── Link flow ─────────────────────────────────────────────────────────
           if (action === "link") {
             // Re-authenticate to confirm the session is still valid
-            const currentUser = await extractAuth(req, db, internalSchema, usersTable);
+            const currentUser = await extractAuth(
+              req,
+              db,
+              internalSchema,
+              usersTable,
+              undefined,
+              config,
+            );
             if (!currentUser) {
               return jsonError("UNAUTHORIZED", "Not authenticated", 401);
             }

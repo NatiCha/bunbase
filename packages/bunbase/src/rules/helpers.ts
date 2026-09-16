@@ -1,5 +1,5 @@
 import type { Column, Table } from "drizzle-orm";
-import { eq, type SQL } from "drizzle-orm";
+import { eq, type SQL, sql } from "drizzle-orm";
 import type { AuthUser } from "../api/types.ts";
 import type { AnyDb } from "../core/db-types.ts";
 import type { TableRules } from "./types.ts";
@@ -123,22 +123,53 @@ export function yearStart(): Date {
   return d;
 }
 
+/** Resolve membership from the current request's database, never from user-supplied claims. */
+async function hasOrgRole(
+  orgId: string | null | undefined,
+  auth: AuthUser | null,
+  db: AnyDb,
+  roles: readonly string[],
+): Promise<boolean> {
+  // Missing db also denies legacy JavaScript calls that omit the new argument.
+  if (!auth || !orgId || !db) return false;
+  const members = sql.identifier("_organization_members");
+  const rows = await (db as any)
+    .select({ role: sql<string>`${sql.identifier("role")}` })
+    .from(members)
+    .where(
+      sql`${sql.identifier("org_id")} = ${orgId} and ${sql.identifier("user_id")} = ${auth.id}`,
+    )
+    .limit(1);
+  return roles.includes(rows[0]?.role);
+}
+
 /**
- * Organization rule helper: require membership in the org referenced by a record field.
- * Use in rules like: `list: ({ record, auth }) => orgMember(record.orgId, auth)`
+ * Require persisted membership in the target organization.
+ * Return or await this promise in a rule:
+ * `update: ({ record, auth, db }) => orgMember(record?.orgId, auth, db)`.
  */
-export function orgMember(orgId: string | null | undefined, auth: AuthUser | null): boolean {
-  // Actual membership check must be done at the route level;
-  // this helper is a no-op check that verifies auth exists and org is set
-  return auth !== null && orgId != null;
+export function orgMember(
+  orgId: string | null | undefined,
+  auth: AuthUser | null,
+  db: AnyDb,
+): Promise<boolean> {
+  return hasOrgRole(orgId, auth, db, ["member", "admin", "owner"]);
 }
 
-/** Organization rule helper: require admin+ role. */
-export function orgAdmin(orgId: string | null | undefined, auth: AuthUser | null): boolean {
-  return auth !== null && orgId != null;
+/** Require a persisted admin or owner membership in the target organization. */
+export function orgAdmin(
+  orgId: string | null | undefined,
+  auth: AuthUser | null,
+  db: AnyDb,
+): Promise<boolean> {
+  return hasOrgRole(orgId, auth, db, ["admin", "owner"]);
 }
 
-/** Organization rule helper: require owner role. */
-export function orgOwner(orgId: string | null | undefined, auth: AuthUser | null): boolean {
-  return auth !== null && orgId != null;
+/** Require a persisted owner membership in the target organization. */
+export function orgOwner(
+  orgId: string | null | undefined,
+  auth: AuthUser | null,
+  db: AnyDb,
+): Promise<boolean> {
+  return hasOrgRole(orgId, auth, db, ["owner"]);
 }
