@@ -31,15 +31,12 @@ function toHex(data: ArrayBuffer | Uint8Array): string {
     .join("");
 }
 
-async function sha256(data: Uint8Array<ArrayBufferLike> | string): Promise<string> {
+async function sha256(data: Uint8Array<ArrayBuffer> | string): Promise<string> {
   const input = typeof data === "string" ? enc.encode(data) : data;
   return toHex(await crypto.subtle.digest("SHA-256", input));
 }
 
-async function hmac(
-  key: Uint8Array<ArrayBufferLike>,
-  msg: string,
-): Promise<Uint8Array<ArrayBuffer>> {
+async function hmac(key: Uint8Array<ArrayBuffer>, msg: string): Promise<Uint8Array<ArrayBuffer>> {
   const k = await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, [
     "sign",
   ]);
@@ -49,7 +46,7 @@ async function hmac(
 async function sigv4Headers(
   method: string,
   url: URL,
-  body: Uint8Array<ArrayBufferLike>,
+  body: Uint8Array<ArrayBuffer>,
   config: S3Config,
 ): Promise<Record<string, string>> {
   const region = config.region ?? "us-east-1";
@@ -106,11 +103,14 @@ export function createS3Storage(config: S3Config): StorageDriver {
     body: Uint8Array<ArrayBufferLike> = new Uint8Array(new ArrayBuffer(0)),
   ): Promise<Response> {
     const url = new URL(buildUrl(config, key));
-    const headers = await sigv4Headers(method, url, body, config);
+    // Own an ArrayBuffer-backed snapshot for Web Crypto and fetch. This also
+    // keeps a caller's mutable/shared input identical to the bytes we sign.
+    const payload = new Uint8Array(body);
+    const headers = await sigv4Headers(method, url, payload, config);
     return fetch(url.toString(), {
       method,
       headers,
-      body: body.length ? body : undefined,
+      body: payload.length ? payload : undefined,
     });
   }
 
@@ -124,7 +124,7 @@ export function createS3Storage(config: S3Config): StorageDriver {
       const res = await s3Fetch("GET", path);
       if (!res.ok) return null;
       const buf = await res.arrayBuffer();
-      return new Uint8Array(buf) as unknown as Uint8Array<ArrayBuffer>;
+      return new Uint8Array(buf);
     },
 
     async delete(path) {

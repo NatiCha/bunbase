@@ -9,6 +9,27 @@ import { hashToken } from "../tokens.ts";
  */
 
 /**
+ * Returns true when the user has a verified TOTP MFA enrollment.
+ *
+ * Used by every login path (password, magic link, email OTP, SMS OTP, OAuth) to
+ * decide whether the new session must start in the pending-MFA state so the
+ * existing middleware gate forces a second-factor step-up. Without this check,
+ * an MFA-enrolled user could be fully logged in through a path that never
+ * prompts for the second factor.
+ */
+export async function userHasMfaEnrolled(
+  db: AnyDb,
+  schema: InternalSchema,
+  userId: string,
+): Promise<boolean> {
+  const rows = await (db as any)
+    .select({ id: schema.mfaTotp.id })
+    .from(schema.mfaTotp)
+    .where(and(eq(schema.mfaTotp.userId, userId), eq(schema.mfaTotp.verified, 1)));
+  return rows.length > 0;
+}
+
+/**
  * Check MFA enrollment status for a user.
  */
 export async function getMfaStatus(

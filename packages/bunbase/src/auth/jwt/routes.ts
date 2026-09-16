@@ -29,7 +29,7 @@ export function createJwtRoutes(deps: JwtRouteDeps) {
     "/auth/refresh": {
       async POST(req: Request): Promise<Response> {
         const ip = getClientIp(req, config.trustedProxies);
-        const { allowed } = checkRateLimit(ip);
+        const { allowed } = checkRateLimit(ip, config.auth.rateLimit);
         if (!allowed) {
           return jsonError("RATE_LIMITED", "Too many attempts", 429);
         }
@@ -49,7 +49,7 @@ export function createJwtRoutes(deps: JwtRouteDeps) {
         const secret = jwtConfig.secret!;
         const payload = await verifyJwt(result.data.refreshToken, secret, db, internalSchema);
 
-        if (!payload || payload.type !== "refresh") {
+        if (payload?.type !== "refresh") {
           return jsonError("UNAUTHORIZED", "Invalid or expired refresh token", 401);
         }
 

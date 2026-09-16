@@ -162,11 +162,19 @@ export class MysqlAdapter implements DatabaseAdapter {
         \`user_id\` TEXT NOT NULL,
         \`encrypted_secret\` TEXT NOT NULL,
         \`verified\` INTEGER NOT NULL DEFAULT 0,
+        \`last_used_step\` BIGINT,
         \`created_at\` TEXT NOT NULL DEFAULT (NOW()),
         PRIMARY KEY (\`id\`(191)),
         UNIQUE KEY \`idx_mfa_totp_user\` (\`user_id\`(191))
       )
     `);
+
+    // Migration: add last_used_step to _mfa_totp if missing (TOTP replay guard)
+    try {
+      await this.sql.unsafe("ALTER TABLE `_mfa_totp` ADD COLUMN `last_used_step` BIGINT");
+    } catch {
+      // Column already exists
+    }
 
     await this.sql.unsafe(`
       CREATE TABLE IF NOT EXISTS \`_mfa_backup_codes\` (
@@ -200,7 +208,7 @@ export class MysqlAdapter implements DatabaseAdapter {
         \`id\` TEXT NOT NULL,
         \`email\` TEXT,
         \`token_hash\` TEXT NOT NULL,
-        \`role\` TEXT NOT NULL DEFAULT 'user',
+        \`role\` TEXT NOT NULL DEFAULT ('user'),
         \`invited_by\` TEXT NOT NULL,
         \`max_uses\` INTEGER DEFAULT 1,
         \`use_count\` INTEGER NOT NULL DEFAULT 0,
@@ -240,7 +248,7 @@ export class MysqlAdapter implements DatabaseAdapter {
         \`id\` TEXT NOT NULL,
         \`org_id\` TEXT NOT NULL,
         \`email\` TEXT NOT NULL,
-        \`role\` TEXT NOT NULL DEFAULT 'member',
+        \`role\` TEXT NOT NULL DEFAULT ('member'),
         \`token_hash\` TEXT NOT NULL,
         \`invited_by\` TEXT NOT NULL,
         \`expires_at\` BIGINT NOT NULL,

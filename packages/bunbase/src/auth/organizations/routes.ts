@@ -339,6 +339,22 @@ export function createOrganizationRoutes(deps: OrgDeps) {
           return jsonError("VALIDATION_ERROR", "Invalid role", 400);
         }
 
+        // Owner is a privileged singleton role. It cannot be assigned via the
+        // member-update endpoint — that would let an admin self-escalate.
+        // Ownership changes hands only through /transfer-ownership.
+        if (result.data.role === "owner") {
+          return jsonError(
+            "FORBIDDEN",
+            "Cannot assign the owner role here. Use the transfer-ownership endpoint.",
+            403,
+          );
+        }
+
+        // An admin cannot modify their own role (no self-escalation/de-escalation).
+        if (targetUserId === authUser.id) {
+          return jsonError("FORBIDDEN", "You cannot change your own role", 403);
+        }
+
         // Cannot change owner role
         const target = await getOrgMembership(db, internalSchema, targetUserId, orgId);
         if (!target) {
@@ -432,6 +448,93 @@ export function createOrganizationRoutes(deps: OrgDeps) {
       },
     },
 
+    "/auth/organizations/:id/transfer-ownership": {
+      async POST(req: Request): Promise<Response> {
+        if (!isBearerOnly(req) && !validateCsrf(req)) {
+          return jsonError("FORBIDDEN", "Invalid CSRF token", 403);
+        }
+
+        const user = await extractAuth(req);
+        if (!user) return jsonError("UNAUTHORIZED", "Not authenticated", 401);
+
+        const parts = new URL(req.url).pathname.split("/");
+        parts.pop(); // "transfer-ownership"
+        const orgId = parts.pop()!;
+
+        // Only the current owner may transfer ownership.
+        try {
+          await requireOrgRole(db, internalSchema, user.id, orgId, "owner");
+        } catch (err: any) {
+          return jsonError(err.code ?? "FORBIDDEN", err.message, err.status ?? 403);
+        }
+
+        // Double-check the caller is actually the owner (requireOrgRole permits
+        // any role >= owner, but owner is the top role so this is exact).
+        const callerMembership = await getOrgMembership(db, internalSchema, user.id, orgId);
+        if (callerMembership?.role !== "owner") {
+          return jsonError("FORBIDDEN", "Only the owner can transfer ownership", 403);
+        }
+
+        let body: unknown;
+        try {
+          body = await req.json();
+        } catch {
+          return jsonError("BAD_REQUEST", "Invalid JSON body", 400);
+        }
+
+        const result = z.object({ userId: z.string().min(1) }).safeParse(body);
+        if (!result.success) {
+          return jsonError("VALIDATION_ERROR", "Target userId is required", 400);
+        }
+
+        const targetUserId = result.data.userId;
+        if (targetUserId === user.id) {
+          return jsonError("BAD_REQUEST", "You are already the owner", 400);
+        }
+
+        const target = await getOrgMembership(db, internalSchema, targetUserId, orgId);
+        if (!target) {
+          return jsonError("NOT_FOUND", "Target user is not a member of this organization", 404);
+        }
+
+        const now = new Date().toISOString();
+
+        // Promote target to owner, demote the previous owner to admin, and update
+        // the org's ownerId. Done as a transaction when the dialect supports it.
+        const run = async (tx: any) => {
+          await tx
+            .update(members)
+            .set({ role: "owner" })
+            .where(and(eq(members.orgId, orgId), eq(members.userId, targetUserId)));
+          await tx
+            .update(members)
+            .set({ role: "admin" })
+            .where(and(eq(members.orgId, orgId), eq(members.userId, user.id)));
+          await tx
+            .update(orgs)
+            .set({ ownerId: targetUserId, updatedAt: now })
+            .where(eq(orgs.id, orgId));
+        };
+
+        try {
+          if (typeof (db as any).transaction === "function") {
+            await (db as any).transaction(run);
+          } else {
+            await run(db);
+          }
+        } catch (err) {
+          console.error("[BunBase] transfer-ownership failed:", err);
+          return jsonError("INTERNAL_ERROR", "Failed to transfer ownership", 500);
+        }
+
+        return Response.json({
+          transferred: true,
+          newOwnerId: targetUserId,
+          previousOwnerId: user.id,
+        });
+      },
+    },
+
     "/auth/organizations/:id/invites": {
       async POST(req: Request): Promise<Response> {
         if (!isBearerOnly(req) && !validateCsrf(req)) {
@@ -470,6 +573,17 @@ export function createOrganizationRoutes(deps: OrgDeps) {
             "VALIDATION_ERROR",
             result.error.issues[0]?.message ?? "Invalid input",
             400,
+          );
+        }
+
+        // Owner cannot be granted via invitation — that would let an admin
+        // hand out the owner role and escalate. Ownership transfer is a
+        // separate, owner-only flow.
+        if (result.data.role === "owner") {
+          return jsonError(
+            "FORBIDDEN",
+            "Cannot invite a member as owner. Use the transfer-ownership endpoint.",
+            403,
           );
         }
 
@@ -613,12 +727,16 @@ export function createOrganizationRoutes(deps: OrgDeps) {
           return jsonError("CONFLICT", "Already a member of this organization", 409);
         }
 
+        // Never grant owner via an invite (defensive against legacy/forged
+        // owner-role invite rows). Ownership only changes via transfer-ownership.
+        const grantedRole = invite.role === "owner" ? "member" : invite.role;
+
         // Add as member
         await (db as any).insert(members).values({
           id: Bun.randomUUIDv7(),
           orgId: invite.orgId,
           userId: user.id,
-          role: invite.role,
+          role: grantedRole,
           createdAt: new Date().toISOString(),
         });
 
@@ -630,7 +748,7 @@ export function createOrganizationRoutes(deps: OrgDeps) {
             await authHooks.afterOrgMemberAdd({
               orgId: invite.orgId,
               userId: user.id,
-              role: invite.role,
+              role: grantedRole,
             });
           } catch (err) {
             console.error("[BunBase] afterOrgMemberAdd hook error:", err);

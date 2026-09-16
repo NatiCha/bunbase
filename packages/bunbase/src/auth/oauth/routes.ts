@@ -6,6 +6,7 @@ import type { InternalSchema } from "../../core/internal-schema.ts";
 import type { AuthHooks } from "../../hooks/auth-types.ts";
 import { appendResponseCookies, serializeCookie, sessionCookieOptions } from "../cookies.ts";
 import { setCsrfCookie, validateCsrf } from "../csrf.ts";
+import { userHasMfaEnrolled } from "../mfa/index.ts";
 import { extractAuth } from "../middleware.ts";
 import { createSession } from "../sessions.ts";
 import { discord } from "./discord.ts";
@@ -192,6 +193,20 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
 
           const userInfo = await provider.getUserInfo(accessToken);
 
+          // Reject providers that did not return a usable email. An empty email
+          // would otherwise auto-link to / create an empty-email account, which
+          // can be abused for account takeover (e.g. GitHub returning email:"").
+          if (!userInfo.email || userInfo.email.trim() === "") {
+            const redirectTo = oauthConfig.redirectUrl ?? "/";
+            return new Response(null, {
+              status: 302,
+              headers: {
+                Location: `${redirectTo}?error=OAUTH_EMAIL_MISSING`,
+                "Set-Cookie": clearState,
+              },
+            });
+          }
+
           if (authHooks?.beforeOAuthLogin) {
             try {
               await authHooks.beforeOAuthLogin({ provider: providerName, userInfo, req });
@@ -339,12 +354,18 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
             }
           }
 
+          // If the resolved user has TOTP enrolled, OAuth alone is not enough —
+          // start the session pending so the MFA gate forces a second-factor
+          // step-up. The user completes it at /auth/mfa/totp/verify.
+          const mfaRequired = await userHasMfaEnrolled(db, internalSchema, userId);
+
           // Create session
           const sessionId = await createSession(
             db,
             internalSchema,
             userId,
             config.auth.tokenExpiry,
+            mfaRequired ? 0 : 1, // 0 = pending MFA, 1 = fully authenticated
           );
 
           if (authHooks?.afterOAuthLogin) {
@@ -371,7 +392,11 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
             sessionCookieOptions(isDev, cookieDomain),
           );
           const csrf = setCsrfCookie(isDev, cookieDomain);
-          const redirectTo = oauthConfig.redirectUrl ?? "/";
+          const baseRedirect = oauthConfig.redirectUrl ?? "/";
+          // Signal a pending second factor so the frontend can prompt for TOTP.
+          const redirectTo = mfaRequired
+            ? `${baseRedirect}${baseRedirect.includes("?") ? "&" : "?"}mfa_required=1`
+            : baseRedirect;
 
           return new Response(
             null,

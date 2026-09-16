@@ -46,6 +46,7 @@ import type { BunBaseConfig } from "./config.ts";
 import { type ResolvedConfig, resolveConfig } from "./config.ts";
 import { createDatabase, runUserMigrations } from "./database.ts";
 import type { AnyDb } from "./db-types.ts";
+import type { FieldPolicyMap } from "./field-policy.ts";
 import type { InternalSchema } from "./internal-schema.ts";
 import { getInternalSchema } from "./internal-schema.ts";
 
@@ -137,6 +138,14 @@ export interface CreateServerOptions<
   relations?: AnyRelations;
   rules?: Record<string, TableRules>;
   hooks?: Record<string, TableHooks>;
+  /**
+   * Optional per-table field policy controlling which columns are hidden from
+   * responses (and non-filterable/sortable), read-only, or immutable. Password
+   * hash columns are always hidden; `id` and timestamp columns are immutable by
+   * default. Use this to hide sensitive columns and block mass-assignment of
+   * server-controlled columns (e.g. `role`).
+   */
+  fields?: FieldPolicyMap;
   authHooks?: AuthHooks;
   jobs?: JobDefinition[];
   config?: BunBaseConfig;
@@ -178,6 +187,7 @@ export interface BunBaseServer {
 export function createServer(options: CreateServerOptions): BunBaseServer {
   const tableRules = options.rules as Record<string, TableRules> | undefined;
   const tableHooks = options.hooks as Record<string, TableHooks> | undefined;
+  const tableFields = options.fields;
   const authHooks = options.authHooks;
 
   // Validate job names synchronously so misconfiguration is a deterministic startup error
@@ -192,6 +202,17 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
   }
 
   const config = resolveConfig(options.config);
+
+  // Publish the resolved secure-defaults flag so the auth cookie helpers (which
+  // receive only an `isDev` boolean from many call sites) emit the correct
+  // `Secure` attribute. Mirrors the `__bunbaseJwtConfig` pattern below.
+  (globalThis as { __bunbaseSecureDefaults?: boolean }).__bunbaseSecureDefaults =
+    config.secureDefaults;
+
+  // Publish whether MFA enrollment is mandatory so the auth middleware's
+  // enrollment gate activates. Mirrors the `__bunbaseJwtConfig` pattern.
+  (globalThis as { __bunbaseMfaRequired?: boolean }).__bunbaseMfaRequired =
+    config.auth.mfa.required;
 
   // Resolve service key: config/env → persisted file → auto-generate
   if (!config.serviceKey) {
@@ -292,7 +313,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     | undefined;
 
   if (config.realtime.enabled) {
-    realtimeManager = new RealtimeManager(db, options.schema, tableRules);
+    realtimeManager = new RealtimeManager(db, options.schema, tableRules, tableFields);
     realtimePresence = new PresenceTracker();
     broadcastFn = (t, a, r) => {
       realtimeManager?.broadcastTableChange(t, a, r).catch((err) => {
@@ -309,6 +330,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     tableRules,
     tableHooks,
     broadcastFn,
+    tableFields,
   );
 
   // Collect known CRUD table names for descriptive 404 messages
@@ -689,6 +711,28 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     // Extract main request handler as a named function so the SPA catch-all
     // route forwarders can call it without duplicating the handler body in a route.
     async function masterFetch(req: Request, srv: ReturnType<typeof Bun.serve>): Promise<Response> {
+      try {
+        return await handleRequest(req, srv);
+      } catch (err) {
+        // Top-level safety net: never let an unhandled throw render Bun's default
+        // (stack-trace-leaking) error page. Log the real error server-side and
+        // return an opaque 500 to the client, with CORS headers preserved.
+        console.error("[BunBase] Unhandled request error:", err);
+        return addCorsHeaders(
+          Response.json(
+            { error: { code: "INTERNAL_SERVER_ERROR", message: "Internal server error" } },
+            { status: 500 },
+          ),
+          req,
+          config,
+        );
+      }
+    }
+
+    async function handleRequest(
+      req: Request,
+      srv: ReturnType<typeof Bun.serve>,
+    ): Promise<Response> {
       // Capture socket IP before any cloning — srv.requestIP() needs the original request.
       const socketIp = srv.requestIP(req)?.address ?? "unknown";
 
@@ -754,13 +798,17 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
       enrichedHeaders.set("x-bunbase-socket-ip", socketIp);
       req = new Request(req, { headers: enrichedHeaders });
 
-      // CSRF check for state-changing mutations — covers both /api/ and /_admin/api/.
+      // CSRF check for state-changing mutations — covers /api/, /_admin/api/, and
+      // the file upload/delete routes under /files/ (which use cookie auth).
       // Skipped when no session cookie is present since CSRF attacks require the
       // victim's browser to send cookies automatically. This covers bearer-only
       // requests as well as fully public/token-based endpoints (e.g. client portals).
+      // PUT is included alongside POST/PATCH/DELETE because extend routes may use it.
       if (
-        (pathname.startsWith("/api/") || pathname.startsWith("/_admin/api/")) &&
-        ["POST", "PATCH", "DELETE"].includes(req.method) &&
+        (pathname.startsWith("/api/") ||
+          pathname.startsWith("/_admin/api/") ||
+          pathname.startsWith("/files/")) &&
+        ["POST", "PUT", "PATCH", "DELETE"].includes(req.method) &&
         !isCsrfExempt(pathname) &&
         extractSessionId(req) !== null
       ) {
@@ -902,8 +950,21 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
         }
       : {};
 
+    // Cap the request body Bun will buffer. Sized slightly above the configured
+    // storage limit so legitimate multipart uploads (file + envelope overhead)
+    // still fit, while a few MB of headroom covers large JSON payloads. Bun
+    // rejects bodies over this size before our handlers run.
+    const maxRequestBodySize = Math.max(config.storage.maxFileSize + 1024 * 1024, 16 * 1024 * 1024);
+
     const server = Bun.serve({
       port: resolvedPort,
+
+      // Drive Bun's development flag off our fail-closed secureDefaults rather
+      // than its NODE_ENV!=="production" default — otherwise an unset NODE_ENV
+      // would surface stack traces on the built-in error page.
+      development: !config.secureDefaults,
+
+      maxRequestBodySize,
 
       routes: {
         "/health": Response.json({ status: "ok", version: pkg.version }),
@@ -921,6 +982,18 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
 
       async fetch(req, srv) {
         return masterFetch(req, srv);
+      },
+
+      // Explicit error handler — masterFetch already catches handler throws, but
+      // this covers errors Bun raises outside our fetch (e.g. route handlers,
+      // body-size overflows) so a generic 500 is returned instead of a default
+      // error page with internals.
+      error(err) {
+        console.error("[BunBase] Server error:", err);
+        return Response.json(
+          { error: { code: "INTERNAL_SERVER_ERROR", message: "Internal server error" } },
+          { status: 500 },
+        );
       },
     });
 

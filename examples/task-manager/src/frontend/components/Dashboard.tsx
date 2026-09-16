@@ -3,8 +3,8 @@
  * Demonstrates: client.realtime.subscribe(table, callback)
  */
 
+import type { TableChangeEvent } from "@naticha/bunbase";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { TableChangeEvent } from "bunbase";
 import { BarChart3, CheckCircle, Clock, ListTodo, Wifi } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { client } from "../lib/client.ts";
@@ -109,7 +109,7 @@ export function Dashboard() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {statCards.map((s) => (
           <Card key={s.label}>
-            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 gap-0">
               <CardTitle className="text-sm font-medium text-muted-foreground">{s.label}</CardTitle>
               <s.icon className={`h-4 w-4 ${s.color}`} />
             </CardHeader>

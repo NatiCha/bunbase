@@ -1,16 +1,18 @@
 
 ## BunBase — Project Conventions
 
+Follow [AGENTS.md](./AGENTS.md) for repository-wide branch, commit, and attribution rules.
+
 ### Architecture
 - Monorepo: `packages/bunbase/` is the library, `examples/task-manager/` is the demo app
 - Entry point: `packages/bunbase/src/index.ts` — exports `createServer`, `defineConfig`, `defineRules`, `defineHooks`
-- Testing utilities: `packages/bunbase/src/testing/index.ts` — exported from `bunbase/testing` subpath
+- Testing utilities: `packages/bunbase/src/testing/index.ts` — exported from `@naticha/bunbase/testing` subpath
 
 ### Key APIs
 
 **Rules** — deny by default; always define rules for every operation you want to expose:
 ```ts
-import { defineRules, allowAll } from "bunbase";
+import { defineRules, allowAll } from "@naticha/bunbase";
 
 // Typed overload (preferred) — record/body inferred from Drizzle table:
 rules: {
@@ -28,7 +30,7 @@ rules: defineRules({ posts: { list: () => true } })
 
 **Hooks** — typed overload infers record/data from Drizzle table:
 ```ts
-import { defineHooks } from "bunbase";
+import { defineHooks } from "@naticha/bunbase";
 
 hooks: {
   posts: defineHooks(schema.posts, {
@@ -41,7 +43,7 @@ All hook contexts include `request: { method, path, ip, headers }`.
 
 **AuthUser** — no index signature; extend via declaration merging:
 ```ts
-declare module "bunbase" {
+declare module "@naticha/bunbase" {
   interface AuthUser { organizationId: string; plan: "free" | "pro"; }
 }
 ```
@@ -49,7 +51,7 @@ declare module "bunbase" {
 ### Testing
 Prefer `createTestServer` over manual server setup — auto-creates tables, handles CSRF, starts on port 0:
 ```ts
-import { createTestServer } from "bunbase/testing";
+import { createTestServer } from "@naticha/bunbase/testing";
 
 const server = await createTestServer({ schema: { posts }, rules: { ... } });
 afterAll(() => server.cleanup());
@@ -63,13 +65,13 @@ Use `server.adapter.rawExecute(sql)` to seed data directly.
 
 ### CLI
 - `bunbase init [name]` — interactive project scaffolder
-- `bun create bunbase [name]` — same thing, zero-install via `create-bunbase` bin entry
+- `bunx @naticha/bunbase init [name]` — same thing, zero-install via `create-bunbase` bin entry
 
 ### Package exports
-- `bunbase` — main API (`createServer`, `defineRules`, `defineHooks`, helpers)
-- `bunbase/client` — frontend SDK (`createBunBaseClient`)
-- `bunbase/react` — React hooks (`createBunBaseReact`)
-- `bunbase/testing` — test utilities (`createTestServer`)
+- `@naticha/bunbase` — main API (`createServer`, `defineRules`, `defineHooks`, helpers)
+- `@naticha/bunbase/client` — frontend SDK (`createBunBaseClient`)
+- `@naticha/bunbase/react` — React hooks (`createBunBaseReact`)
+- `@naticha/bunbase/testing` — test utilities (`createTestServer`)
 
 ### BunBase Docs Index
 
@@ -77,7 +79,7 @@ IMPORTANT: Before implementing or modifying a BunBase feature, read the relevant
 
 ```
 [BunBase Docs]|root: ./packages/bunbase/docs
-|:{index.md,quickstart.md,schema.md,rules.md,hooks.md,client.md,configuration.md,deployment.md,extending.md,jobs.md,realtime.md,testing.md}
+|:{index.md,quickstart.md,schema.md,rules.md,hooks.md,client.md,configuration.md,deployment.md,extending.md,jobs.md,realtime.md,testing.md,UPGRADING-0.1.md}
 |api:{auth.md,crud.md,files.md,api-keys.md,service-key.md,mfa.md,passwordless.md,passkeys.md,username-login.md,sessions.md,account-deletion.md,guest-auth.md,sms-otp.md,invitations.md,organizations.md,jwt.md}
 ```
 

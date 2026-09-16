@@ -179,6 +179,21 @@ export function createFileRoutes(deps: FileRouteDeps) {
           return jsonError("NOT_FOUND", "Collection not found", 404);
         }
 
+        // Reject oversized uploads up front via Content-Length, before buffering
+        // the whole multipart body into memory. The multipart envelope adds a
+        // little overhead on top of the raw file (boundaries + part headers), so
+        // allow a small slack above maxFileSize; the exact per-file size is still
+        // enforced after parsing below.
+        const contentLength = Number(req.headers.get("content-length"));
+        const maxBody = config.storage.maxFileSize + 16 * 1024;
+        if (Number.isFinite(contentLength) && contentLength > maxBody) {
+          return jsonError(
+            "BAD_REQUEST",
+            `File too large. Max ${config.storage.maxFileSize / (1024 * 1024)}MB`,
+            400,
+          );
+        }
+
         // Parse multipart form data
         const formData = await req.formData();
         const file = formData.get("file");

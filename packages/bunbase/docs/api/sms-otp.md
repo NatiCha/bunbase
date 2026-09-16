@@ -1,3 +1,7 @@
+---
+title: "SMS / Phone OTP"
+---
+
 # SMS / Phone OTP
 
 Passwordless login via SMS one-time codes. Mirrors the email OTP flow but sends codes via a pluggable SMS transport.
@@ -5,8 +9,8 @@ Passwordless login via SMS one-time codes. Mirrors the email OTP flow but sends 
 ## Configuration
 
 ```ts
-import { createServer, defineConfig } from "bunbase";
-import type { SmsTransport } from "bunbase";
+import { createServer, defineConfig } from "@naticha/bunbase";
+import type { SmsTransport } from "@naticha/bunbase";
 
 const twilioTransport: SmsTransport = {
   async send({ to, body }) {

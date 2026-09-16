@@ -62,7 +62,7 @@ export const posts = sqliteTable("posts", {
 
 ```ts
 // src/index.ts
-import { createServer, defineConfig } from "bunbase";
+import { createServer, defineConfig } from "@naticha/bunbase";
 import * as schema from "./schema";
 import { rules } from "./rules";
 import { hooks } from "./hooks";         // optional

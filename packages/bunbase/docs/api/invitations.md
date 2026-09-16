@@ -1,3 +1,7 @@
+---
+title: "Invitation System"
+---
+
 # Invitation System
 
 Invite-only registration with single-use or multi-use invite codes/links.

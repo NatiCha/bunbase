@@ -297,7 +297,7 @@ window.location.href = client.auth.oauthUrl("google");
 BunBase supports lifecycle hooks for auth events — run custom code before or after registration, login, OAuth, password reset, and email verification.
 
 ```ts
-import { defineAuthHooks, ApiError } from "bunbase";
+import { defineAuthHooks, ApiError } from "@naticha/bunbase";
 
 export const authHooks = defineAuthHooks({
   beforeRegister: async ({ email, data }) => {

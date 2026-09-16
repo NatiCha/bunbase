@@ -56,12 +56,10 @@ export function createAccountDeletionRoutes(deps: AccountDeletionDeps) {
             return jsonError("BAD_REQUEST", "Invalid JSON body", 400);
           }
 
-          const { password } = (body as Record<string, unknown>) ?? {};
-          if (!password || typeof password !== "string") {
-            return jsonError("VALIDATION_ERROR", "Password is required", 400);
-          }
+          const parsedBody = (body as Record<string, unknown>) ?? {};
+          const { password, confirmEmail } = parsedBody;
 
-          // Verify password
+          // Load the account so we can pick the right confirmation method.
           const userRows = await (db as any)
             .select()
             .from(usersTable)
@@ -72,10 +70,33 @@ export function createAccountDeletionRoutes(deps: AccountDeletionDeps) {
           }
 
           const passwordHash = userRow.password_hash ?? userRow.passwordHash;
-          if (typeof passwordHash === "string" && passwordHash.length > 0) {
+          const hasPassword = typeof passwordHash === "string" && passwordHash.length > 0;
+
+          if (hasPassword) {
+            // Password accounts: confirm by verifying the current password.
+            if (!password || typeof password !== "string") {
+              return jsonError("VALIDATION_ERROR", "Password is required", 400);
+            }
             const valid = await verifyPassword(password, passwordHash);
             if (!valid) {
               return jsonError("UNAUTHORIZED", "Invalid password", 401);
+            }
+          } else {
+            // Passwordless accounts (OAuth / passkey / magic-link only): there is
+            // no password to verify, so require typed-email confirmation. This
+            // prevents silent, unconfirmed deletion (e.g. via CSRF-exempt bearer
+            // requests or a hijacked session with no re-auth).
+            const accountEmail = typeof userRow.email === "string" ? userRow.email : user.email;
+            if (
+              !confirmEmail ||
+              typeof confirmEmail !== "string" ||
+              confirmEmail.trim().toLowerCase() !== accountEmail.toLowerCase()
+            ) {
+              return jsonError(
+                "VALIDATION_ERROR",
+                "This account has no password. Provide `confirmEmail` matching your account email to confirm deletion.",
+                400,
+              );
             }
           }
         }

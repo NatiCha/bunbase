@@ -21,7 +21,7 @@
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
 
-    "baseUrl": ".",
+    "types": ["bun"],
     "paths": {
       "@/*": ["./src/*"]
     },

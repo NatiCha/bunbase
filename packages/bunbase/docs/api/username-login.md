@@ -1,3 +1,7 @@
+---
+title: "Username Login"
+---
+
 # Username Login
 
 Allow users to log in with a username instead of (or in addition to) their email address.

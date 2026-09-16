@@ -8,6 +8,8 @@ export interface Template {
   indexTs: string;
   drizzleConfig: string;
   env: string;
+  /** A starter test file wired to `createTestServer` from `@naticha/bunbase/testing`. */
+  sampleTest: string;
   tables: string[];
   description: string;
 }
@@ -132,7 +134,7 @@ function buildDatabaseConfig(driver: DatabaseDriver): string {
 function buildIndexTs(driver: DatabaseDriver, providers: OAuthProvider[]): string {
   const oauthConfig = buildOAuthConfig(providers);
   const databaseConfig = buildDatabaseConfig(driver);
-  return `import { createServer, defineConfig } from "bunbase";
+  return `import { createServer, defineConfig } from "@naticha/bunbase";
 import * as schema from "./schema";
 import { rules } from "./rules";
 
@@ -169,6 +171,100 @@ function buildEnv(driver: DatabaseDriver, providers: OAuthProvider[], dbName: st
     }
   }
   return `${lines.join("\n")}\n`;
+}
+
+// ─── Sample test (bunbase/testing) ────────────────────────────────────────────
+
+/** Map a JS schema key (camelCase) to its SQL table name (snake_case). */
+function toSqlTableName(jsKey: string): string {
+  return jsKey.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);
+}
+
+/**
+ * Build a starter test that boots a real server with `createTestServer` and
+ * exercises the generated schema + rules. When the template has a publicly
+ * listable table, it seeds a row and reads it back through the API. Templates
+ * with no public table (or no tables) fall back to a deny-by-default assertion.
+ */
+function buildSampleTest(publicTable: string | null): string {
+  const header = `import { test, expect, afterAll } from "bun:test";
+import { createTestServer } from "@naticha/bunbase/testing";
+import * as schema from "./schema";
+import { rules } from "./rules";
+
+const server = await createTestServer({ schema, rules });
+afterAll(() => server.cleanup());
+`;
+
+  if (!publicTable) {
+    return `${header}
+test("denies unauthenticated writes by default", async () => {
+  // Rules are deny-by-default: without a session, register a user instead.
+  const res = await server.fetch("/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ email: "test@example.com", password: "password123" }),
+  });
+  expect([200, 201]).toContain(res.status);
+});
+`;
+  }
+
+  const sqlName = toSqlTableName(publicTable);
+  return `${header}
+test("lists ${publicTable}", async () => {
+  const res = await server.fetch("/api/${sqlName}");
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(Array.isArray(body.data)).toBe(true);
+});
+
+// Seed a row directly, then read it back through the public list endpoint.
+test("reads a seeded ${publicTable} row", async () => {
+  await server.adapter.rawExecute(
+    \`INSERT INTO ${sqlName} (id, ${seedColumns(publicTable)}) VALUES (${seedValues(publicTable)})\`,
+  );
+  const res = await server.fetch("/api/${sqlName}");
+  const body = await res.json();
+  expect(body.data.length).toBeGreaterThan(0);
+});
+`;
+}
+
+/** Minimal NOT NULL columns (besides id) to satisfy a seed INSERT per template table. */
+function seedColumns(table: string): string {
+  const map: Record<string, string> = {
+    projects: "name, owner_id, created_at, updated_at",
+    tasks: "title, project_id, created_at, updated_at",
+    categories: "name, slug, created_at, updated_at",
+    posts: "title, slug, author_id, created_at, updated_at",
+    comments: "body, post_id, author_id, created_at, updated_at",
+    organizations: "name, slug, owner_id, created_at, updated_at",
+    members: "organization_id, user_id, created_at, updated_at",
+    invoices: "organization_id, amount, created_at, updated_at",
+    products: "name, price, created_at, updated_at",
+    orders: "customer_id, total, created_at, updated_at",
+    orderItems: "order_id, product_id, quantity, price, created_at, updated_at",
+  };
+  return map[table] ?? "created_at, updated_at";
+}
+
+/** VALUES list matching seedColumns(); id is always the first value. */
+function seedValues(table: string): string {
+  const now = "'2024-01-01T00:00:00.000Z'";
+  const map: Record<string, string> = {
+    projects: `'p1', 'Demo', 'u1', ${now}, ${now}`,
+    tasks: `'t1', 'Demo task', 'p1', ${now}, ${now}`,
+    categories: `'c1', 'Demo', 'demo', ${now}, ${now}`,
+    posts: `'po1', 'Demo', 'demo', 'u1', ${now}, ${now}`,
+    comments: `'cm1', 'Hello', 'po1', 'u1', ${now}, ${now}`,
+    organizations: `'o1', 'Demo', 'demo', 'u1', ${now}, ${now}`,
+    members: `'m1', 'o1', 'u1', ${now}, ${now}`,
+    invoices: `'i1', 'o1', '100', ${now}, ${now}`,
+    products: `'pr1', 'Widget', '10', ${now}, ${now}`,
+    orders: `'or1', 'u1', '20', ${now}, ${now}`,
+    orderItems: `'oi1', 'or1', 'pr1', '2', '10', ${now}, ${now}`,
+  };
+  return map[table] ?? `'x1', ${now}, ${now}`;
 }
 
 // ─── Schema bodies ────────────────────────────────────────────────────────────
@@ -330,7 +426,7 @@ ${usersTableStr(driver)}
 
 // ─── Rules (driver-agnostic) ──────────────────────────────────────────────────
 
-const taskManagerRules = `import { defineRules, authenticated, ownerOnly } from "bunbase";
+const taskManagerRules = `import { defineRules, authenticated, ownerOnly } from "@naticha/bunbase";
 import { projects } from "./schema";
 
 export const rules = defineRules({
@@ -338,8 +434,8 @@ export const rules = defineRules({
     list: () => true,
     get: () => true,
     create: ({ auth }) => authenticated(auth),
-    update: ({ auth }) => ownerOnly(projects.ownerId as any, auth),
-    delete: ({ auth }) => ownerOnly(projects.ownerId as any, auth),
+    update: ({ auth }) => ownerOnly(projects.ownerId, auth),
+    delete: ({ auth }) => ownerOnly(projects.ownerId, auth),
   },
   tasks: {
     list: () => true,
@@ -351,7 +447,7 @@ export const rules = defineRules({
 });
 `;
 
-const blogRules = `import { defineRules, authenticated, ownerOnly } from "bunbase";
+const blogRules = `import { defineRules, authenticated, ownerOnly } from "@naticha/bunbase";
 import { posts, comments } from "./schema";
 
 export const rules = defineRules({
@@ -366,20 +462,20 @@ export const rules = defineRules({
     list: () => true,
     get: () => true,
     create: ({ auth }) => authenticated(auth),
-    update: ({ auth }) => ownerOnly(posts.authorId as any, auth),
-    delete: ({ auth }) => ownerOnly(posts.authorId as any, auth),
+    update: ({ auth }) => ownerOnly(posts.authorId, auth),
+    delete: ({ auth }) => ownerOnly(posts.authorId, auth),
   },
   comments: {
     list: () => true,
     get: () => true,
     create: ({ auth }) => authenticated(auth),
-    update: ({ auth }) => ownerOnly(comments.authorId as any, auth),
+    update: ({ auth }) => ownerOnly(comments.authorId, auth),
     delete: ({ auth }) => auth?.role === "admin",
   },
 });
 `;
 
-const saasRules = `import { defineRules, authenticated } from "bunbase";
+const saasRules = `import { defineRules, authenticated } from "@naticha/bunbase";
 
 export const rules = defineRules({
   organizations: {
@@ -406,7 +502,7 @@ export const rules = defineRules({
 });
 `;
 
-const inventoryRules = `import { defineRules, authenticated } from "bunbase";
+const inventoryRules = `import { defineRules, authenticated } from "@naticha/bunbase";
 
 export const rules = defineRules({
   categories: {
@@ -440,7 +536,7 @@ export const rules = defineRules({
 });
 `;
 
-const emptyRules = `import { defineRules } from "bunbase";
+const emptyRules = `import { defineRules } from "@naticha/bunbase";
 
 export const rules = defineRules({});
 `;
@@ -452,6 +548,11 @@ type TemplateBody = {
   rules: string;
   tables: string[];
   description: string;
+  /**
+   * JS schema key of a table with a public `list` rule, used by the generated
+   * sample test. `null` when the template has no public table (e.g. saas/empty).
+   */
+  publicTable: string | null;
 };
 
 const TEMPLATES: Record<TemplateType, TemplateBody> = {
@@ -460,30 +561,35 @@ const TEMPLATES: Record<TemplateType, TemplateBody> = {
     rules: taskManagerRules,
     tables: ["projects", "tasks"],
     description: "Project & task tracking",
+    publicTable: "projects",
   },
   blog: {
     schema: blogSchema,
     rules: blogRules,
     tables: ["categories", "posts", "comments"],
     description: "Blog with categories & comments",
+    publicTable: "categories",
   },
   saas: {
     schema: saasSchema,
     rules: saasRules,
     tables: ["organizations", "members", "invoices"],
     description: "Multi-tenant SaaS",
+    publicTable: null,
   },
   inventory: {
     schema: inventorySchema,
     rules: inventoryRules,
     tables: ["categories", "products", "orders", "orderItems"],
     description: "E-commerce / inventory",
+    publicTable: "categories",
   },
   empty: {
     schema: emptySchema,
     rules: emptyRules,
     tables: [],
     description: "Blank slate (users only)",
+    publicTable: null,
   },
 };
 
@@ -500,6 +606,7 @@ export function getTemplate(
     indexTs: buildIndexTs(driver, oauthProviders),
     drizzleConfig: buildDrizzleConfig(driver),
     env: buildEnv(driver, oauthProviders, dbName),
+    sampleTest: buildSampleTest(t.publicTable),
     tables: t.tables,
     description: t.description,
   };
@@ -564,7 +671,7 @@ This project uses [BunBase](https://bunbase.dev) — a TypeScript-native backend
 **Rules** — deny by default; every operation must be explicitly allowed:
 
 \`\`\`ts
-import { defineRules, authenticated, ownerOnly, admin } from "bunbase";
+import { defineRules, authenticated, ownerOnly, admin } from "@naticha/bunbase";
 import { posts } from "./schema";
 
 export const rules = defineRules({
@@ -586,7 +693,7 @@ Rule return values:
 **Hooks** — run code before/after CRUD operations:
 
 \`\`\`ts
-import { defineHooks } from "bunbase";
+import { defineHooks } from "@naticha/bunbase";
 import { posts } from "./schema";
 
 export const hooks = {
@@ -602,7 +709,7 @@ export const hooks = {
 **Testing** — use \`createTestServer\` for integration tests:
 
 \`\`\`ts
-import { createTestServer } from "bunbase/testing";
+import { createTestServer } from "@naticha/bunbase/testing";
 import { test, expect, afterAll } from "bun:test";
 import * as schema from "../src/schema";
 import { rules } from "../src/rules";
@@ -624,7 +731,7 @@ Use \`server.adapter.rawExecute(sql)\` to seed test data directly.
 **Client SDK** — typed frontend client:
 
 \`\`\`ts
-import { createBunBaseClient } from "bunbase/client";
+import { createBunBaseClient } from "@naticha/bunbase/client";
 
 import * as schema from "./schema";
 
@@ -641,10 +748,10 @@ const me = await client.auth.me();
 
 ### BunBase Docs Index
 
-IMPORTANT: Before implementing a BunBase feature you are unfamiliar with, read the relevant doc file. All docs are bundled in \`node_modules/bunbase/docs/\`.
+IMPORTANT: Before implementing a BunBase feature you are unfamiliar with, read the relevant doc file. All docs are bundled in \`node_modules/@naticha/bunbase/docs/\`.
 
 \`\`\`
-[BunBase Docs]|root: ./node_modules/bunbase/docs
+[BunBase Docs]|root: ./node_modules/@naticha/bunbase/docs
 |:{index.md,quickstart.md,schema.md,rules.md,hooks.md,client.md,configuration.md,deployment.md,extending.md,jobs.md,realtime.md,testing.md}
 |api:{auth.md,crud.md,files.md,api-keys.md}
 \`\`\`
@@ -694,7 +801,7 @@ bun run db:generate # generate migration files
 Rules are **deny-by-default**. Every operation must be explicitly allowed.
 
 \`\`\`ts
-import { defineRules, authenticated, ownerOnly, admin, allowAll } from "bunbase";
+import { defineRules, authenticated, ownerOnly, admin, allowAll } from "@naticha/bunbase";
 import { posts } from "./schema";
 
 export const rules = defineRules({
@@ -714,7 +821,7 @@ Return \`true\` to allow, \`false\` to deny (403), or a Drizzle SQL expression t
 ## Hooks
 
 \`\`\`ts
-import { defineHooks } from "bunbase";
+import { defineHooks } from "@naticha/bunbase";
 
 export const hooks = {
   posts: defineHooks(schema.posts, {
@@ -729,7 +836,7 @@ Hook contexts always include \`request: { method, path, ip, headers }\`.
 ## Testing
 
 \`\`\`ts
-import { createTestServer } from "bunbase/testing";
+import { createTestServer } from "@naticha/bunbase/testing";
 
 const server = await createTestServer({ schema, rules });
 afterAll(() => server.cleanup());
@@ -751,18 +858,18 @@ Read the relevant file before implementing unfamiliar features:
 
 | Topic | File |
 |---|---|
-| Schema / tables | \`./node_modules/bunbase/docs/schema.md\` |
-| Rules (access control) | \`./node_modules/bunbase/docs/rules.md\` |
-| Lifecycle hooks | \`./node_modules/bunbase/docs/hooks.md\` |
-| CRUD filtering & pagination | \`./node_modules/bunbase/docs/api/crud.md\` |
-| Auth endpoints | \`./node_modules/bunbase/docs/api/auth.md\` |
-| File storage | \`./node_modules/bunbase/docs/api/files.md\` |
-| Frontend client SDK | \`./node_modules/bunbase/docs/client.md\` |
-| Realtime / WebSocket | \`./node_modules/bunbase/docs/realtime.md\` |
-| Scheduled jobs | \`./node_modules/bunbase/docs/jobs.md\` |
-| Full config reference | \`./node_modules/bunbase/docs/configuration.md\` |
-| Custom routes | \`./node_modules/bunbase/docs/extending.md\` |
-| Deployment checklist | \`./node_modules/bunbase/docs/deployment.md\` |
-| Testing / createTestServer | \`./node_modules/bunbase/docs/testing.md\` |
-| API keys (bearer auth) | \`./node_modules/bunbase/docs/api/api-keys.md\` |
+| Schema / tables | \`./node_modules/@naticha/bunbase/docs/schema.md\` |
+| Rules (access control) | \`./node_modules/@naticha/bunbase/docs/rules.md\` |
+| Lifecycle hooks | \`./node_modules/@naticha/bunbase/docs/hooks.md\` |
+| CRUD filtering & pagination | \`./node_modules/@naticha/bunbase/docs/api/crud.md\` |
+| Auth endpoints | \`./node_modules/@naticha/bunbase/docs/api/auth.md\` |
+| File storage | \`./node_modules/@naticha/bunbase/docs/api/files.md\` |
+| Frontend client SDK | \`./node_modules/@naticha/bunbase/docs/client.md\` |
+| Realtime / WebSocket | \`./node_modules/@naticha/bunbase/docs/realtime.md\` |
+| Scheduled jobs | \`./node_modules/@naticha/bunbase/docs/jobs.md\` |
+| Full config reference | \`./node_modules/@naticha/bunbase/docs/configuration.md\` |
+| Custom routes | \`./node_modules/@naticha/bunbase/docs/extending.md\` |
+| Deployment checklist | \`./node_modules/@naticha/bunbase/docs/deployment.md\` |
+| Testing / createTestServer | \`./node_modules/@naticha/bunbase/docs/testing.md\` |
+| API keys (bearer auth) | \`./node_modules/@naticha/bunbase/docs/api/api-keys.md\` |
 `;

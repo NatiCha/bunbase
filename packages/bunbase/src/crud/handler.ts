@@ -1,8 +1,14 @@
 import type { Column, SQL, Table } from "drizzle-orm";
-import { and, eq, getColumns, getTableName } from "drizzle-orm";
+import { and, eq, getColumns, getTableName, count as sqlCount } from "drizzle-orm";
 import { ApiError, errorResponse } from "../api/helpers.ts";
 import type { AuthUser } from "../api/types.ts";
 import type { AnyDb } from "../core/db-types.ts";
+import {
+  type FieldPolicy,
+  type FieldPolicyMap,
+  resolveFieldPolicy,
+  stripHidden,
+} from "../core/field-policy.ts";
 import type { TableHooks } from "../hooks/types.ts";
 import type { BroadcastFn } from "../realtime/manager.ts";
 import { evaluateRule } from "../rules/evaluator.ts";
@@ -33,30 +39,6 @@ function buildHookRequest(req: Request): import("../hooks/types.ts").HookRequest
       null,
     headers: req.headers,
   };
-}
-
-// Strip the auth-internal passwordHash field from any record returned by the API.
-// This field is managed by BunBase's auth system and must never appear in responses,
-// regardless of table rules. Recurses into nested objects and arrays (many-relations).
-function stripSensitiveFields(row: Record<string, unknown>): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  for (const [key, val] of Object.entries(row)) {
-    if (key === "passwordHash") continue;
-    if (Array.isArray(val)) {
-      result[key] = val.map((item) =>
-        item !== null && typeof item === "object"
-          ? stripSensitiveFields(item as Record<string, unknown>)
-          : item,
-      );
-    } else if (val instanceof Date) {
-      result[key] = val.toISOString();
-    } else if (val !== null && typeof val === "object") {
-      result[key] = stripSensitiveFields(val as Record<string, unknown>);
-    } else {
-      result[key] = val;
-    }
-  }
-  return result;
 }
 
 // Build a RuleArg from a request, auth, and optional extras.
@@ -105,19 +87,23 @@ async function resolveAllowedWithClause(
   auth: AuthUser | null,
 ): Promise<Record<string, true>> {
   const dbRelations = (db as any)._?.relations as
-    | Record<string, { relations: Record<string, { targetTableName?: string }> }>
+    | Record<string, { table: Table; relations: Record<string, { targetTableName?: string }> }>
     | undefined;
 
   const allowed: Record<string, true> = {};
   for (const expandKey of Object.keys(withClause)) {
     const relConfig = dbRelations?.[schemaKey]?.relations?.[expandKey];
-    const targetTableName = relConfig?.targetTableName;
+    const targetSchemaKey = relConfig?.targetTableName;
     // Drop expand keys not found in drizzle relation metadata —
     // unknown/nested keys (e.g. "owner.foo") would cause a runtime 500.
-    if (!targetTableName) continue;
+    if (!targetSchemaKey) continue;
 
     if (allRules) {
-      const relatedRules = allRules[targetTableName];
+      // Drizzle's targetTableName is the schema export key (e.g. "projectTasks").
+      // BunBase rules are keyed by SQL table name (e.g. "project_tasks").
+      const targetTable = dbRelations?.[targetSchemaKey]?.table;
+      if (!targetTable) continue;
+      const relatedRules = allRules[getTableName(targetTable)];
       const result = await evaluateRule(relatedRules?.list, {
         auth,
         body: {},
@@ -146,11 +132,15 @@ export function generateCrudHandlers(
   broadcast?: BroadcastFn,
   schemaKey?: string,
   allRules?: Record<string, TableRules>,
+  fieldPolicy?: FieldPolicy,
 ): { exact: RouteMap; pattern: RouteMap } {
   const tableName = getTableName(table);
   const columns = getColumns(table);
   // schemaKey is the JS property name used for db.query[schemaKey]; defaults to SQL table name
   const resolvedSchemaKey = schemaKey ?? tableName;
+
+  // Resolve the field policy (hidden / readonly / immutable) with secure defaults.
+  const policy = resolveFieldPolicy(columns as Record<string, Column>, fieldPolicy);
 
   const idColumnMaybe = columns.id as Column | undefined;
   if (!idColumnMaybe) {
@@ -179,17 +169,25 @@ export function generateCrudHandlers(
     }
     const limitParam = url.searchParams.get("limit");
     const limit = resolveLimit(limitParam ? Number(limitParam) : undefined);
-    const fetchAll = limit === -1;
     const cursor = url.searchParams.get("cursor") ?? undefined;
-    const sortField = url.searchParams.get("sort") ?? undefined;
+    const rawSortField = url.searchParams.get("sort") ?? undefined;
     const order = (url.searchParams.get("order") ?? "asc") as "asc" | "desc";
 
+    // Only allow sorting on a real, non-hidden column. Sorting on a hidden
+    // column (e.g. passwordHash) is rejected so its value cannot be exfiltrated
+    // via the pagination cursor.
+    const sortField =
+      rawSortField && rawSortField in columns && !policy.isHidden(rawSortField)
+        ? rawSortField
+        : undefined;
     const sortColumn = sortField ? (columns[sortField] as Column | undefined) : undefined;
 
     const allConditions: (SQL | undefined)[] = [];
-    allConditions.push(buildWhereConditions(filter, columns as Record<string, Column>));
+    allConditions.push(
+      buildWhereConditions(filter, columns as Record<string, Column>, policy.hidden),
+    );
 
-    if (cursor && !fetchAll) {
+    if (cursor) {
       allConditions.push(buildCursorCondition(cursor, idColumn, sortColumn, order));
     }
 
@@ -199,6 +197,14 @@ export function generateCrudHandlers(
 
     const conditions = allConditions.filter(Boolean) as SQL[];
     const where = conditions.length > 1 ? and(...conditions) : (conditions[0] ?? undefined);
+
+    // Optional total count (honors rules + filter where-clause) for page UIs.
+    // Returned as `total` alongside the page when `?count=true`.
+    let total: number | undefined;
+    if (url.searchParams.get("count") === "true") {
+      const countRows = await (db as any).select({ value: sqlCount() }).from(table).where(where);
+      total = Number(countRows[0]?.value ?? 0);
+    }
 
     const orderBy = buildOrderBy(idColumn, sortColumn, order);
 
@@ -212,57 +218,6 @@ export function generateCrudHandlers(
           .filter(Boolean)
       : undefined;
     const withClause = buildWithClause(expandFields);
-
-    // fetchAll branch: limit=-1 sentinel — return all rows without a LIMIT clause.
-    // IDs are chunked in batches of 500 for the expand query to stay within
-    // SQLite's SQLITE_LIMIT_VARIABLE_NUMBER (default 999).
-    if (fetchAll) {
-      const allRows = await (db as any)
-        .select()
-        .from(table)
-        .where(where)
-        .orderBy(...orderBy);
-
-      if (withClause && Object.keys(withClause).length > 0) {
-        if (!(db as any).query?.[resolvedSchemaKey]) {
-          return errorResponse(
-            "BAD_REQUEST",
-            `expand is not supported for table "${tableName}" — ensure defineRelations() is passed to createServer()`,
-            400,
-          );
-        }
-        const allowedWith = await resolveAllowedWithClause(
-          withClause,
-          resolvedSchemaKey,
-          db,
-          allRules,
-          auth,
-        );
-        const allIds = (allRows as Record<string, unknown>[]).map((r) => String(r.id));
-        const expandedById = new Map<string, unknown>();
-        for (let i = 0; i < allIds.length; i += 500) {
-          const batchIds = allIds.slice(i, i + 500);
-          const batchRows = await (db as any).query[resolvedSchemaKey].findMany({
-            where: { OR: batchIds.map((id) => ({ id })) },
-            with: allowedWith,
-          });
-          for (const row of batchRows) {
-            expandedById.set(
-              String((row as Record<string, unknown>).id),
-              stripSensitiveFields(row as Record<string, unknown>),
-            );
-          }
-        }
-        const enriched = allIds.map((id) => expandedById.get(id)).filter(Boolean);
-        return Response.json({ data: enriched, nextCursor: null, hasMore: false });
-      }
-
-      return Response.json({
-        data: (allRows as Record<string, unknown>[]).map(stripSensitiveFields),
-        nextCursor: null,
-        hasMore: false,
-      });
-    }
 
     // Step 1: Fetch paginated rows using standard SQL (handles all WHERE/ORDER/LIMIT conditions)
     const rows = await (db as any)
@@ -302,18 +257,19 @@ export function generateCrudHandlers(
         for (const row of expandedRows) {
           expandedById.set(
             String((row as Record<string, unknown>).id),
-            stripSensitiveFields(row as Record<string, unknown>),
+            stripHidden(row as Record<string, unknown>, policy.hidden),
           );
         }
         const enriched = pageIds.map((id) => expandedById.get(id)).filter(Boolean);
-        return Response.json({ data: enriched, nextCursor, hasMore: nextCursor !== null });
+        return Response.json({ data: enriched, nextCursor, hasMore: nextCursor !== null, total });
       }
     }
 
     return Response.json({
-      data: (rows as Record<string, unknown>[]).map(stripSensitiveFields),
+      data: (rows as Record<string, unknown>[]).map((r) => stripHidden(r, policy.hidden)),
       nextCursor,
       hasMore: nextCursor !== null,
+      total,
     });
   }
 
@@ -340,12 +296,26 @@ export function generateCrudHandlers(
 
     let insertData: Record<string, unknown> = {};
     for (const [key, col] of Object.entries(columns)) {
+      // Skip columns the client may not write (hidden/readonly). This blocks
+      // mass-assignment of server-controlled columns (e.g. passwordHash, or any
+      // column the app marks readonly such as `role`). Hooks may still set them.
+      if (!policy.isWritable(key, "create")) continue;
       const colName = (col as Column).name;
       if (key in body) {
         insertData[key] = body[key];
       } else if (colName in body) {
         insertData[key] = body[colName];
       }
+    }
+
+    // Auto-generate a UUIDv7 id when the client supplied none and the schema's
+    // id column has no database/default of its own (string id columns only).
+    if (
+      insertData.id === undefined &&
+      !(idColumn as any).hasDefault &&
+      (idColumn as any).dataType === "string"
+    ) {
+      insertData.id = Bun.randomUUIDv7();
     }
 
     // beforeCreate hook
@@ -400,12 +370,14 @@ export function generateCrudHandlers(
     }
 
     if (!createdRecord) {
-      const detail = insertError instanceof Error ? insertError.message : String(insertError ?? '');
+      // Log the real driver error server-side; never echo raw SQL/constraint
+      // text (which leaks table/column names) back to the client.
+      if (insertError) {
+        console.error(`[BunBase] insert failed for "${tableName}":`, insertError);
+      }
       return errorResponse(
         "INTERNAL_SERVER_ERROR",
-        detail
-          ? `Insert failed: ${detail}`
-          : "Record was created but could not be retrieved",
+        insertError ? "Insert failed" : "Record was created but could not be retrieved",
         500,
       );
     }
@@ -421,7 +393,7 @@ export function generateCrudHandlers(
 
     broadcast?.(tableName, "INSERT", createdRecord);
 
-    return Response.json(stripSensitiveFields(createdRecord), { status: 201 });
+    return Response.json(stripHidden(createdRecord, policy.hidden), { status: 201 });
   }
 
   // ── GET /api/{table}/:id — get ───────────────────────────────────────
@@ -478,10 +450,10 @@ export function generateCrudHandlers(
         with: allowedWith,
       });
       if (!row) return Response.json(null, { status: 404 });
-      return Response.json(stripSensitiveFields(row as Record<string, unknown>));
+      return Response.json(stripHidden(row as Record<string, unknown>, policy.hidden));
     }
 
-    return Response.json(stripSensitiveFields(checkRows[0] as Record<string, unknown>));
+    return Response.json(stripHidden(checkRows[0] as Record<string, unknown>, policy.hidden));
   }
 
   // ── PATCH /api/{table}/:id — update ─────────────────────────────────
@@ -529,6 +501,10 @@ export function generateCrudHandlers(
 
     let filtered: Record<string, unknown> = {};
     for (const [key, col] of Object.entries(columns)) {
+      // Skip columns the client may not update (hidden/readonly/immutable). This
+      // blocks PATCH mass-assignment — e.g. re-keying `id`, backdating
+      // `createdAt`, or escalating a readonly `role`. Hooks may still set them.
+      if (!policy.isWritable(key, "update")) continue;
       const colName = (col as Column).name;
       if (key in body) {
         filtered[key] = body[key];
@@ -560,7 +536,12 @@ export function generateCrudHandlers(
       }
     }
 
-    await (db as any).update(table).set(filtered).where(eq(idColumn, id));
+    // After write-allowlisting + hooks there may be nothing to set (e.g. the
+    // client only sent readonly/immutable fields). Skip the UPDATE in that case
+    // rather than letting the driver reject an empty SET.
+    if (Object.keys(filtered).length > 0) {
+      await (db as any).update(table).set(filtered).where(eq(idColumn, id));
+    }
     const rows = await (db as any).select().from(table).where(eq(idColumn, id));
     if (rows.length === 0) return Response.json(null, { status: 404 });
 
@@ -575,7 +556,7 @@ export function generateCrudHandlers(
 
     broadcast?.(tableName, "UPDATE", rows[0]);
 
-    return Response.json(stripSensitiveFields(rows[0] as Record<string, unknown>));
+    return Response.json(stripHidden(rows[0] as Record<string, unknown>, policy.hidden));
   }
 
   // ── DELETE /api/{table}/:id — delete ────────────────────────────────
@@ -679,6 +660,7 @@ export function generateAllCrudHandlers(
   rules?: Record<string, TableRules>,
   hooks?: Record<string, TableHooks>,
   broadcast?: BroadcastFn,
+  fields?: FieldPolicyMap,
 ): { exact: RouteMap; pattern: RouteMap } {
   const exact: RouteMap = {};
   const pattern: RouteMap = {};
@@ -703,6 +685,7 @@ export function generateAllCrudHandlers(
       broadcast,
       schemaKey,
       rules,
+      fields?.[tableName],
     );
 
     Object.assign(exact, handlers.exact);

@@ -5,18 +5,29 @@ interface RateLimitEntry {
 
 const store = new Map<string, RateLimitEntry>();
 
-const MAX_ATTEMPTS = 10;
-const WINDOW_MS = 60 * 1000; // 1 minute
+const DEFAULT_MAX_ATTEMPTS = 10;
+const DEFAULT_WINDOW_MS = 60 * 1000; // 1 minute
 // Hard cap on tracked keys to bound memory under high unique-IP churn.
 // When the store is full after pruning expired entries, new IPs are not
 // tracked (fail-open) so the rate limiter itself cannot become a DoS vector.
 const MAX_KEYS = 50_000;
 
-export function checkRateLimit(ip: string): {
+/** Per-call rate-limit overrides, sourced from `config.auth.rateLimit`. */
+export interface RateLimitOptions {
+  max?: number;
+  windowMs?: number;
+}
+
+export function checkRateLimit(
+  ip: string,
+  options?: RateLimitOptions,
+): {
   allowed: boolean;
   remaining: number;
   retryAfterMs: number;
 } {
+  const maxAttempts = options?.max ?? DEFAULT_MAX_ATTEMPTS;
+  const windowMs = options?.windowMs ?? DEFAULT_WINDOW_MS;
   const now = Date.now();
   const entry = store.get(ip);
 
@@ -29,14 +40,14 @@ export function checkRateLimit(ip: string): {
     // (fail-open) so the rate limiter cannot be weaponised as a DoS vector
     // via IP address exhaustion.
     if (store.size < MAX_KEYS) {
-      store.set(ip, { count: 1, resetAt: now + WINDOW_MS });
+      store.set(ip, { count: 1, resetAt: now + windowMs });
     }
-    return { allowed: true, remaining: MAX_ATTEMPTS - 1, retryAfterMs: 0 };
+    return { allowed: true, remaining: maxAttempts - 1, retryAfterMs: 0 };
   }
 
   entry.count++;
 
-  if (entry.count > MAX_ATTEMPTS) {
+  if (entry.count > maxAttempts) {
     return {
       allowed: false,
       remaining: 0,
@@ -46,9 +57,17 @@ export function checkRateLimit(ip: string): {
 
   return {
     allowed: true,
-    remaining: MAX_ATTEMPTS - entry.count,
+    remaining: maxAttempts - entry.count,
     retryAfterMs: 0,
   };
+}
+
+/**
+ * Reset all rate-limit state. Intended for tests that share the in-memory store
+ * across cases (the store is module-global).
+ */
+export function resetRateLimit(): void {
+  store.clear();
 }
 
 export function getClientIp(req: Request, trustedProxies: string[]): string {

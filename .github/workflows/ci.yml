@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install workspace dependencies
+        run: bun install --frozen-lockfile
+      - name: Install docs dependencies
+        run: bun install --frozen-lockfile
+        working-directory: docs
+      - name: Check, build, test, and verify the installed package
+        run: bun run verify
+        env:
+          ASTRO_TELEMETRY_DISABLED: "1"
+
+  databases:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: bunbase
+          POSTGRES_PASSWORD: bunbase_test
+          POSTGRES_DB: bunbase_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U bunbase -d bunbase_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: bunbase_test
+          MYSQL_DATABASE: bunbase_test
+          MYSQL_USER: bunbase
+          MYSQL_PASSWORD: bunbase_test
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost -pbunbase_test"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run test:databases
+        env:
+          BUNBASE_TEST_POSTGRES_URL: postgres://bunbase:bunbase_test@localhost:5432/bunbase_test
+          BUNBASE_TEST_MYSQL_URL: mysql://bunbase:bunbase_test@127.0.0.1:3306/bunbase_test

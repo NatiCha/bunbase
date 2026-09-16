@@ -1,3 +1,7 @@
+---
+title: "JWT Mode"
+---
+
 # JWT Mode
 
 Stateless JWT tokens instead of server-side cookie sessions. Useful for mobile clients, third-party API consumers, or any context where cookies are impractical.

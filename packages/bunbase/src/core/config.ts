@@ -36,6 +36,16 @@ export interface DatabaseConfig {
 export interface BunBaseConfig {
   auth?: {
     tokenExpiry?: number; // session TTL in seconds, default 30 days
+    /**
+     * Rate limiting for sensitive auth endpoints (login, register, password
+     * reset, OTP/MFA verification). Applied per client IP.
+     */
+    rateLimit?: {
+      /** Max attempts per window. Default: 10. */
+      max?: number;
+      /** Window length in milliseconds. Default: 60000 (1 minute). */
+      windowMs?: number;
+    };
     email?: {
       webhook?: string;
     };
@@ -271,6 +281,10 @@ export interface ResolvedDatabaseConfig {
 export interface ResolvedConfig {
   auth: {
     tokenExpiry: number;
+    rateLimit: {
+      max: number;
+      windowMs: number;
+    };
     email?: {
       webhook?: string;
     };
@@ -379,6 +393,12 @@ export interface ResolvedConfig {
     enabled: boolean;
   };
   development: boolean;
+  /**
+   * True when security-sensitive defaults (Secure cookies, strict CORS) should
+   * be enforced. Derived from NODE_ENV: only an explicit `development` disables
+   * them. Unset NODE_ENV ⇒ true (fail closed).
+   */
+  secureDefaults: boolean;
   database: ResolvedDatabaseConfig;
   /** @deprecated Use `database.url` for SQLite path */
   dbPath: string;
@@ -443,6 +463,17 @@ function resolveDatabaseConfig(config?: BunBaseConfig): ResolvedDatabaseConfig {
  */
 export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
   const isDev = config?.development ?? process.env.NODE_ENV !== "production";
+  // Security-sensitive toggles (Secure cookies, strict CORS) fail closed: they
+  // stay ON unless the environment is *explicitly* development. An unset
+  // NODE_ENV is treated as production for these — so a deploy that forgets to
+  // set NODE_ENV=production is still secure. Local dev must set
+  // NODE_ENV=development (the scaffolder's `dev` script does this).
+  const secureDefaults =
+    config?.development === true
+      ? false
+      : config?.development === false
+        ? true
+        : process.env.NODE_ENV !== "development";
   const database = resolveDatabaseConfig(config);
 
   // Validate cookieDomain — reject values that could inject into Set-Cookie header
@@ -479,6 +510,10 @@ export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
   const resolved: ResolvedConfig = {
     auth: {
       tokenExpiry: config?.auth?.tokenExpiry ?? 30 * 24 * 60 * 60, // 30 days
+      rateLimit: {
+        max: config?.auth?.rateLimit?.max ?? 10,
+        windowMs: config?.auth?.rateLimit?.windowMs ?? 60_000,
+      },
       email: config?.auth?.email,
       oauth: config?.auth?.oauth,
       apiKeys: { defaultExpirationDays, maxExpirationDays },
@@ -566,6 +601,7 @@ export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
       enabled: config?.realtime?.enabled ?? false,
     },
     development: isDev,
+    secureDefaults,
     database,
     dbPath: database.url,
     migrationsPath: config?.migrationsPath ?? "./drizzle",

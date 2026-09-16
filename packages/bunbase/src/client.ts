@@ -39,9 +39,9 @@ export interface TableClient<
 > {
   list(params?: ListParams<TExpand>): Promise<ListResponse<TSelect>>;
   /**
-   * Fetch all records matching `params` in a single request.
-   * Passes `limit=-1` to the server, which returns every matching record
-   * with no cursor. Accepts the same filter/sort/expand params as `list()`.
+   * Fetch all matching records by following cursor pages of up to 100 records.
+   * Preserves filter/sort/expand params on every request. Rejects if any page
+   * fails or pagination cannot advance, rather than returning partial results.
    *
    * @example
    * ```ts
@@ -55,22 +55,73 @@ export interface TableClient<
   delete(id: string): Promise<{ deleted: boolean }>;
 }
 
-export type BunBaseAPI<S> = {
+/** Fields assigned by server hooks and excluded from client write inputs.
+ * This describes the API contract; enforce it with server-side field policies.
+ */
+export type ServerFields<S> = {
+  [K in TableKeys<S>]?: S[K] extends Table ? readonly (keyof InferInsertModel<S[K]>)[] : never;
+};
+
+export type ClientInsert<T extends Table, Fields> = Omit<
+  InferInsertModel<T>,
+  Fields extends readonly (infer Key)[] ? Extract<Key, keyof InferInsertModel<T>> : never
+>;
+
+export type BunBaseAPI<S, F extends ServerFields<S> = Record<never, never>> = {
   [K in TableKeys<S>]: S[K] extends Table
-    ? TableClient<InferSelectModel<S[K]>, InferInsertModel<S[K]>>
+    ? TableClient<InferSelectModel<S[K]>, ClientInsert<S[K], K extends keyof F ? F[K] : never>>
     : never;
 };
 
 // ─── Client options ───────────────────────────────────────────────────────────
 
+/** Connection status of the realtime WebSocket client. */
+export type RealtimeStatus = "connecting" | "open" | "closed" | "reconnecting";
+
+export interface RealtimeOptions {
+  /** Fired whenever the realtime connection status changes. */
+  onStatusChange?: (status: RealtimeStatus) => void;
+  /** Initial reconnect delay in ms before exponential backoff (default 500). */
+  reconnectBaseDelayMs?: number;
+  /** Maximum reconnect delay in ms after backoff (default 30_000). */
+  reconnectMaxDelayMs?: number;
+}
+
 interface BunBaseClientOptions {
   url: string;
   /** Bearer API key for server-side / CLI usage. When set, cookies and CSRF are omitted. */
   apiKey?: string;
+  /** Realtime WebSocket tuning (backoff, status callback). */
+  realtime?: RealtimeOptions;
 }
 
-export interface BunBaseClientError extends Error {
-  code?: BunBaseErrorCode | string;
+/**
+ * Error thrown by every client method when the server responds with a
+ * non-2xx status. Carries the structured error envelope returned by BunBase
+ * (`code`, `message`) plus the HTTP `status` and any field-level errors.
+ */
+export class BunBaseClientError extends Error {
+  /** Machine-readable error code from the server (e.g. `UNAUTHORIZED`). */
+  readonly code?: BunBaseErrorCode | string;
+  /** HTTP status code of the failed response. */
+  readonly status: number;
+  /** Field-level validation errors, when the server returns them. */
+  readonly fields?: Record<string, string>;
+
+  constructor(
+    message: string,
+    opts: {
+      code?: BunBaseErrorCode | string;
+      status: number;
+      fields?: Record<string, string>;
+    },
+  ) {
+    super(message);
+    this.name = "BunBaseClientError";
+    this.code = opts.code;
+    this.status = opts.status;
+    this.fields = opts.fields;
+  }
 }
 
 // ─── CSRF helper ──────────────────────────────────────────────────────────────
@@ -83,10 +134,17 @@ function getCsrfToken(): string {
 
 async function throwApiError(res: Response, fallback: string): Promise<never> {
   const parsed = await res.json().catch(() => ({}) as Partial<BunBaseErrorEnvelope>);
-  const message = parsed?.error?.message ?? fallback;
-  const err = new Error(message) as BunBaseClientError;
-  err.code = parsed?.error?.code;
-  throw err;
+  const errObj = (
+    parsed as Partial<BunBaseErrorEnvelope> & {
+      error?: { fields?: Record<string, string> };
+    }
+  )?.error;
+  const message = errObj?.message ?? fallback;
+  throw new BunBaseClientError(message, {
+    code: errObj?.code,
+    status: res.status,
+    fields: errObj?.fields,
+  });
 }
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
@@ -101,9 +159,10 @@ async function throwApiError(res: Response, fallback: string): Promise<never> {
  * const page = await client.api.tasks.list({ limit: 20, expand: ["owner"] });
  * ```
  */
-export function createBunBaseClient<S extends Record<string, unknown>>(
-  options: BunBaseClientOptions & { schema: S },
-) {
+export function createBunBaseClient<
+  S extends Record<string, unknown>,
+  const F extends ServerFields<S> = Record<never, never>,
+>(options: BunBaseClientOptions & { schema: S; serverFields?: F }) {
   const baseUrl = options.url.replace(/\/$/, "");
   const apiKey = options.apiKey;
   const schemaKeys = Object.keys(options.schema);
@@ -140,8 +199,48 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
     };
   }
 
+  /** Headers for a non-GET request with no JSON body (logout, delete, etc.). */
+  function csrfHeaders(): HeadersInit {
+    return apiKey ? { Authorization: `Bearer ${apiKey}` } : { "X-CSRF-Token": getCsrfToken() };
+  }
+
+  /**
+   * Single fetch helper that every method routes through. Throws a
+   * {@link BunBaseClientError} on any non-2xx response so callers never
+   * receive an error envelope typed as a success shape.
+   *
+   * Pass `notFoundAsNull: true` to map a 404 to `null` instead of throwing
+   * (used by `get`/`update`).
+   */
+  async function request<T>(
+    path: string,
+    init: RequestInit & { fallbackMessage?: string; notFoundAsNull?: boolean } = {},
+  ): Promise<T> {
+    const { fallbackMessage, notFoundAsNull, ...rest } = init;
+    const res = await fetch(`${baseUrl}${path}`, { credentials, ...rest });
+    if (notFoundAsNull && res.status === 404) return null as T;
+    if (!res.ok) await throwApiError(res, fallbackMessage ?? "Request failed");
+    // Some endpoints (rare) return an empty body; guard against JSON parse errors.
+    return (await res.json().catch(() => ({}))) as T;
+  }
+
+  // ─── Auth state subscription ────────────────────────────────────────────────
+  // In-memory listener set fired after a successful login/logout/register so
+  // consumers can react to auth changes (mirrors Supabase/Firebase ergonomics).
+  type AuthState = { user: Record<string, unknown> } | { user: null };
+  const authListeners = new Set<(state: AuthState) => void>();
+  function emitAuthState(state: AuthState) {
+    for (const cb of authListeners) {
+      try {
+        cb(state);
+      } catch {
+        // Never let a listener error break the auth flow.
+      }
+    }
+  }
+
   // Proxy-based API client: client.api.tableName.list() etc.
-  const api = new Proxy({} as BunBaseAPI<S>, {
+  const api = new Proxy({} as BunBaseAPI<S, F>, {
     get(_target, tableName: string | symbol) {
       // Pass through symbol accesses (JS internals)
       if (typeof tableName !== "string") return undefined;
@@ -176,8 +275,23 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
         },
 
         async listAll(params?: Omit<ListParams, "cursor" | "limit">): Promise<unknown[]> {
-          const page = await tableClient.list({ ...params, limit: -1 });
-          return page.data;
+          const records: unknown[] = [];
+          const seenCursors = new Set<string>();
+          let cursor: string | undefined;
+          for (;;) {
+            const page = await tableClient.list({ ...params, limit: 100, cursor });
+            if (!page || !Array.isArray(page.data)) {
+              throw new Error("Invalid BunBase list response");
+            }
+            for (const record of page.data) records.push(record);
+            if (!page.hasMore) return records;
+            const nextCursor = page.nextCursor;
+            if (typeof nextCursor !== "string" || !nextCursor || seenCursors.has(nextCursor)) {
+              throw new Error("BunBase pagination did not advance");
+            }
+            seenCursors.add(nextCursor);
+            cursor = nextCursor;
+          }
         },
 
         async get(id: string, opts?: { expand?: string[] }): Promise<unknown> {
@@ -236,41 +350,50 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
         password: string;
       },
     ) {
-      const res = await fetch(`${baseUrl}/auth/register`, {
+      const result = await request<{ user: Record<string, unknown> }>("/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials,
         body: JSON.stringify(data),
+        fallbackMessage: "Registration failed",
       });
-      return res.json() as Promise<{ user: Record<string, unknown> }>;
+      emitAuthState({ user: result.user });
+      return result;
     },
 
+    /**
+     * Log in with email/username + password.
+     *
+     * Resolves to `{ user }` on success, or `{ mfaRequired: true, mfaMethods }`
+     * when the account has MFA enrolled and a second factor is still required.
+     * Throws {@link BunBaseClientError} on bad credentials or other errors.
+     */
     async login(data: {
       email?: string;
       username?: string;
       identifier?: string;
       password: string;
-    }) {
-      const res = await fetch(`${baseUrl}/auth/login`, {
+    }): Promise<{ user: Record<string, unknown> } | { mfaRequired: true; mfaMethods: string[] }> {
+      const result = await request<
+        { user: Record<string, unknown> } | { mfaRequired: true; mfaMethods: string[] }
+      >("/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials,
         body: JSON.stringify(data),
+        fallbackMessage: "Login failed",
       });
-      return res.json() as Promise<
-        { user: Record<string, unknown> } | { mfaRequired: true; mfaMethods: string[] }
-      >;
+      // Only emit a logged-in state once MFA (if any) is satisfied.
+      if ("user" in result) emitAuthState({ user: result.user });
+      return result;
     },
 
     async logout() {
-      const res = await fetch(`${baseUrl}/auth/logout`, {
+      const result = await request<{ success: boolean }>("/auth/logout", {
         method: "POST",
-        headers: apiKey
-          ? { Authorization: `Bearer ${apiKey}` }
-          : { "X-CSRF-Token": getCsrfToken() },
-        credentials,
+        headers: csrfHeaders(),
+        fallbackMessage: "Logout failed",
       });
-      return res.json() as Promise<{ success: boolean }>;
+      emitAuthState({ user: null });
+      return result;
     },
 
     async me() {
@@ -285,42 +408,52 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
       return data.user;
     },
 
+    /**
+     * Subscribe to auth state changes triggered through this client
+     * (login / register / logout). Returns an unsubscribe function.
+     *
+     * Note: this only fires for actions performed via this client instance —
+     * it is not a server-pushed session watcher.
+     */
+    onAuthStateChange(cb: (state: { user: Record<string, unknown> | null }) => void): () => void {
+      authListeners.add(cb as (s: AuthState) => void);
+      return () => authListeners.delete(cb as (s: AuthState) => void);
+    },
+
     async requestPasswordReset(email: string) {
-      const res = await fetch(`${baseUrl}/auth/request-password-reset`, {
+      return request("/auth/request-password-reset", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
+        fallbackMessage: "Password reset request failed",
       });
-      return res.json();
     },
 
     async resetPassword(token: string, password: string) {
-      const res = await fetch(`${baseUrl}/auth/reset-password`, {
+      return request("/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ token, password }),
+        fallbackMessage: "Password reset failed",
       });
-      return res.json();
     },
 
     async verifyEmail(token: string) {
-      const res = await fetch(`${baseUrl}/auth/verify-email`, {
+      return request("/auth/verify-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),
+        fallbackMessage: "Email verification failed",
       });
-      if (!res.ok) await throwApiError(res, "Email verification failed");
-      return res.json();
     },
 
     async requestEmailVerification(email: string) {
-      const res = await fetch(`${baseUrl}/auth/request-email-verification`, {
+      return request("/auth/request-email-verification", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
+        fallbackMessage: "Email verification request failed",
       });
-      return res.json();
     },
 
     oauthUrl(provider: string) {
@@ -330,151 +463,151 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
     // ─── Magic Links ───
     magicLink: {
       async request(email: string) {
-        const res = await fetch(`${baseUrl}/auth/magic-link/request`, {
+        return request("/auth/magic-link/request", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email }),
+          fallbackMessage: "Magic link request failed",
         });
-        return res.json();
       },
       async verify(token: string) {
-        const res = await fetch(`${baseUrl}/auth/magic-link/verify`, {
+        const result = await request<{ user: Record<string, unknown> }>("/auth/magic-link/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          credentials: "include",
           body: JSON.stringify({ token }),
+          fallbackMessage: "Magic link verification failed",
         });
-        return res.json();
+        if (result?.user) emitAuthState({ user: result.user });
+        return result;
       },
     },
 
     // ─── Email OTP ───
     otp: {
       async request(email: string) {
-        const res = await fetch(`${baseUrl}/auth/otp/request`, {
+        return request("/auth/otp/request", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email }),
+          fallbackMessage: "OTP request failed",
         });
-        return res.json();
       },
       async verify(email: string, code: string) {
-        const res = await fetch(`${baseUrl}/auth/otp/verify`, {
+        const result = await request<{ user: Record<string, unknown> }>("/auth/otp/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          credentials: "include",
           body: JSON.stringify({ email, code }),
+          fallbackMessage: "OTP verification failed",
         });
-        return res.json();
+        if (result?.user) emitAuthState({ user: result.user });
+        return result;
       },
     },
 
     // ─── MFA / TOTP ───
     mfa: {
       async setup() {
-        const res = await fetch(`${baseUrl}/auth/mfa/totp/setup`, {
+        return request<{ secret: string; uri: string }>("/auth/mfa/totp/setup", {
           method: "POST",
           headers: mutationHeaders(),
-          credentials,
+          fallbackMessage: "MFA setup failed",
         });
-        return res.json() as Promise<{ secret: string; uri: string }>;
       },
       async verifySetup(code: string) {
-        const res = await fetch(`${baseUrl}/auth/mfa/totp/verify-setup`, {
+        return request<{ backupCodes: string[] }>("/auth/mfa/totp/verify-setup", {
           method: "POST",
           headers: mutationHeaders(),
-          credentials,
           body: JSON.stringify({ code }),
+          fallbackMessage: "MFA setup verification failed",
         });
-        return res.json() as Promise<{ backupCodes: string[] }>;
       },
       async verify(code: string) {
-        const res = await fetch(`${baseUrl}/auth/mfa/totp/verify`, {
+        const result = await request<{ user: Record<string, unknown> }>("/auth/mfa/totp/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          credentials: "include",
           body: JSON.stringify({ code }),
+          fallbackMessage: "MFA verification failed",
         });
-        return res.json() as Promise<{ user: Record<string, unknown> }>;
+        if (result?.user) emitAuthState({ user: result.user });
+        return result;
       },
       async disable(password: string) {
-        const res = await fetch(`${baseUrl}/auth/mfa/totp/disable`, {
+        return request<{ success: boolean }>("/auth/mfa/totp/disable", {
           method: "POST",
           headers: mutationHeaders(),
-          credentials,
           body: JSON.stringify({ password }),
+          fallbackMessage: "MFA disable failed",
         });
-        return res.json() as Promise<{ success: boolean }>;
       },
       async verifyBackup(code: string) {
-        const res = await fetch(`${baseUrl}/auth/mfa/backup/verify`, {
+        const result = await request<{ user: Record<string, unknown> }>("/auth/mfa/backup/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          credentials: "include",
           body: JSON.stringify({ code }),
+          fallbackMessage: "Backup code verification failed",
         });
-        return res.json() as Promise<{ user: Record<string, unknown> }>;
+        if (result?.user) emitAuthState({ user: result.user });
+        return result;
       },
       async regenerateBackup(password: string) {
-        const res = await fetch(`${baseUrl}/auth/mfa/backup/regenerate`, {
+        return request<{ backupCodes: string[] }>("/auth/mfa/backup/regenerate", {
           method: "POST",
           headers: mutationHeaders(),
-          credentials,
           body: JSON.stringify({ password }),
+          fallbackMessage: "Backup code regeneration failed",
         });
-        return res.json() as Promise<{ backupCodes: string[] }>;
       },
       async status() {
-        const res = await fetch(`${baseUrl}/auth/mfa/status`, {
-          credentials,
+        return request<{ totp: boolean; passkeys: number }>("/auth/mfa/status", {
           headers: authHeaders(),
+          fallbackMessage: "MFA status failed",
         });
-        return res.json() as Promise<{ totp: boolean; passkeys: number }>;
       },
     },
 
     // ─── Passkeys ───
     passkeys: {
       async registerOptions() {
-        const res = await fetch(`${baseUrl}/auth/passkeys/register/options`, {
+        return request("/auth/passkeys/register/options", {
           method: "POST",
           headers: mutationHeaders(),
-          credentials,
+          fallbackMessage: "Passkey register options failed",
         });
-        return res.json();
       },
       async registerVerify(attestation: Record<string, unknown>, name?: string) {
-        const res = await fetch(`${baseUrl}/auth/passkeys/register/verify`, {
-          method: "POST",
-          headers: mutationHeaders(),
-          credentials,
-          body: JSON.stringify({ response: attestation, name }),
-        });
-        return res.json() as Promise<{ verified: boolean; credentialId: string }>;
+        return request<{ verified: boolean; credentialId: string }>(
+          "/auth/passkeys/register/verify",
+          {
+            method: "POST",
+            headers: mutationHeaders(),
+            body: JSON.stringify({ response: attestation, name }),
+            fallbackMessage: "Passkey registration failed",
+          },
+        );
       },
       async loginOptions(email?: string) {
-        const res = await fetch(`${baseUrl}/auth/passkeys/login/options`, {
+        return request("/auth/passkeys/login/options", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email }),
+          fallbackMessage: "Passkey login options failed",
         });
-        return res.json();
       },
       async loginVerify(assertion: Record<string, unknown>) {
-        const res = await fetch(`${baseUrl}/auth/passkeys/login/verify`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify(assertion),
-        });
-        return res.json() as Promise<{ user: Record<string, unknown> }>;
+        const result = await request<{ user: Record<string, unknown> }>(
+          "/auth/passkeys/login/verify",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(assertion),
+            fallbackMessage: "Passkey login failed",
+          },
+        );
+        if (result?.user) emitAuthState({ user: result.user });
+        return result;
       },
       async list() {
-        const res = await fetch(`${baseUrl}/auth/passkeys`, {
-          credentials,
-          headers: authHeaders(),
-        });
-        return res.json() as Promise<{
+        return request<{
           passkeys: Array<{
             id: string;
             name: string;
@@ -483,27 +616,25 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
             createdAt: string;
             lastUsedAt: string | null;
           }>;
-        }>;
+        }>("/auth/passkeys", {
+          headers: authHeaders(),
+          fallbackMessage: "Passkey list failed",
+        });
       },
       async remove(id: string) {
-        const res = await fetch(`${baseUrl}/auth/passkeys/delete`, {
+        return request<{ deleted: boolean }>("/auth/passkeys/delete", {
           method: "POST",
           headers: mutationHeaders(),
-          credentials,
           body: JSON.stringify({ id }),
+          fallbackMessage: "Passkey removal failed",
         });
-        return res.json() as Promise<{ deleted: boolean }>;
       },
     },
 
     // ─── Sessions ───
     sessions: {
       async list() {
-        const res = await fetch(`${baseUrl}/auth/sessions`, {
-          credentials,
-          headers: authHeaders(),
-        });
-        return res.json() as Promise<{
+        return request<{
           sessions: Array<{
             id: string;
             createdAt: string;
@@ -512,271 +643,258 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
             ipAddress: string | null;
             current: boolean;
           }>;
-        }>;
+        }>("/auth/sessions", {
+          headers: authHeaders(),
+          fallbackMessage: "Session list failed",
+        });
       },
       async revoke(id: string) {
-        const res = await fetch(`${baseUrl}/auth/sessions/${id}`, {
+        return request<{ revoked: boolean }>(`/auth/sessions/${id}`, {
           method: "DELETE",
-          headers: apiKey
-            ? { Authorization: `Bearer ${apiKey}` }
-            : { "X-CSRF-Token": getCsrfToken() },
-          credentials,
+          headers: csrfHeaders(),
+          fallbackMessage: "Session revoke failed",
         });
-        return res.json() as Promise<{ revoked: boolean }>;
       },
       async revokeOthers() {
-        const res = await fetch(`${baseUrl}/auth/sessions/revoke-others`, {
+        return request<{ revokedCount: number }>("/auth/sessions/revoke-others", {
           method: "POST",
           headers: mutationHeaders(),
-          credentials,
+          fallbackMessage: "Session revoke failed",
         });
-        return res.json() as Promise<{ revokedCount: number }>;
       },
     },
 
     // ─── Account Deletion ───
     async deleteAccount(password?: string) {
-      const res = await fetch(`${baseUrl}/auth/delete-account`, {
+      const result = await request<{ deleted: boolean }>("/auth/delete-account", {
         method: "POST",
         headers: mutationHeaders(),
-        credentials,
         body: password ? JSON.stringify({ password }) : "{}",
+        fallbackMessage: "Account deletion failed",
       });
-      return res.json() as Promise<{ deleted: boolean }>;
+      emitAuthState({ user: null });
+      return result;
     },
 
     // ─── Guest Auth ───
     guest: {
       async create() {
-        const res = await fetch(`${baseUrl}/auth/guest`, {
+        return request<{ guestId: string }>("/auth/guest", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          credentials: "include",
+          fallbackMessage: "Guest creation failed",
         });
-        return res.json() as Promise<{ guestId: string }>;
       },
       async convert(data: { email: string; password: string }) {
-        const res = await fetch(`${baseUrl}/auth/guest/convert`, {
+        const result = await request<{ user: Record<string, unknown> }>("/auth/guest/convert", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          credentials: "include",
           body: JSON.stringify(data),
+          fallbackMessage: "Guest conversion failed",
         });
-        return res.json() as Promise<{ user: Record<string, unknown> }>;
+        if (result?.user) emitAuthState({ user: result.user });
+        return result;
       },
     },
 
     // ─── SMS OTP ───
     smsOtp: {
       async request(phone: string) {
-        const res = await fetch(`${baseUrl}/auth/sms-otp/request`, {
+        return request("/auth/sms-otp/request", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ phone }),
+          fallbackMessage: "SMS OTP request failed",
         });
-        return res.json();
       },
       async verify(phone: string, code: string) {
-        const res = await fetch(`${baseUrl}/auth/sms-otp/verify`, {
+        const result = await request<{ user: Record<string, unknown> }>("/auth/sms-otp/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          credentials: "include",
           body: JSON.stringify({ phone, code }),
+          fallbackMessage: "SMS OTP verification failed",
         });
-        return res.json() as Promise<{ user: Record<string, unknown> }>;
+        if (result?.user) emitAuthState({ user: result.user });
+        return result;
       },
     },
 
     // ─── Invitations ───
     invites: {
       async create(data: { email?: string; role?: string; maxUses?: number }) {
-        const res = await fetch(`${baseUrl}/auth/invites`, {
+        return request<{ invite: Record<string, unknown> }>("/auth/invites", {
           method: "POST",
           headers: mutationHeaders(),
-          credentials,
           body: JSON.stringify(data),
+          fallbackMessage: "Invite creation failed",
         });
-        return res.json() as Promise<{ invite: Record<string, unknown> }>;
       },
       async list() {
-        const res = await fetch(`${baseUrl}/auth/invites`, {
-          credentials,
+        return request<{ invites: Array<Record<string, unknown>> }>("/auth/invites", {
           headers: authHeaders(),
+          fallbackMessage: "Invite list failed",
         });
-        return res.json() as Promise<{ invites: Array<Record<string, unknown>> }>;
       },
       async delete(id: string) {
-        const res = await fetch(`${baseUrl}/auth/invites/${id}`, {
+        return request<{ deleted: boolean }>(`/auth/invites/${id}`, {
           method: "DELETE",
-          headers: apiKey
-            ? { Authorization: `Bearer ${apiKey}` }
-            : { "X-CSRF-Token": getCsrfToken() },
-          credentials,
+          headers: csrfHeaders(),
+          fallbackMessage: "Invite deletion failed",
         });
-        return res.json() as Promise<{ deleted: boolean }>;
       },
       async validate(token: string) {
-        const res = await fetch(`${baseUrl}/auth/invites/validate`, {
+        return request<{ valid: boolean; email?: string }>("/auth/invites/validate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ token }),
+          fallbackMessage: "Invite validation failed",
         });
-        return res.json() as Promise<{ valid: boolean; email?: string }>;
       },
     },
 
     // ─── Organizations ───
     organizations: {
       async create(data: { name: string; slug?: string }) {
-        const res = await fetch(`${baseUrl}/auth/organizations`, {
+        return request<{ organization: Record<string, unknown> }>("/auth/organizations", {
           method: "POST",
           headers: mutationHeaders(),
-          credentials,
           body: JSON.stringify(data),
+          fallbackMessage: "Organization creation failed",
         });
-        return res.json() as Promise<{ organization: Record<string, unknown> }>;
       },
       async list() {
-        const res = await fetch(`${baseUrl}/auth/organizations`, {
-          credentials,
+        return request<{ organizations: Array<Record<string, unknown>> }>("/auth/organizations", {
           headers: authHeaders(),
+          fallbackMessage: "Organization list failed",
         });
-        return res.json() as Promise<{ organizations: Array<Record<string, unknown>> }>;
       },
       async get(id: string) {
-        const res = await fetch(`${baseUrl}/auth/organizations/${id}`, {
-          credentials,
-          headers: authHeaders(),
-        });
-        return res.json() as Promise<{
+        return request<{
           organization: Record<string, unknown>;
           members: Array<Record<string, unknown>>;
-        }>;
+        }>(`/auth/organizations/${id}`, {
+          headers: authHeaders(),
+          fallbackMessage: "Organization fetch failed",
+        });
       },
       async update(id: string, data: { name: string }) {
-        const res = await fetch(`${baseUrl}/auth/organizations/${id}`, {
+        return request<{ organization: Record<string, unknown> }>(`/auth/organizations/${id}`, {
           method: "PATCH",
           headers: mutationHeaders(),
-          credentials,
           body: JSON.stringify(data),
+          fallbackMessage: "Organization update failed",
         });
-        return res.json() as Promise<{ organization: Record<string, unknown> }>;
       },
       async delete(id: string) {
-        const res = await fetch(`${baseUrl}/auth/organizations/${id}`, {
+        return request<{ deleted: boolean }>(`/auth/organizations/${id}`, {
           method: "DELETE",
-          headers: apiKey
-            ? { Authorization: `Bearer ${apiKey}` }
-            : { "X-CSRF-Token": getCsrfToken() },
-          credentials,
+          headers: csrfHeaders(),
+          fallbackMessage: "Organization deletion failed",
         });
-        return res.json() as Promise<{ deleted: boolean }>;
       },
       async listMembers(orgId: string) {
-        const res = await fetch(`${baseUrl}/auth/organizations/${orgId}/members`, {
-          credentials,
-          headers: authHeaders(),
-        });
-        return res.json() as Promise<{ members: Array<Record<string, unknown>> }>;
+        return request<{ members: Array<Record<string, unknown>> }>(
+          `/auth/organizations/${orgId}/members`,
+          {
+            headers: authHeaders(),
+            fallbackMessage: "Member list failed",
+          },
+        );
       },
       async updateMember(orgId: string, userId: string, data: { role: string }) {
-        const res = await fetch(`${baseUrl}/auth/organizations/${orgId}/members/${userId}`, {
-          method: "PATCH",
-          headers: mutationHeaders(),
-          credentials,
-          body: JSON.stringify(data),
-        });
-        return res.json() as Promise<{ member: Record<string, unknown> }>;
+        return request<{ member: Record<string, unknown> }>(
+          `/auth/organizations/${orgId}/members/${userId}`,
+          {
+            method: "PATCH",
+            headers: mutationHeaders(),
+            body: JSON.stringify(data),
+            fallbackMessage: "Member update failed",
+          },
+        );
       },
       async removeMember(orgId: string, userId: string) {
-        const res = await fetch(`${baseUrl}/auth/organizations/${orgId}/members/${userId}`, {
+        return request<{ removed: boolean }>(`/auth/organizations/${orgId}/members/${userId}`, {
           method: "DELETE",
-          headers: apiKey
-            ? { Authorization: `Bearer ${apiKey}` }
-            : { "X-CSRF-Token": getCsrfToken() },
-          credentials,
+          headers: csrfHeaders(),
+          fallbackMessage: "Member removal failed",
         });
-        return res.json() as Promise<{ removed: boolean }>;
       },
       async leave(orgId: string) {
-        const res = await fetch(`${baseUrl}/auth/organizations/${orgId}/leave`, {
+        return request<{ left: boolean }>(`/auth/organizations/${orgId}/leave`, {
           method: "POST",
           headers: mutationHeaders(),
-          credentials,
+          fallbackMessage: "Leave organization failed",
         });
-        return res.json() as Promise<{ left: boolean }>;
       },
       async invite(orgId: string, data: { email: string; role?: string }) {
-        const res = await fetch(`${baseUrl}/auth/organizations/${orgId}/invites`, {
-          method: "POST",
-          headers: mutationHeaders(),
-          credentials,
-          body: JSON.stringify(data),
-        });
-        return res.json() as Promise<{ invite: Record<string, unknown> }>;
+        return request<{ invite: Record<string, unknown> }>(
+          `/auth/organizations/${orgId}/invites`,
+          {
+            method: "POST",
+            headers: mutationHeaders(),
+            body: JSON.stringify(data),
+            fallbackMessage: "Organization invite failed",
+          },
+        );
       },
       async listInvites(orgId: string) {
-        const res = await fetch(`${baseUrl}/auth/organizations/${orgId}/invites`, {
-          credentials,
-          headers: authHeaders(),
-        });
-        return res.json() as Promise<{ invites: Array<Record<string, unknown>> }>;
+        return request<{ invites: Array<Record<string, unknown>> }>(
+          `/auth/organizations/${orgId}/invites`,
+          {
+            headers: authHeaders(),
+            fallbackMessage: "Organization invite list failed",
+          },
+        );
       },
       async deleteInvite(orgId: string, inviteId: string) {
-        const res = await fetch(`${baseUrl}/auth/organizations/${orgId}/invites/${inviteId}`, {
+        return request<{ deleted: boolean }>(`/auth/organizations/${orgId}/invites/${inviteId}`, {
           method: "DELETE",
-          headers: apiKey
-            ? { Authorization: `Bearer ${apiKey}` }
-            : { "X-CSRF-Token": getCsrfToken() },
-          credentials,
+          headers: csrfHeaders(),
+          fallbackMessage: "Organization invite deletion failed",
         });
-        return res.json() as Promise<{ deleted: boolean }>;
       },
       async acceptInvite(token: string) {
-        const res = await fetch(`${baseUrl}/auth/organization-invites/accept`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ token }),
-        });
-        return res.json() as Promise<{ organization: Record<string, unknown> }>;
+        return request<{ organization: Record<string, unknown> }>(
+          "/auth/organization-invites/accept",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+            fallbackMessage: "Accept invite failed",
+          },
+        );
       },
     },
 
     // ─── JWT ───
     async refresh(refreshToken: string) {
-      const res = await fetch(`${baseUrl}/auth/refresh`, {
+      return request<{ accessToken: string; expiresIn: number }>("/auth/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refreshToken }),
+        fallbackMessage: "Token refresh failed",
       });
-      return res.json() as Promise<{ accessToken: string; expiresIn: number }>;
     },
 
     apiKeys: {
       async create(data: { name: string; expiresInDays?: number }) {
-        const res = await fetch(`${baseUrl}/auth/api-keys`, {
-          method: "POST",
-          headers: mutationHeaders(),
-          credentials,
-          body: JSON.stringify(data),
-        });
-        return res.json() as Promise<{
+        return request<{
           id: string;
           name: string;
           keyPrefix: string;
           key: string;
           expiresAt: number | null;
           createdAt: string;
-        }>;
+        }>("/auth/api-keys", {
+          method: "POST",
+          headers: mutationHeaders(),
+          body: JSON.stringify(data),
+          fallbackMessage: "API key creation failed",
+        });
       },
 
       async list() {
-        const res = await fetch(`${baseUrl}/auth/api-keys`, {
-          credentials,
-          headers: authHeaders(),
-        });
-        return res.json() as Promise<
+        return request<
           Array<{
             id: string;
             userId: string;
@@ -786,18 +904,18 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
             lastUsedAt: string | null;
             createdAt: string;
           }>
-        >;
+        >("/auth/api-keys", {
+          headers: authHeaders(),
+          fallbackMessage: "API key list failed",
+        });
       },
 
       async delete(id: string) {
-        const res = await fetch(`${baseUrl}/auth/api-keys/${id}`, {
+        return request<{ deleted: boolean }>(`/auth/api-keys/${id}`, {
           method: "DELETE",
-          headers: apiKey
-            ? { Authorization: `Bearer ${apiKey}` }
-            : { "X-CSRF-Token": getCsrfToken() },
-          credentials,
+          headers: csrfHeaders(),
+          fallbackMessage: "API key deletion failed",
         });
-        return res.json() as Promise<{ deleted: boolean }>;
       },
     },
   };
@@ -806,12 +924,16 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
     async upload(collection: string, recordId: string, file: File) {
       const formData = new FormData();
       formData.append("file", file);
+      // The server requires the CSRF token on /files/* for cookie auth; send it
+      // unless we're using bearer (API key) auth. Do NOT set Content-Type — the
+      // browser sets the multipart boundary automatically for FormData bodies.
       const res = await fetch(`${baseUrl}/files/${collection}/${recordId}`, {
         method: "POST",
         credentials,
-        headers: authHeaders(),
+        headers: csrfHeaders(),
         body: formData,
       });
+      if (!res.ok) await throwApiError(res, "Upload failed");
       return res.json();
     },
 
@@ -820,16 +942,15 @@ export function createBunBaseClient<S extends Record<string, unknown>>(
     },
 
     async delete(fileId: string) {
-      const res = await fetch(`${baseUrl}/files/${fileId}`, {
+      return request(`/files/${fileId}`, {
         method: "DELETE",
-        credentials,
-        headers: authHeaders(),
+        headers: csrfHeaders(),
+        fallbackMessage: "Delete failed",
       });
-      return res.json();
     },
   };
 
-  const realtime = createRealtimeClient(baseUrl, apiKey);
+  const realtime = createRealtimeClient(baseUrl, apiKey, options.realtime);
 
   return { api, auth, files, realtime };
 }
@@ -868,9 +989,24 @@ interface InternalChannelClient extends ChannelClient {
   _resubscribe(): void;
 }
 
-function createRealtimeClient(baseUrl: string, apiKey?: string) {
+function createRealtimeClient(baseUrl: string, apiKey?: string, opts?: RealtimeOptions) {
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let reconnectAttempts = 0;
+  let currentStatus: RealtimeStatus = "closed";
+
+  const baseDelay = opts?.reconnectBaseDelayMs ?? 500;
+  const maxDelay = opts?.reconnectMaxDelayMs ?? 30_000;
+
+  function setStatus(next: RealtimeStatus) {
+    if (next === currentStatus) return;
+    currentStatus = next;
+    try {
+      opts?.onStatusChange?.(next);
+    } catch {
+      // Never let a status listener error break the connection lifecycle.
+    }
+  }
 
   // Track active table subscriptions for reconnect
   const tableListeners: Map<string, Set<(event: TableChangeEvent) => void>> = new Map();
@@ -910,8 +1046,19 @@ function createRealtimeClient(baseUrl: string, apiKey?: string) {
     }
   }
 
+  /**
+   * Exponential backoff with full jitter, capped at `maxDelay`.
+   * delay = random(0, min(maxDelay, baseDelay * 2^attempt))
+   */
+  function nextReconnectDelay(): number {
+    const exp = Math.min(maxDelay, baseDelay * 2 ** reconnectAttempts);
+    reconnectAttempts++;
+    return Math.random() * exp;
+  }
+
   function connect() {
     if (ws) return;
+    setStatus(reconnectAttempts > 0 ? "reconnecting" : "connecting");
     const wsUrl = `${baseUrl.replace(/^https?/, (m) => (m === "https" ? "wss" : "ws"))}/realtime`;
     // Bun's WebSocket supports custom headers for server-side bearer auth.
     // Browser WebSocket API does not, so the header is only passed when an apiKey
@@ -922,6 +1069,8 @@ function createRealtimeClient(baseUrl: string, apiKey?: string) {
         : new WebSocket(wsUrl);
 
     ws.onopen = () => {
+      reconnectAttempts = 0;
+      setStatus("open");
       resubscribeAll();
     };
 
@@ -936,9 +1085,12 @@ function createRealtimeClient(baseUrl: string, apiKey?: string) {
     ws.onclose = () => {
       ws = null;
       if (tableListeners.size > 0 || channelObjects.size > 0) {
+        setStatus("reconnecting");
         reconnectTimer = setTimeout(() => {
           connect();
-        }, 2000);
+        }, nextReconnectDelay());
+      } else {
+        setStatus("closed");
       }
     };
 
@@ -1062,6 +1214,7 @@ function createRealtimeClient(baseUrl: string, apiKey?: string) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
     }
+    reconnectAttempts = 0;
     tableListeners.clear();
     channelObjects.clear();
     if (ws) {
@@ -1069,7 +1222,16 @@ function createRealtimeClient(baseUrl: string, apiKey?: string) {
       ws.close();
       ws = null;
     }
+    setStatus("closed");
   }
 
-  return { subscribe, channel, disconnect };
+  return {
+    subscribe,
+    channel,
+    disconnect,
+    /** Current connection status. */
+    get status(): RealtimeStatus {
+      return currentStatus;
+    },
+  };
 }

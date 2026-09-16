@@ -1,3 +1,7 @@
+---
+title: "Organizations / Teams"
+---
+
 # Organizations / Teams
 
 Multi-tenant auth. Users belong to organizations with per-org roles.
@@ -89,7 +93,7 @@ await client.auth.organizations.removeMember(organization.id, bob.id);
 Use the `requireOrgRole` helper in extend routes, or check membership in hooks:
 
 ```ts
-import { requireOrgRole } from "bunbase";
+import { requireOrgRole } from "@naticha/bunbase";
 
 extend: ({ db, extractAuth }) => ({
   "/api/org-data": {

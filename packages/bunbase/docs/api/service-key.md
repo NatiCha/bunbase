@@ -68,7 +68,7 @@ No cookies, no CSRF token needed.
 The existing `apiKey` option works with service keys — no changes needed:
 
 ```ts
-import { createBunBaseClient } from "bunbase/client";
+import { createBunBaseClient } from "@naticha/bunbase/client";
 
 const client = createBunBaseClient({
   url: "https://your-app.com",
@@ -95,7 +95,7 @@ const users = await client.api.users.list();
 If you need to distinguish service key requests in custom routes:
 
 ```ts
-import { isServiceKey, SERVICE_KEY_USER } from "bunbase";
+import { isServiceKey, SERVICE_KEY_USER } from "@naticha/bunbase";
 
 extend: ({ extractAuth }) => ({
   "/api/my-route": {

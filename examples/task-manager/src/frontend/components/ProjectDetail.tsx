@@ -7,7 +7,14 @@ import { TaskCard } from "./TaskCard.tsx";
 import { TaskForm } from "./TaskForm.tsx";
 import { Button } from "./ui/button.tsx";
 import { Card, CardContent } from "./ui/card.tsx";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select.tsx";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select.tsx";
 
 type Task = typeof schema.tasks.$inferSelect;
 
@@ -140,14 +147,16 @@ export function ProjectDetail({ projectId, userId, onBack }: ProjectDetailProps)
         <div className="flex gap-3">
           {/* Server-side status filter — sent to /api/tasks?filter=... */}
           <Select value={statusFilter ?? "all"} onValueChange={handleStatusChange}>
-            <SelectTrigger className="w-[140px]">
+            <SelectTrigger aria-label="Filter tasks by status" className="w-[140px]">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="todo">To Do</SelectItem>
-              <SelectItem value="in_progress">In Progress</SelectItem>
-              <SelectItem value="done">Done</SelectItem>
+              <SelectGroup>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="todo">To Do</SelectItem>
+                <SelectItem value="in_progress">In Progress</SelectItem>
+                <SelectItem value="done">Done</SelectItem>
+              </SelectGroup>
             </SelectContent>
           </Select>
         </div>

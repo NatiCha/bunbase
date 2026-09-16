@@ -10,7 +10,7 @@
  *
  * ```ts
  * // src/types.ts
- * declare module "bunbase" {
+ * declare module "@naticha/bunbase" {
  *   interface AuthUser {
  *     organizationId: string;
  *     plan: "free" | "pro";

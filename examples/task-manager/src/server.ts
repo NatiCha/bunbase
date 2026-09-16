@@ -9,8 +9,10 @@ import {
   createServer,
   createSmtpTransport,
   defineConfig,
-} from "bunbase";
+} from "@naticha/bunbase";
 import { customRoutes } from "./custom-routes";
+import { fields } from "./fields";
+import { hooks } from "./hooks";
 import { rules } from "./rules";
 import * as schema from "./schema";
 
@@ -41,6 +43,8 @@ const bunbase = createServer({
   schema,
   relations: schema.relations,
   rules,
+  hooks,
+  fields,
   mailer,
   extend: customRoutes,
   config: defineConfig({

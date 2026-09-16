@@ -11,7 +11,7 @@ Get a BunBase server running in under 5 minutes.
 ## Create a project
 
 ```bash
-bunx bunbase init my-app
+bunx @naticha/bunbase init my-app
 cd my-app
 bun install
 ```

@@ -42,6 +42,22 @@ test("github.exchangeCode posts to token endpoint and returns accessToken", asyn
   expect(init.method).toBe("POST");
 });
 
+test("github.exchangeCode throws when the token endpoint returns non-OK", async () => {
+  fetchSpy = spyOn(globalThis, "fetch").mockResolvedValueOnce(
+    Response.json({ error: "bad_verification_code" }, { status: 401 }) as any,
+  );
+  await expect(
+    github.exchangeCode("code", "id", "secret", "http://localhost/callback"),
+  ).rejects.toThrow();
+});
+
+test("github.exchangeCode throws when access_token is missing", async () => {
+  fetchSpy = spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({}) as any);
+  await expect(
+    github.exchangeCode("code", "id", "secret", "http://localhost/callback"),
+  ).rejects.toThrow();
+});
+
 test("github.getUserInfo fetches user and emails, returns primary email", async () => {
   fetchSpy = spyOn(globalThis, "fetch")
     .mockResolvedValueOnce(
@@ -109,6 +125,15 @@ test("google.exchangeCode posts to token endpoint and returns accessToken", asyn
   expect(init.method).toBe("POST");
 });
 
+test("google.exchangeCode throws when the token endpoint returns non-OK", async () => {
+  fetchSpy = spyOn(globalThis, "fetch").mockResolvedValueOnce(
+    Response.json({ error: "invalid_grant" }, { status: 400 }) as any,
+  );
+  await expect(
+    google.exchangeCode("code", "id", "secret", "http://localhost/callback"),
+  ).rejects.toThrow();
+});
+
 test("google.getUserInfo returns id, email, name and avatar", async () => {
   fetchSpy = spyOn(globalThis, "fetch").mockResolvedValueOnce(
     Response.json({
@@ -157,6 +182,15 @@ test("discord.exchangeCode posts form-encoded body to token endpoint", async () 
   const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
   expect(url).toContain("discord.com");
   expect(init.method).toBe("POST");
+});
+
+test("discord.exchangeCode throws when the token endpoint returns non-OK", async () => {
+  fetchSpy = spyOn(globalThis, "fetch").mockResolvedValueOnce(
+    Response.json({ error: "invalid_request" }, { status: 400 }) as any,
+  );
+  await expect(
+    discord.exchangeCode("code", "id", "secret", "http://localhost/callback"),
+  ).rejects.toThrow();
 });
 
 test("discord.getUserInfo returns user fields with CDN avatar URL", async () => {

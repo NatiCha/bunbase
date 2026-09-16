@@ -21,7 +21,7 @@ Create a mailer with `createMailer` and one of the built-in transports:
 
 ```ts
 // src/mailer.ts
-import { createMailer, createSmtpTransport } from "bunbase";
+import { createMailer, createSmtpTransport } from "@naticha/bunbase";
 
 export const mailer = createMailer({
   from: "App <noreply@myapp.com>",
@@ -40,7 +40,7 @@ Pass the mailer to `createServer`:
 
 ```ts
 // src/index.ts
-import { createServer } from "bunbase";
+import { createServer } from "@naticha/bunbase";
 import { mailer } from "./mailer";
 import * as schema from "./schema";
 import { rules } from "./rules";
@@ -57,7 +57,7 @@ BunBase ships a zero-Docker local mail server. It catches all outgoing email and
 
 ```ts
 // src/server.ts
-import { createDevMailServer, createMailer, createSmtpTransport } from "bunbase";
+import { createDevMailServer, createMailer, createSmtpTransport } from "@naticha/bunbase";
 
 if (process.env.NODE_ENV !== "production") {
   const devMail = createDevMailServer(); // SMTP :1025, UI :1026
@@ -103,7 +103,7 @@ devMail.stop(); // closes both SMTP + HTTP servers
 Bun-native TCP SMTP client. Works with Mailpit, SendGrid SMTP, AWS SES SMTP, and any standard SMTP/SMTPS server. No external packages needed.
 
 ```ts
-import { createSmtpTransport } from "bunbase";
+import { createSmtpTransport } from "@naticha/bunbase";
 
 // Dev / Mailpit (no auth)
 transport: createSmtpTransport({ host: "localhost", port: 1025 })
@@ -134,7 +134,7 @@ Pass any async function to `transport` — use whichever provider or SDK you pre
 ### Resend
 
 ```ts
-import { createMailer } from "bunbase";
+import { createMailer } from "@naticha/bunbase";
 import { Resend } from "resend";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -157,7 +157,7 @@ export const mailer = createMailer({
 ### SendGrid
 
 ```ts
-import { createMailer } from "bunbase";
+import { createMailer } from "@naticha/bunbase";
 import sgMail from "@sendgrid/mail";
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
@@ -180,7 +180,7 @@ export const mailer = createMailer({
 ### AWS SES
 
 ```ts
-import { createMailer } from "bunbase";
+import { createMailer } from "@naticha/bunbase";
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 
 const ses = new SESClient({ region: process.env.AWS_REGION ?? "us-east-1" });
@@ -209,7 +209,7 @@ export const mailer = createMailer({
 ### Postmark
 
 ```ts
-import { createMailer } from "bunbase";
+import { createMailer } from "@naticha/bunbase";
 import * as postmark from "postmark";
 
 const client = new postmark.ServerClient(process.env.POSTMARK_TOKEN!);
@@ -231,7 +231,7 @@ export const mailer = createMailer({
 If you need STARTTLS (port 587) or other nodemailer features not in the built-in transport:
 
 ```ts
-import { createMailer } from "bunbase";
+import { createMailer } from "@naticha/bunbase";
 import nodemailer from "nodemailer";
 
 const transport = nodemailer.createTransport({
@@ -256,7 +256,7 @@ export const mailer = createMailer({
 ### Generic fetch (any REST API)
 
 ```ts
-import { createMailer } from "bunbase";
+import { createMailer } from "@naticha/bunbase";
 
 export const mailer = createMailer({
   from: "App <noreply@myapp.com>",
@@ -348,7 +348,7 @@ await client.auth.requestEmailVerification("user@example.com");
 Override the default templates for any auth email:
 
 ```ts
-import { createMailer } from "bunbase";
+import { createMailer } from "@naticha/bunbase";
 
 export const mailer = createMailer({
   from: "App <noreply@myapp.com>",
@@ -404,7 +404,7 @@ Use `mailer.send()` anywhere in your codebase — hooks, jobs, extend routes:
 **In a hook:**
 
 ```ts
-import { defineHooks } from "bunbase";
+import { defineHooks } from "@naticha/bunbase";
 import { mailer } from "./mailer";
 import { orders } from "./schema";
 
@@ -422,7 +422,7 @@ export const orderHooks = defineHooks(orders, {
 **In a scheduled job:**
 
 ```ts
-import { defineJobs } from "bunbase";
+import { defineJobs } from "@naticha/bunbase";
 import { mailer } from "./mailer";
 
 export const jobs = defineJobs([
@@ -530,7 +530,7 @@ defineConfig({
 `mailer.send()` throws `MailerError` when the transport fails:
 
 ```ts
-import { MailerError } from "bunbase";
+import { MailerError } from "@naticha/bunbase";
 
 try {
   await mailer.send({ to: "user@example.com", subject: "Hi", html: "<p>Hi</p>" });

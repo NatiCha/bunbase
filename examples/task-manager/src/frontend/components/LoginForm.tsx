@@ -58,7 +58,7 @@ export function LoginForm({ onLogin, onRegister }: LoginFormProps) {
       </div>
 
       <Card className="w-full max-w-sm">
-        <CardHeader className="space-y-1">
+        <CardHeader className="gap-1">
           <CardTitle className="text-xl">
             {mode === "login" && "Sign in"}
             {mode === "register" && "Create an account"}

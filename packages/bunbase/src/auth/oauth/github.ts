@@ -41,7 +41,10 @@ export const github: OAuthProvider = {
         redirect_uri: redirectUri,
       }),
     });
-    const data = (await res.json()) as { access_token: string };
+    const data = (await res.json().catch(() => ({}))) as { access_token?: string };
+    if (!res.ok || !data.access_token) {
+      throw new Error(`GitHub OAuth token exchange failed (status ${res.status})`);
+    }
     return { accessToken: data.access_token };
   },
 

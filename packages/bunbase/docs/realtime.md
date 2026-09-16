@@ -10,7 +10,7 @@ Realtime is opt-in. Add `realtime` to your config:
 
 ```ts
 // src/index.ts
-import { createServer, defineConfig } from "bunbase";
+import { createServer, defineConfig } from "@naticha/bunbase";
 import * as schema from "./schema";
 
 const bunbase = createServer({
@@ -30,7 +30,7 @@ When enabled, a WebSocket endpoint is available at `ws://localhost:3000/realtime
 Import the client and use the `realtime` namespace:
 
 ```ts
-import { createBunBaseClient } from "bunbase/client";
+import { createBunBaseClient } from "@naticha/bunbase/client";
 import type * as schema from "../server/src/schema";
 
 const client = createBunBaseClient<typeof schema>({
@@ -96,7 +96,7 @@ Example with an `ownerOnly` rule:
 
 ```ts
 // src/rules.ts
-import { defineRules, ownerOnly, authenticated } from "bunbase";
+import { defineRules, ownerOnly, authenticated } from "@naticha/bunbase";
 import { tasks } from "./schema";
 
 export const rules = defineRules({

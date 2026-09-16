@@ -10,7 +10,7 @@ Use `defineRules` to declare access control:
 
 ```ts
 // src/rules.ts
-import { defineRules, authenticated } from "bunbase";
+import { defineRules, authenticated } from "@naticha/bunbase";
 
 export const rules = defineRules({
   posts: {
@@ -88,7 +88,7 @@ BunBase exports common rule patterns:
 Allow only logged-in users:
 
 ```ts
-import { authenticated } from "bunbase";
+import { authenticated } from "@naticha/bunbase";
 
 const rules = defineRules({
   posts: {
@@ -102,7 +102,7 @@ const rules = defineRules({
 Allow only users with `role === "admin"`:
 
 ```ts
-import { admin } from "bunbase";
+import { admin } from "@naticha/bunbase";
 
 const rules = defineRules({
   posts: {
@@ -116,7 +116,7 @@ const rules = defineRules({
 Allow only the record owner. Returns a SQL WHERE clause that filters to rows where the specified column matches the authenticated user's ID:
 
 ```ts
-import { ownerOnly } from "bunbase";
+import { ownerOnly } from "@naticha/bunbase";
 import { posts } from "./schema";
 
 const rules = defineRules({
@@ -134,7 +134,7 @@ When used on `list`, this filters results to only the user's own records. When u
 Allow admins full access, or scope to the record owner:
 
 ```ts
-import { adminOrOwner } from "bunbase";
+import { adminOrOwner } from "@naticha/bunbase";
 import { posts } from "./schema";
 
 const rules = defineRules({
@@ -150,7 +150,7 @@ const rules = defineRules({
 Check if a field was submitted in the request body. Useful to prevent clients from setting protected fields:
 
 ```ts
-import { isSet } from "bunbase";
+import { isSet } from "@naticha/bunbase";
 
 const rules = defineRules({
   posts: {
@@ -167,7 +167,7 @@ const rules = defineRules({
 Check if a field was submitted AND differs from the existing record value. Returns `false` if the field is not in the body. Returns `true` if there is no existing record to compare against.
 
 ```ts
-import { isChanged } from "bunbase";
+import { isChanged } from "@naticha/bunbase";
 
 const rules = defineRules({
   posts: {
@@ -184,7 +184,7 @@ const rules = defineRules({
 Return the length of an array field on an existing record. Returns 0 if the record is missing or the field is not an array.
 
 ```ts
-import { fieldLength } from "bunbase";
+import { fieldLength } from "@naticha/bunbase";
 
 const rules = defineRules({
   posts: {
@@ -201,7 +201,7 @@ const rules = defineRules({
 Cross-table query helper for use in rules. Lets you check a related table before granting access:
 
 ```ts
-import { collection } from "bunbase";
+import { collection } from "@naticha/bunbase";
 import { memberships } from "./schema";
 import { eq } from "drizzle-orm";
 
@@ -221,7 +221,7 @@ const rules = defineRules({
 Convenient `Date` values for time-based rules:
 
 ```ts
-import { now, todayStart, todayEnd, monthStart, yearStart } from "bunbase";
+import { now, todayStart, todayEnd, monthStart, yearStart } from "@naticha/bunbase";
 
 // Allow creating records only during business hours
 const rules = defineRules({

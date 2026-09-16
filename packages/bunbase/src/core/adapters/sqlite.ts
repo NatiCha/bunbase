@@ -96,9 +96,17 @@ export class SqliteAdapter implements DatabaseAdapter {
         user_id TEXT NOT NULL UNIQUE,
         encrypted_secret TEXT NOT NULL,
         verified INTEGER NOT NULL DEFAULT 0,
+        last_used_step INTEGER,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       )
     `);
+
+    // Migration: add last_used_step to _mfa_totp if missing (TOTP replay guard)
+    try {
+      this.sqlite.run("ALTER TABLE _mfa_totp ADD COLUMN last_used_step INTEGER");
+    } catch {
+      // Column already exists
+    }
 
     this.sqlite.run(`
       CREATE TABLE IF NOT EXISTS _mfa_backup_codes (

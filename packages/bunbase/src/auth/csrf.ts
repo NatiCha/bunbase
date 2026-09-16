@@ -1,9 +1,21 @@
+import { timingSafeEqual } from "node:crypto";
 import { csrfCookieOptions, parseCookies, serializeCookie } from "./cookies.ts";
 
 /**
  * CSRF helpers using a double-submit cookie strategy.
  * @module
  */
+
+/** Constant-time string comparison; returns false for unequal-length inputs. */
+function constantTimeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  // timingSafeEqual throws on length mismatch — guard first. Returning early on
+  // a length difference is safe: the token is a fixed-length UUID, so a length
+  // mismatch already means the value is wrong.
+  if (bufA.byteLength !== bufB.byteLength) return false;
+  return timingSafeEqual(bufA, bufB);
+}
 
 const CSRF_COOKIE = "csrf_token";
 const CSRF_HEADER = "x-csrf-token";
@@ -23,7 +35,7 @@ export function validateCsrf(req: Request): boolean {
   const headerToken = req.headers.get(CSRF_HEADER);
 
   if (!cookieToken || !headerToken) return false;
-  return cookieToken === headerToken;
+  return constantTimeEqual(cookieToken, headerToken);
 }
 
 /**

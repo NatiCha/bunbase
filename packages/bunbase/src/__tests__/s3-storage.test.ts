@@ -41,6 +41,22 @@ test("write throws when S3 returns a non-ok status", async () => {
   await expect(storage.write("bad/file.txt", new Uint8Array())).rejects.toThrow("S3 write failed");
 });
 
+test("write signs and sends an owned snapshot of a shared subarray", async () => {
+  fetchSpy = spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200 }));
+  const shared = new Uint8Array(new SharedArrayBuffer(5));
+  shared.set([9, 1, 2, 3, 9]);
+  const writing = createS3Storage(makeConfig()).write("shared.bin", shared.subarray(1, 4));
+  shared.fill(0);
+  await writing;
+
+  const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+  expect(init.body).toEqual(new Uint8Array([1, 2, 3]));
+  expect((init.body as Uint8Array).buffer).toBeInstanceOf(ArrayBuffer);
+  expect(new Headers(init.headers).get("x-amz-content-sha256")).toBe(
+    Bun.CryptoHasher.hash("sha256", new Uint8Array([1, 2, 3]), "hex"),
+  );
+});
+
 // ─── read ────────────────────────────────────────────────────────────────────
 
 test("read sends a GET request and returns Uint8Array when ok", async () => {

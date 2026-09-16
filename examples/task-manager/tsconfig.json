@@ -22,7 +22,7 @@
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false,
 
-    "baseUrl": ".",
+    "types": ["bun"],
     "paths": {
       "@/*": ["./src/frontend/*"]
     }

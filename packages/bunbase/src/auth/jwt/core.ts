@@ -25,7 +25,7 @@ function base64url(data: Uint8Array): string {
     .replace(/=+$/, "");
 }
 
-function base64urlDecode(str: string): Uint8Array {
+function base64urlDecode(str: string): Uint8Array<ArrayBuffer> {
   const padded = str + "=".repeat((4 - (str.length % 4)) % 4);
   const binary = atob(padded.replace(/-/g, "+").replace(/_/g, "/"));
   return Uint8Array.from(binary, (c) => c.charCodeAt(0));

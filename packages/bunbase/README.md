@@ -6,7 +6,7 @@
 
 ```ts
 // server.ts
-import { createServer, defineRules, defineConfig } from "bunbase";
+import { createServer, defineRules, defineConfig } from "@naticha/bunbase";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 const tasks = sqliteTable("tasks", {
@@ -37,7 +37,7 @@ bun server.ts
 ## New project
 
 ```sh
-bunx bunbase init my-app
+bunx @naticha/bunbase init my-app
 cd my-app
 bun install
 bun dev
@@ -48,7 +48,7 @@ bun dev
 ## Installation (existing project)
 
 ```sh
-bun add bunbase
+bun add @naticha/bunbase
 ```
 
 ## Core concepts
@@ -111,7 +111,7 @@ Enable it with the `frontend` config option.
 ```ts
 // server.ts
 import indexHtml from "./frontend/index.html";   // static import — required
-import { createServer, defineConfig } from "bunbase";
+import { createServer, defineConfig } from "@naticha/bunbase";
 
 createServer({
   schema,

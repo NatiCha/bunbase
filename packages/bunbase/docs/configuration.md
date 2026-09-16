@@ -7,7 +7,7 @@ Use `defineConfig` to customize BunBase behavior. All options are optional — s
 ## Full interface
 
 ```ts
-import { defineConfig } from "bunbase";
+import { defineConfig } from "@naticha/bunbase";
 
 const config = defineConfig({
   // Development mode (default: NODE_ENV !== "production")

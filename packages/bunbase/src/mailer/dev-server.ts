@@ -6,7 +6,7 @@
  *
  * @example
  * ```ts
- * import { createDevMailServer } from "bunbase";
+ * import { createDevMailServer } from "@naticha/bunbase";
  *
  * // In your dev server setup:
  * const devMail = createDevMailServer();
@@ -456,7 +456,7 @@ function processSmtpData(
  * @example
  * ```ts
  * // src/server.ts (dev only)
- * import { createDevMailServer, createMailer, createSmtpTransport } from "bunbase";
+ * import { createDevMailServer, createMailer, createSmtpTransport } from "@naticha/bunbase";
  *
  * if (process.env.NODE_ENV !== "production") {
  *   const devMail = createDevMailServer();

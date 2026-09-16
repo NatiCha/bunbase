@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterAll, expect, test } from "bun:test";
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq, getColumns } from "drizzle-orm";
@@ -765,4 +765,25 @@ test("GET /files returns 403 when whereClause rule filters out the record", asyn
   );
   expect(response.status).toBe(403);
   sqlite.close();
+});
+
+// ─── Local storage path containment (defense in depth) ───────────────────────
+
+test("local storage rejects paths that escape the storage root", async () => {
+  const root = join(storageDir, "containment");
+  mkdirSync(root, { recursive: true });
+  const storage = createLocalStorage(root);
+
+  // A normal nested key works.
+  await storage.write("ok/file.txt", new TextEncoder().encode("safe"));
+  expect(await storage.exists("ok/file.txt")).toBe(true);
+
+  // Traversal keys must be rejected on every operation rather than escaping root.
+  await expect(storage.write("../escape.txt", new Uint8Array([1]))).rejects.toThrow();
+  await expect(storage.read("../../etc/passwd")).rejects.toThrow();
+  await expect(storage.delete("../../escape.txt")).rejects.toThrow();
+  await expect(storage.exists("../escape.txt")).rejects.toThrow();
+
+  // Sanity: the traversal target was never created outside the root.
+  expect(existsSync(join(storageDir, "escape.txt"))).toBe(false);
 });

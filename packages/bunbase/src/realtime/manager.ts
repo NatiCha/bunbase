@@ -2,6 +2,7 @@ import type { ServerWebSocket } from "bun";
 import type { Column, SQL, Table } from "drizzle-orm";
 import { and, eq, getColumns, getTableName } from "drizzle-orm";
 import type { AnyDb } from "../core/db-types.ts";
+import { type FieldPolicyMap, resolveFieldPolicy, stripHidden } from "../core/field-policy.ts";
 import { evaluateRule } from "../rules/evaluator.ts";
 import type { TableRules } from "../rules/types.ts";
 import type { RealtimeSocketData, ServerMessage } from "./types.ts";
@@ -31,11 +32,14 @@ export class RealtimeManager {
   private tableMap: Map<string, Table> = new Map();
   // tableName → Set of ws currently being added (synchronous reservation to prevent concurrent duplicates)
   private inFlight: Map<string, Set<ServerWebSocket<RealtimeSocketData>>> = new Map();
+  // tableName → set of hidden schema keys (from the field policy + defaults)
+  private hiddenByTable: Map<string, Set<string>> = new Map();
 
   constructor(
     private db: AnyDb,
     schema: Record<string, unknown>,
     private rules?: Record<string, TableRules>,
+    fields?: FieldPolicyMap,
   ) {
     for (const value of Object.values(schema)) {
       if (typeof value !== "object" || value === null) continue;
@@ -43,6 +47,13 @@ export class RealtimeManager {
         const name = getTableName(value as Table);
         if (!name.startsWith("_")) {
           this.tableMap.set(name, value as Table);
+          // Precompute the hidden-field set so realtime payloads are scrubbed
+          // exactly like HTTP responses (passwordHash + policy `hidden`).
+          const policy = resolveFieldPolicy(
+            getColumns(value as Table) as Record<string, Column>,
+            fields?.[name],
+          );
+          this.hiddenByTable.set(name, policy.hidden);
         }
       } catch {
         // Not a Drizzle table — skip
@@ -153,12 +164,15 @@ export class RealtimeManager {
   async broadcastTableChange(
     tableName: string,
     action: "INSERT" | "UPDATE" | "DELETE",
-    record: Record<string, unknown>,
+    rawRecord: Record<string, unknown>,
   ): Promise<void> {
     const subscribers = this.tableSubscribers.get(tableName);
     if (!subscribers || subscribers.size === 0) return;
 
     const table = this.tableMap.get(tableName);
+    // Scrub hidden fields (passwordHash + policy `hidden`) before the record is
+    // sent to any subscriber, matching the HTTP response stripping.
+    const record = stripHidden(rawRecord, this.hiddenByTable.get(tableName));
     const id = record.id != null ? String(record.id) : "";
 
     for (const sub of subscribers) {

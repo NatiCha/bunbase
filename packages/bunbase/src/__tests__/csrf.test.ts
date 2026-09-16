@@ -24,6 +24,24 @@ test("validateCsrf fails when tokens do not match", () => {
   expect(validateCsrf(req)).toBe(false);
 });
 
+test("validateCsrf fails when tokens differ in length (constant-time guard)", () => {
+  const req = new Request("http://localhost/auth/me", {
+    headers: {
+      cookie: "csrf_token=short",
+      "x-csrf-token": "a-much-longer-token-value",
+    },
+  });
+  expect(validateCsrf(req)).toBe(false);
+});
+
+test("validateCsrf passes for long matching tokens", () => {
+  const token = "0199aef0-1234-7000-8000-abcdefabcdef-extra-padding";
+  const req = new Request("http://localhost/auth/me", {
+    headers: { cookie: `csrf_token=${token}`, "x-csrf-token": token },
+  });
+  expect(validateCsrf(req)).toBe(true);
+});
+
 test("validateCsrf fails when cookie is missing", () => {
   const req = new Request("http://localhost/auth/me", {
     headers: {

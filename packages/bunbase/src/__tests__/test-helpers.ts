@@ -31,6 +31,7 @@ export function makeResolvedConfig(overrides: DeepPartialResolvedConfig = {}): R
   return {
     auth: {
       tokenExpiry: authOverrides.tokenExpiry ?? 60 * 60,
+      rateLimit: (authOverrides as any)?.rateLimit ?? { max: 10, windowMs: 60_000 },
       email: authOverrides.email,
       oauth: authOverrides.oauth,
       apiKeys: authOverrides.apiKeys ?? {
@@ -95,6 +96,8 @@ export function makeResolvedConfig(overrides: DeepPartialResolvedConfig = {}): R
       enabled: realtimeOverrides.enabled ?? false,
     },
     development: overrides.development ?? true,
+    // Mirror resolveConfig: secure defaults are on unless explicitly in dev.
+    secureDefaults: (overrides as any).secureDefaults ?? !(overrides.development ?? true),
     database: databaseOverrides,
     dbPath: overrides.dbPath ?? databaseOverrides.url ?? "./data/db.sqlite",
     migrationsPath: overrides.migrationsPath ?? "./drizzle",

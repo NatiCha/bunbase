@@ -11,7 +11,14 @@ import {
 } from "./ui/dialog.tsx";
 import { Input } from "./ui/input.tsx";
 import { Label } from "./ui/label.tsx";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select.tsx";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select.tsx";
 import { Textarea } from "./ui/textarea.tsx";
 
 type Task = typeof schema.tasks.$inferSelect;
@@ -95,28 +102,32 @@ export function TaskForm({ open, onOpenChange, onSubmit, initial }: TaskFormProp
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Status</Label>
+              <Label htmlFor="task-status">Status</Label>
               <Select value={status} onValueChange={setStatus}>
-                <SelectTrigger>
+                <SelectTrigger id="task-status">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="todo">To Do</SelectItem>
-                  <SelectItem value="in_progress">In Progress</SelectItem>
-                  <SelectItem value="done">Done</SelectItem>
+                  <SelectGroup>
+                    <SelectItem value="todo">To Do</SelectItem>
+                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="done">Done</SelectItem>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Priority</Label>
+              <Label htmlFor="task-priority">Priority</Label>
               <Select value={priority} onValueChange={setPriority}>
-                <SelectTrigger>
+                <SelectTrigger id="task-priority">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
+                  <SelectGroup>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
             </div>

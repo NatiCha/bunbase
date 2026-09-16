@@ -4,6 +4,7 @@ import type { AuthUser } from "../api/types.ts";
 import type { AnyDb } from "../core/db-types.ts";
 import type { InternalSchema } from "../core/internal-schema.ts";
 import { parseCookies } from "./cookies.ts";
+import { userHasMfaEnrolled } from "./mfa/index.ts";
 import { getSession } from "./sessions.ts";
 
 /**
@@ -124,6 +125,23 @@ function isMfaPendingAllowed(pathname: string): boolean {
 }
 
 /**
+ * Paths accessible when `auth.mfa.required` is on but the user has not yet
+ * enrolled MFA. They may reach the MFA enrollment/status endpoints, log out,
+ * and read their own identity (so the client can prompt for enrollment) — but
+ * nothing else until they enroll.
+ */
+const MFA_ENROLLMENT_ALLOWED_PREFIXES = ["/auth/mfa/", "/auth/logout", "/auth/me"];
+
+function isMfaEnrollmentAllowed(pathname: string): boolean {
+  return MFA_ENROLLMENT_ALLOWED_PREFIXES.some((p) => pathname.startsWith(p));
+}
+
+/** Subset of config needed by the auth gate. Kept structural to avoid a config import cycle. */
+export interface ExtractAuthConfig {
+  auth: { mfa: { required: boolean } };
+}
+
+/**
  * Resolve authenticated user from service key, session cookie, or bearer API key.
  *
  * Priority: service key > session cookie > JWT > user API key.
@@ -137,6 +155,7 @@ export async function extractAuth(
   internalSchema: InternalSchema,
   usersTable: any,
   serviceKey?: string,
+  config?: ExtractAuthConfig,
 ): Promise<AuthUser | null> {
   // Extract bearer token once — reused for service key, JWT, and API key checks
   const bearerToken = extractBearerToken(req);
@@ -146,16 +165,28 @@ export async function extractAuth(
     return SERVICE_KEY_USER;
   }
 
+  // Mandatory-MFA flag. Prefer the explicitly passed config; fall back to a
+  // global set at server bootstrap (same pattern as __bunbaseJwtConfig) so the
+  // gate works for every extractAuth call site without threading config through
+  // each one.
+  const mfaRequired =
+    config?.auth?.mfa?.required === true ||
+    (config === undefined &&
+      (globalThis as { __bunbaseMfaRequired?: boolean }).__bunbaseMfaRequired === true);
+
   const sessionId = extractSessionId(req);
 
   // Try session cookie first — valid cookie always wins
   if (sessionId) {
     const session = await getSession(db, internalSchema, sessionId);
     if (session) {
-      // MFA enforcement: pending sessions can only access MFA and logout routes
+      const pathname = new URL(req.url).pathname.replace(/^\/api/, "");
+
+      // MFA enforcement: pending sessions can only access MFA and logout routes.
+      // NULL mfa_verified is treated as "not required" (non-MFA users); only an
+      // explicit 0 means a step-up is pending.
       if (session.mfa_verified === 0) {
-        const url = new URL(req.url);
-        if (!isMfaPendingAllowed(url.pathname.replace(/^\/api/, ""))) {
+        if (!isMfaPendingAllowed(pathname)) {
           return null;
         }
       }
@@ -175,6 +206,16 @@ export async function extractAuth(
       if (user) {
         const { id, email, role } = user;
         if (typeof id === "string" && typeof email === "string" && typeof role === "string") {
+          // Mandatory-MFA enforcement: when enabled, a fully-authenticated user
+          // who has NOT enrolled MFA is blocked from everything except the MFA
+          // enrollment/status endpoints, logout, and /auth/me (so the client can
+          // detect the state and prompt enrollment).
+          if (mfaRequired && session.mfa_verified !== 0 && !isMfaEnrollmentAllowed(pathname)) {
+            const enrolled = await userHasMfaEnrolled(db, internalSchema, id);
+            if (!enrolled) {
+              return null;
+            }
+          }
           return { ...user, id, email, role };
         }
       }
@@ -183,6 +224,8 @@ export async function extractAuth(
 
   // Fall back to bearer token (no cookie, or cookie was invalid/expired)
   if (bearerToken) {
+    let bearerUser: AuthUser | null = null;
+
     // Check if it's a JWT (has 3 dot-separated parts)
     if (bearerToken.split(".").length === 3) {
       // Try JWT verification
@@ -191,8 +234,11 @@ export async function extractAuth(
         const jwtConfig = (globalThis as any).__bunbaseJwtConfig;
         if (jwtConfig?.enabled && jwtConfig?.secret) {
           const payload = await verifyJwt(bearerToken, jwtConfig.secret, db, internalSchema);
-          if (payload) {
-            return { id: payload.sub, email: payload.email, role: payload.role } as AuthUser;
+          // Only ACCESS tokens authenticate a request. Refresh tokens share the
+          // same secret but must only be redeemable at /auth/refresh; accepting
+          // one here would turn a 7-day refresh token into a bearer access token.
+          if (payload && payload.type === "access") {
+            bearerUser = { id: payload.sub, email: payload.email, role: payload.role } as AuthUser;
           }
         }
       } catch {
@@ -200,7 +246,23 @@ export async function extractAuth(
       }
     }
 
-    return getApiKeyUser(db, internalSchema, bearerToken, usersTable);
+    if (!bearerUser) {
+      bearerUser = await getApiKeyUser(db, internalSchema, bearerToken, usersTable);
+    }
+
+    // Mandatory-MFA enforcement for bearer credentials too — block unenrolled
+    // users from everything except the MFA enrollment/status, logout, and /me.
+    if (bearerUser && mfaRequired) {
+      const pathname = new URL(req.url).pathname.replace(/^\/api/, "");
+      if (!isMfaEnrollmentAllowed(pathname)) {
+        const enrolled = await userHasMfaEnrolled(db, internalSchema, bearerUser.id);
+        if (!enrolled) {
+          return null;
+        }
+      }
+    }
+
+    return bearerUser;
   }
 
   return null;

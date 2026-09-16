@@ -14,12 +14,9 @@ import type { AnyRelations } from "drizzle-orm/relations";
  * Works with SQLite (bun:sqlite + drizzle), Postgres, and MySQL (Bun.sql + drizzle).
  */
 export type AnyDb<
-  TSchema extends Record<string, unknown> = Record<string, never>,
+  _TSchema extends Record<string, unknown> = Record<string, never>,
   TRelations extends AnyRelations = AnyRelations,
-> =
-  | SQLiteBunDatabase<TSchema, TRelations>
-  | BunSQLDatabase<TRelations>
-  | BunMySqlDatabase<TSchema, TRelations>;
+> = SQLiteBunDatabase<TRelations> | BunSQLDatabase<TRelations> | BunMySqlDatabase<TRelations>;
 
 /**
  * Dialect-agnostic table type.

@@ -15,8 +15,8 @@ import type { AnyDb, Dialect } from "./db-types.ts";
  * @module
  *
  * @remarks
- * BunBase expects Drizzle beta APIs (including `drizzle-orm/relations` metadata)
- * and passes `schema` + `relations` separately into the Drizzle client.
+ * BunBase uses Drizzle 1.0's relation metadata. The schema is owned by BunBase;
+ * Drizzle's RQBv2 clients receive only the relations configuration.
  */
 
 export interface DatabaseResult {
@@ -41,7 +41,7 @@ export function createDatabase(
 
 function createSqliteDatabase(
   config: ResolvedConfig,
-  schema?: Record<string, unknown>,
+  _schema?: Record<string, unknown>,
   relations?: unknown,
 ): DatabaseResult {
   const { Database } = require("bun:sqlite") as typeof import("bun:sqlite");
@@ -62,7 +62,7 @@ function createSqliteDatabase(
   sqlite.run("PRAGMA synchronous = NORMAL");
   sqlite.run("PRAGMA foreign_keys = ON");
 
-  const db = drizzle({ client: sqlite, schema: schema as any, relations: relations as any });
+  const db = drizzle({ client: sqlite, relations: relations as any });
   const adapter = new SqliteAdapter(sqlite);
 
   return { db, dialect: "sqlite", adapter };
@@ -91,7 +91,7 @@ function createPostgresDatabase(
 
 function createMysqlDatabase(
   config: ResolvedConfig,
-  schema?: Record<string, unknown>,
+  _schema?: Record<string, unknown>,
   relations?: unknown,
 ): DatabaseResult {
   const { SQL } = require("bun") as typeof import("bun");
@@ -100,7 +100,7 @@ function createMysqlDatabase(
 
   const sqlOpts = buildMysqlSqlOptions(config.database.url, config.database.pool);
   const client = new SQL(sqlOpts);
-  const db = drizzle({ client, schema: schema as any, relations: relations as any });
+  const db = drizzle({ client, relations: relations as any });
   const adapter = new MysqlAdapter(client, config.database.url);
 
   return { db, dialect: "mysql", adapter };

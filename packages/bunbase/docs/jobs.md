@@ -10,7 +10,7 @@ Use `defineJobs` to declare a list of scheduled tasks:
 
 ```ts
 // src/jobs.ts
-import { defineJobs } from "bunbase";
+import { defineJobs } from "@naticha/bunbase";
 import { lt } from "drizzle-orm";
 import { sessions } from "./schema";
 

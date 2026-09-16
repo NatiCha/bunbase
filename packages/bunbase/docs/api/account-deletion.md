@@ -1,3 +1,7 @@
+---
+title: "Account Deletion"
+---
+
 # Account Deletion
 
 GDPR-compliant cascading account deletion. Enabled by default.

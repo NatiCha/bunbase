@@ -18,11 +18,10 @@ import { Label } from "./ui/label.tsx";
 import { Textarea } from "./ui/textarea.tsx";
 
 interface ProjectListProps {
-  userId: string;
   onSelectProject: (id: string) => void;
 }
 
-export function ProjectList({ userId, onSelectProject }: ProjectListProps) {
+export function ProjectList({ onSelectProject }: ProjectListProps) {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [name, setName] = useState("");
@@ -44,10 +43,11 @@ export function ProjectList({ userId, onSelectProject }: ProjectListProps) {
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
+    // ownerId is stamped server-side by a beforeCreate hook from the
+    // authenticated user — the client never sends it.
     createMutation.mutate({
       name,
       description: description || null,
-      ownerId: userId,
     });
   };
 

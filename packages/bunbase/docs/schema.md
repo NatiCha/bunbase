@@ -29,7 +29,17 @@ export const posts = sqliteTable("posts", {
 });
 ```
 
-Every table **must** have an `id` column with type `text` as its primary key. BunBase generates UUIDv7 IDs automatically on create if none is provided.
+Every table **must** have an `id` column as its primary key. If the `id` column
+is a `text` column **without** its own default, BunBase generates a UUIDv7 on
+create when the client doesn't supply one. If you prefer, declare the default on
+the column yourself:
+
+```ts
+id: text("id").primaryKey().$defaultFn(() => Bun.randomUUIDv7()),
+```
+
+`id` is **immutable** by default — it can be set on create but is ignored on
+update (a client cannot re-key a row via `PATCH`). See [Field policy](#field-policy).
 
 ## The users table
 
@@ -56,9 +66,58 @@ export const users = sqliteTable("users", {
 });
 ```
 
-## Automatic timestamps
+## Timestamps
 
-BunBase automatically adds `created_at` and `updated_at` columns to every user-defined table. You don't need to declare them in your schema — they are injected at startup and managed automatically.
+BunBase does **not** inject timestamp columns for you — declare them on the
+tables that need them and let Drizzle manage their values:
+
+```ts
+createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+updatedAt: text("updated_at")
+  .notNull()
+  .$defaultFn(() => new Date().toISOString())
+  .$onUpdateFn(() => new Date().toISOString()),
+```
+
+`createdAt`/`created_at` and `updatedAt`/`updated_at` are **immutable** by
+default — settable on create, ignored on update — so a client cannot backdate a
+row. See [Field policy](#field-policy).
+
+## Field policy
+
+By default, BunBase protects sensitive and server-controlled columns at the CRUD
+boundary:
+
+- **`passwordHash` / `password_hash`** are always hidden from responses (and from
+  pagination cursors and realtime broadcasts) and can never be written via CRUD.
+- **`id` and timestamp columns** are immutable on update (settable on create).
+- Everything else is readable and writable subject to your [rules](./rules.md).
+
+To hide additional columns or block writes to privileged columns, pass a `fields`
+policy to `createServer` (mirrors `rules`/`hooks`):
+
+```ts
+import { createServer, defineFields } from "@naticha/bunbase";
+import * as schema from "./schema";
+
+createServer({
+  schema,
+  rules,
+  fields: {
+    users: defineFields(schema.users, {
+      hidden: ["mfaSecret"],            // never serialized; not filterable/sortable
+      readonly: ["role", "emailVerified"], // never settable via CRUD (set by hooks/admin/auth)
+    }),
+  },
+});
+```
+
+A `hidden` column is stripped from every response, cannot be used in `filter` or
+`sort`, and cannot be written. A `readonly` column is never written by CRUD
+create or update — set it from a [hook](./hooks.md), the admin API, or an auth
+flow instead. Without this, any column a client can reach through an `update`
+rule can be mass-assigned (e.g. `role: "admin"`), so mark privileged columns
+`readonly`.
 
 ## Migrations
 
@@ -93,7 +152,7 @@ export default defineConfig({
 Export all tables from your schema file and pass them to `createServer`:
 
 ```ts
-import { createServer } from "bunbase";
+import { createServer } from "@naticha/bunbase";
 import * as schema from "./schema";
 
 const bunbase = createServer({ schema });
@@ -126,7 +185,7 @@ export const posts = sqliteTable("posts", {
 
 ```ts
 // src/relations.ts
-import { defineRelations } from "bunbase";
+import { defineRelations } from "@naticha/bunbase";
 import * as schema from "./schema";
 
 export const relations = defineRelations(schema, (r) => ({
@@ -141,7 +200,7 @@ export const relations = defineRelations(schema, (r) => ({
 
 ```ts
 // src/index.ts
-import { createServer } from "bunbase";
+import { createServer } from "@naticha/bunbase";
 import * as schema from "./schema";
 import { relations } from "./relations";
 

@@ -10,8 +10,8 @@ Pass a function to `extend` that receives `{ db, extractAuth }` and returns a ro
 
 ```ts
 // src/custom-routes.ts
-import type { ExtendContext, RouteMap } from "bunbase";
-import { requireAuth } from "bunbase";
+import type { ExtendContext, RouteMap } from "@naticha/bunbase";
+import { requireAuth } from "@naticha/bunbase";
 
 export function customRoutes({ db, extractAuth }: ExtendContext): RouteMap {
   return {
@@ -41,7 +41,7 @@ export function customRoutes({ db, extractAuth }: ExtendContext): RouteMap {
 
 ```ts
 // src/index.ts
-import { createServer } from "bunbase";
+import { createServer } from "@naticha/bunbase";
 import * as schema from "./schema";
 import { rules } from "./rules";
 import { customRoutes } from "./custom-routes";
@@ -171,7 +171,7 @@ extend: (ctx) => ({
 Add WebSocket endpoints to `extend` using the `websocket` property on a route definition. Use `defineWebSocket` for full TypeScript inference of `ws.data`.
 
 ```ts
-import { createServer, defineWebSocket } from "bunbase";
+import { createServer, defineWebSocket } from "@naticha/bunbase";
 
 const bunbase = createServer({
   schema,

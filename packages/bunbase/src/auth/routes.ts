@@ -7,6 +7,7 @@ import type { AnyDb } from "../core/db-types.ts";
 import type { InternalSchema } from "../core/internal-schema.ts";
 import type { AuthHooks } from "../hooks/auth-types.ts";
 import type { Mailer } from "../mailer/index.ts";
+import { deleteUserApiKeys } from "./api-keys.ts";
 import {
   appendResponseCookies,
   clearClientCookie,
@@ -19,7 +20,7 @@ import { validateAndConsumeInvite } from "./invitations.ts";
 import { extractAuth, extractSessionId, isBearerOnly } from "./middleware.ts";
 import { hashPassword, verifyPassword } from "./passwords.ts";
 import { checkRateLimit, getClientIp } from "./rate-limit.ts";
-import { createSession, deleteSession } from "./sessions.ts";
+import { createSession, deleteSession, deleteUserSessions } from "./sessions.ts";
 import { hashToken } from "./tokens.ts";
 
 /**
@@ -35,6 +36,11 @@ const BLOCKED_SIGNUP_FIELDS = new Set([
   "password_hash",
   "created_at",
   "updated_at",
+  // Self-verification guard: a registrant must never be able to mark their own
+  // email as verified at signup (defeats the email-verification flow). Block
+  // both the camelCase key and the snake_case column name.
+  "emailVerified",
+  "email_verified",
 ]);
 
 type UsersRow = Record<string, unknown>;
@@ -58,11 +64,11 @@ function jsonError(code: string, message: string, status: number): Response {
 
 function withRateLimit(
   req: Request,
-  trustedProxies: string[],
+  config: ResolvedConfig,
   handler: () => Promise<Response>,
 ): Promise<Response> {
-  const ip = getClientIp(req, trustedProxies);
-  const { allowed, retryAfterMs } = checkRateLimit(ip);
+  const ip = getClientIp(req, config.trustedProxies);
+  const { allowed, retryAfterMs } = checkRateLimit(ip, config.auth.rateLimit);
 
   if (!allowed) {
     return Promise.resolve(
@@ -124,6 +130,20 @@ function resolvePasswordHash(user: UsersRow): string | null {
 }
 
 /**
+ * Precomputed Argon2 hash of a random value, used to equalize login timing when
+ * the account does not exist or has no password. Without this, only real
+ * accounts run the (slow) Argon2 verify, so response timing leaks whether an
+ * email/username is registered. Computed lazily once at first use.
+ */
+let dummyPasswordHashPromise: Promise<string> | null = null;
+function getDummyPasswordHash(): Promise<string> {
+  if (!dummyPasswordHashPromise) {
+    dummyPasswordHashPromise = hashPassword(`dummy:${Bun.randomUUIDv7()}`);
+  }
+  return dummyPasswordHashPromise;
+}
+
+/**
  * Build BunBase core auth routes.
  *
  * @remarks
@@ -140,7 +160,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
   return {
     "/auth/register": {
       async POST(req: Request): Promise<Response> {
-        return withRateLimit(req, config.trustedProxies, async () => {
+        return withRateLimit(req, config, async () => {
           if (!usersTable) {
             return jsonError("INTERNAL_SERVER_ERROR", "BunBase users table is not configured", 500);
           }
@@ -357,7 +377,7 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
 
     "/auth/login": {
       async POST(req: Request): Promise<Response> {
-        return withRateLimit(req, config.trustedProxies, async () => {
+        return withRateLimit(req, config, async () => {
           if (!usersTable) {
             return jsonError("INTERNAL_SERVER_ERROR", "BunBase users table is not configured", 500);
           }
@@ -432,12 +452,13 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
           }
 
           const user = rows[0];
-          if (!user) {
-            return jsonError("UNAUTHORIZED", "Invalid email or password", 401);
-          }
 
-          const passwordHash = resolvePasswordHash(user);
+          // Resolve the stored hash (null when the user is missing or has no
+          // password). Always run a verify — against a dummy hash when there is
+          // no real one — so Argon2 timing does not reveal account existence.
+          const passwordHash = user ? resolvePasswordHash(user) : null;
           if (!passwordHash) {
+            await verifyPassword(password, await getDummyPasswordHash());
             return jsonError("UNAUTHORIZED", "Invalid email or password", 401);
           }
 
@@ -621,7 +642,39 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
           .set({ passwordHash })
           .where(eq(usersTable.id, user.id));
 
-        return Response.json({ success: true });
+        // Revoke every existing session and API key for this user. A password
+        // change must invalidate access on all other devices/credentials,
+        // matching the reset-password flow. We then issue a fresh session for
+        // the acting request so the current user stays logged in.
+        await deleteUserSessions(db, internalSchema, user.id);
+        await deleteUserApiKeys(db, internalSchema, user.id);
+
+        const newSessionId = await createSession(
+          db,
+          internalSchema,
+          user.id,
+          config.auth.tokenExpiry,
+          // The acting session was already MFA-verified (it reached this
+          // authenticated route), so the replacement is fully verified too.
+          1,
+        );
+        const sessionCookie = serializeCookie(
+          SESSION_COOKIE,
+          newSessionId,
+          sessionCookieOptions(isDev, cookieDomain),
+        );
+        const csrf = setCsrfCookie(isDev, cookieDomain);
+
+        return new Response(
+          JSON.stringify({ success: true }),
+          appendResponseCookies(
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+            [sessionCookie, csrf.cookie],
+          ),
+        );
       },
     },
   };
