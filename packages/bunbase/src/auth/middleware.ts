@@ -149,7 +149,10 @@ function isMfaEnrollmentAllowed(pathname: string): boolean {
 
 /** Subset of config needed by the auth gate. Kept structural to avoid a config import cycle. */
 export interface ExtractAuthConfig {
-  auth: { mfa: { required: boolean } };
+  auth: {
+    mfa: { required: boolean };
+    jwt?: { enabled: boolean; secret?: string; issuer?: string; audience?: string };
+  };
 }
 
 /**
@@ -236,14 +239,32 @@ export async function extractAuth(
       // Try JWT verification
       try {
         const { verifyJwt } = await import("./jwt/core.ts");
-        const jwtConfig = (globalThis as any).__bunbaseJwtConfig;
+        const jwtConfig = config?.auth.jwt;
         if (jwtConfig?.enabled && jwtConfig?.secret) {
-          const payload = await verifyJwt(bearerToken, jwtConfig.secret, db, internalSchema);
+          const payload = await verifyJwt(
+            bearerToken,
+            jwtConfig.secret,
+            db,
+            internalSchema,
+            jwtConfig,
+          );
           // Only ACCESS tokens authenticate a request. Refresh tokens share the
           // same secret but must only be redeemable at /auth/refresh; accepting
           // one here would turn a 7-day refresh token into a bearer access token.
           if (payload && payload.type === "access") {
-            bearerUser = { id: payload.sub, email: payload.email, role: payload.role } as AuthUser;
+            const rows = await (db as any)
+              .select()
+              .from(usersTable)
+              .where(eq(usersTable.id, payload.sub));
+            const user = rows[0];
+            if (
+              user &&
+              typeof user.id === "string" &&
+              typeof user.email === "string" &&
+              typeof user.role === "string"
+            ) {
+              bearerUser = user;
+            }
           }
         }
       } catch {

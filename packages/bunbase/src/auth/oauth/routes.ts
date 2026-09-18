@@ -310,19 +310,16 @@ export function createOAuthRoutes(deps: OAuthRouteDeps) {
             const existingUser = existingUserRows[0];
 
             if (existingUser) {
-              // Email collision: only auto-link when the provider confirms the email is verified.
-              // Unverified emails can be set by an attacker → block to prevent account takeover.
-              if (userInfo.emailVerified !== true) {
-                const redirectTo = oauthConfig.redirectUrl ?? "/";
-                return new Response(null, {
-                  status: 302,
-                  headers: {
-                    Location: `${redirectTo}?error=ACCOUNT_LINK_REQUIRED`,
-                    "Set-Cookie": clearState,
-                  },
-                });
-              }
-              userId = existingUser.id;
+              // Email ownership does not prove control of this existing account.
+              // Linking must use the authenticated, CSRF-protected link flow.
+              const redirectTo = oauthConfig.redirectUrl ?? "/";
+              return new Response(null, {
+                status: 302,
+                headers: {
+                  Location: `${redirectTo}?error=ACCOUNT_LINK_REQUIRED`,
+                  "Set-Cookie": clearState,
+                },
+              });
             } else {
               // No collision: create a new user
               isNewUser = true;

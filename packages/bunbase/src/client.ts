@@ -881,12 +881,15 @@ export function createBunBaseClient<
 
     // ─── JWT ───
     async refresh(refreshToken: string) {
-      return request<{ accessToken: string; expiresIn: number }>("/auth/refresh", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken }),
-        fallbackMessage: "Token refresh failed",
-      });
+      return request<{ accessToken: string; refreshToken: string; expiresIn: number }>(
+        "/auth/refresh",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refreshToken }),
+          fallbackMessage: "Token refresh failed",
+        },
+      );
     },
 
     apiKeys: {

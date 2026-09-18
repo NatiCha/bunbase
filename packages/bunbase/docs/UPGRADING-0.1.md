@@ -310,17 +310,6 @@ bunbase depends on (0.1.0 uses `1.0.0-rc.4`), then reinstall.
 
 ---
 
-## Final checklist
-
-```bash
-bun run type   # or: bunx tsc --noEmit
-bun test
-```
-
-Then manually: log in (cookie + MFA if used), create/update a record, upload a
-file, and confirm a privileged column can't be mass-assigned. If all pass, the
-upgrade is complete.
-
 ## Toolchain refresh (September 2026)
 
 - Use Bun 1.4.2 or newer; the repository and CI pin 1.4.2 for reproducibility.
@@ -359,3 +348,97 @@ membership must deny the next request.
 File deletion now enforces SQL predicates returned by the collection's delete
 rule and supplies the parent `record` to boolean rules. Check that owners can
 still delete files and nonowners cannot; orphaned file records are denied.
+
+## Realtime channels now require explicit permission
+
+**Detect.** Find broadcast and presence calls (`channel`, `broadcast`,
+`onPresence`) and your server's `realtime` configuration.
+
+**Fix.** Add `realtime.authorize({ auth, db, kind, channel, action })` and return
+`true` only after checking persisted membership/ownership for that channel.
+Evaluate subscription, publish, and presence-update permissions separately.
+Missing authorization denies all broadcast/presence channels; do not restore
+the old behavior with an unconditional `true`. Table subscriptions continue to
+use table `list` rules. See [Realtime](/realtime/) for the full contract and
+configurable connection/message limits.
+
+**Verify.** An authorized user can join and receive messages; a nonmember cannot.
+Revoking membership or a session must stop delivery to an already-open socket.
+Check behavior after reconnection and at your expected payload/subscription sizes.
+
+## JWT claims, rotation, and revocation
+
+**Detect.** Find `auth.jwt`, `signJwt`, and calls to `/auth/refresh`.
+
+**Fix.** With secure defaults, JWT mode requires explicit `issuer`, `audience`,
+and a secret. Application-issued tokens must carry matching `iss`/`aud` claims
+and a shared random `fid` for each access/refresh pair. Old tokens without those
+claims will be rejected; plan for users to sign in again. Built-in login routes
+issue cookie sessions; enabling JWT does not add automatic token issuance.
+
+Refresh now returns both `accessToken` and a replacement `refreshToken`. Store
+the pair atomically and serialize refresh attempts. A refresh token is single-use:
+replay revokes the family, including its access tokens. If a response is lost,
+sign in again instead of retrying the old token. Rotation preserves the original
+refresh expiry. Browser apps should use HttpOnly cookie sessions; native apps
+should use their platform's secure credential store.
+
+Logout revokes all previously issued JWTs for that user. Password reset/change
+and account deletion also invalidate existing JWTs; tokens use the current
+persisted user/role. See [JWT Mode](/api/jwt/).
+
+**Verify.** Test refresh once, rejection of replay, rejection of the old token
+family after replay, and rejection after logout/password reset. Verify a fresh
+login and another user's tokens still work.
+
+## Trusted magic-link origin
+
+**Detect.** Check whether a mailer and `auth.mfa.magicLink.enabled` are configured.
+
+**Fix.** Set `config.publicUrl` to your application's public HTTPS origin, for
+example `https://app.example.com`. HTTP loopback is allowed in explicit
+development. This is separate from the mailer's `appUrl`: BunBase no longer
+builds magic-link URLs from the request Host or forwarded-host headers.
+
+**Verify.** Request a magic link through your deployed proxy and follow it.
+It must target your trusted origin and `/auth/magic-link/verify`, even if a
+request supplies an unexpected host.
+
+## Browser policy and production frontend assets
+
+**Detect.** Find external scripts, fonts, images, API/WebSocket origins, embeds,
+and inline JavaScript used by your frontend.
+
+**Fix.** Review the new CSP and response headers in
+[Configuration](/configuration/#browser-response-security). Default production
+scripts/connections are same-origin. Configure an application-specific
+`securityHeaders.contentSecurityPolicy` for required external resources.
+Avoid broadly allowing every origin. `reportOnly` is available for rollout
+diagnostics. Keep your app's `bunfig.toml` and configured plugin dependencies
+in the production deployment; production HTML imports load `serve.static.plugins`
+from the process working directory.
+
+**Verify.** Use the production build in a browser: inspect CSP errors, confirm
+styles are applied, and reload a nested SPA path. Exercise admin login and
+navigation, uploads, and WebSocket subscriptions through your production origin.
+
+## Service-key storage
+
+Auto-generated keys are no longer printed. Retrieve `.bunbase-service-key`
+through authorized server access, retain file mode `0600`, and exclude it from
+source control. Invalid files and symlinks fail startup; restore the correct key
+or explicitly provision a replacement. Preserve the key across deployment and
+backup restoration. Rotate credentials previously exposed in logs or source.
+
+## Final checklist
+
+```bash
+bun run type   # or: bunx tsc --noEmit
+bun test
+```
+
+Then test login (including MFA where enabled), record mutations, file upload,
+denied ownership/privileged-field changes, realtime authorization, JWT rotation
+if used, and production browser rendering. Rehearse backup/restore and a restart
+with an active request. Review the single-process deployment limits and the
+ten-second shutdown deadline in [Deployment](/deployment/).

@@ -2,7 +2,7 @@
 title: Rules
 ---
 
-Rules control who can access what. You define per-table, per-operation rules that run before every CRUD request.
+Rules control who can access what. You define per-table, per-operation rules that run before every CRUD request. Create and update bodies are normalized to schema field names before rule evaluation: `owner_id` becomes `ownerId` when that is the schema key. Sending both names for one field is rejected with 400, so rules and writes always inspect the same value.
 
 ## Defining rules
 

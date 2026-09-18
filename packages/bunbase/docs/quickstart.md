@@ -6,7 +6,7 @@ Get a BunBase server running in under 5 minutes.
 
 ## Prerequisites
 
-- [Bun](https://bun.sh) v1.1+
+- [Bun](https://bun.sh) v1.4.2 or newer
 
 ## Create a project
 

@@ -322,8 +322,8 @@ export class MysqlAdapter implements DatabaseAdapter {
     await this.sql.unsafe(query, values);
   }
 
-  close(): void {
-    this.sql.close();
+  close(): Promise<void> {
+    return this.sql.close();
   }
 }
 

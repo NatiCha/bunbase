@@ -1,8 +1,9 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, "0.1.0"]
   pull_request:
     branches: [main]
 
@@ -25,6 +26,8 @@ jobs:
       - name: Install docs dependencies
         run: bun install --frozen-lockfile
         working-directory: docs
+      - name: Install production smoke browser
+        run: bunx playwright install --with-deps chromium
       - name: Check, build, test, and verify the installed package
         run: bun run verify
         env:

@@ -202,7 +202,7 @@ beforeAll(async () => {
         maxFileSize: 10 * 1024 * 1024,
       },
       migrationsPath: join(root, "drizzle"),
-      realtime: { enabled: true },
+      realtime: { enabled: true, authorize: () => true },
     }),
   });
 
@@ -337,8 +337,8 @@ test("auth client receives INSERT, UPDATE, DELETE events for own tasks", async (
   const deleteMsg = await deletePromise;
   expect(deleteMsg.action).toBe("DELETE");
   expect(deleteMsg.id).toBe("ta-e2e-1");
-  // Filtered DELETE now includes the record
-  expect(typeof deleteMsg.record).toBe("object");
+  // Deleted rows cannot be checked against current membership; invalidate by ID.
+  expect(deleteMsg.record).toBeUndefined();
 
   ws.close();
   await waitForClose(ws);
@@ -524,8 +524,8 @@ test("filtered subscriber receives DELETE id-only when previously visible task d
   const msg = await delPromise;
   expect(msg.action).toBe("DELETE");
   expect(msg.id).toBe("ta-del-1");
-  // Filtered DELETE now includes the record
-  expect(typeof msg.record).toBe("object");
+  // Deleted rows cannot be checked against current membership; invalidate by ID.
+  expect(msg.record).toBeUndefined();
 
   ws.close();
   await waitForClose(ws);

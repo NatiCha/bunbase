@@ -118,6 +118,7 @@ export class JobScheduler {
   private db: AnyDb;
   private started = false;
   private stopped = false;
+  private active = new Set<Promise<void>>();
 
   constructor(db: AnyDb) {
     this.db = db;
@@ -171,6 +172,7 @@ export class JobScheduler {
   }
 
   private async runJob(state: JobState, scheduledAt: Date): Promise<void> {
+    if (this.stopped) return;
     if (state.running) {
       console.warn(
         `[BunBase] Job "${state.definition.name}" is still running from previous tick — skipping`,
@@ -187,6 +189,8 @@ export class JobScheduler {
 
     state.running = true;
     state.lastRun = scheduledAt;
+    const completion = Promise.withResolvers<void>();
+    this.active.add(completion.promise);
 
     try {
       await state.definition.run({ db: this.db });
@@ -194,12 +198,19 @@ export class JobScheduler {
       console.error(`[BunBase] Job "${state.definition.name}" failed:`, err);
     } finally {
       state.running = false;
+      this.active.delete(completion.promise);
+      completion.resolve();
     }
 
     // Do not reschedule if stop() was called while the job was in-flight
     if (!this.stopped) {
       this.scheduleNext(state);
     }
+  }
+
+  /** Await already-running jobs after stop() has prevented new work. */
+  async waitForIdle(): Promise<void> {
+    await Promise.all(this.active);
   }
 
   /** Stop all scheduled timers and clear tracked jobs. */

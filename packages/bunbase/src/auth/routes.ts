@@ -17,6 +17,7 @@ import {
 } from "./cookies.ts";
 import { setCsrfCookie, validateCsrf } from "./csrf.ts";
 import { validateAndConsumeInvite } from "./invitations.ts";
+import { revokeUserJwts } from "./jwt/core.ts";
 import { extractAuth, extractSessionId, isBearerOnly } from "./middleware.ts";
 import { hashPassword, verifyPassword } from "./passwords.ts";
 import { checkRateLimit, getClientIp } from "./rate-limit.ts";
@@ -541,6 +542,10 @@ export function createAuthRoutes(deps: AuthRouteDeps) {
           return jsonError("FORBIDDEN", "Invalid CSRF token", 403);
         }
 
+        const user = await extractAuth(req, db, internalSchema, usersTable, undefined, config);
+        if (user && user.id !== "__service__") {
+          await revokeUserJwts(db, internalSchema, user.id);
+        }
         const sessionId = extractSessionId(req);
         if (sessionId) {
           await deleteSession(db, internalSchema, sessionId);

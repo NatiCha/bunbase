@@ -180,3 +180,7 @@ defineAuthHooks({
 - [Auth API](/api/auth/) — email/password and OAuth authentication
 - [MFA](/api/mfa/) — add TOTP two-factor authentication
 - [Email](/email/) — configure the mailer for sending tokens
+
+## Trusted magic-link origin
+
+When enabling magic links with a mailer, set `publicUrl: "https://api.example.com"` in `defineConfig`. BunBase sends links to `/auth/magic-link/verify` on that configured origin and ignores request Host and forwarded-host values. The origin cannot contain credentials, paths, queries, or fragments. HTTP loopback origins are allowed only in explicit development. Internal reverse-proxy hostnames do not change this setting.

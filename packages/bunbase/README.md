@@ -81,9 +81,9 @@ See [`docs/examples.ts`](https://github.com/NatiCha/bunbase/blob/main/packages/b
 
 ## Fetching all records with `listAll()`
 
-`listAll()` returns every matching record in a single HTTP request — no cursor
-loop, no pagination. Internally it passes `limit=-1` to the server, which
-queries without a LIMIT clause and returns `hasMore: false`.
+`listAll()` follows bounded cursor pages and returns every matching record in one
+array. It preserves filters, sorting, and expansions. Failed or stalled pages
+reject the operation; `limit=-1` no longer bypasses pagination.
 
 ```ts
 const allTasks = await client.api.tasks.listAll({ filter: { done: false } });

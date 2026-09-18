@@ -100,7 +100,7 @@ devMail.stop(); // closes both SMTP + HTTP servers
 
 ### `createSmtpTransport` — SMTP (built-in)
 
-Bun-native TCP SMTP client. Works with Mailpit, SendGrid SMTP, AWS SES SMTP, and any standard SMTP/SMTPS server. No external packages needed.
+Bun-native TCP SMTP client. Works with Mailpit, SendGrid SMTP, AWS SES SMTP, and any standard SMTP/SMTPS server. No external packages needed. Sender, recipient, Reply-To, and subject fields reject CR/LF injection before connecting; message bodies may contain newlines. Address fields accept a single mailbox, with an optional display name.
 
 ```ts
 import { createSmtpTransport } from "@naticha/bunbase";
@@ -552,3 +552,7 @@ When no mailer is configured, behavior is unchanged from today:
 - **Production without webhook** — a warning is logged; the endpoint returns 200 (anti-enumeration).
 
 Email verification via `POST /auth/verify-email` continues to work when tokens are created externally (e.g., via a webhook flow you manage yourself).
+
+## Development mail preview isolation
+
+Email HTML renders in a sandboxed iframe. Scripts, forms, remote resources, and parent-page access are blocked, including when opening the raw HTML endpoint directly. Plain-text email escapes HTML markup. Safe HTTP/HTTPS links are listed separately in the preview header so you can explicitly open authentication links while keeping the email body sandboxed.

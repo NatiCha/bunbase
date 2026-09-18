@@ -29,6 +29,25 @@ export type RouteMap = Record<
 
 type ExtractAuth = (req: Request) => Promise<AuthUser | null>;
 
+// Rules and writes must see the same field names. Keep unknown keys for custom
+// rules, but reject ambiguous aliases instead of choosing a different value later.
+function normalizeBody(value: unknown, columns: Record<string, Column>): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Expected an object");
+  }
+  const body: Record<string, unknown> = Object.create(null);
+  for (const [inputKey, inputValue] of Object.entries(value)) {
+    const matches = Object.entries(columns).filter(
+      ([key, column]) => key === inputKey || column.name === inputKey,
+    );
+    if (matches.length > 1) throw new Error("Ambiguous field alias");
+    const key = matches[0]?.[0] ?? inputKey;
+    if (Object.hasOwn(body, key)) throw new Error("Duplicate field alias");
+    body[key] = inputValue;
+  }
+  return body;
+}
+
 function buildHookRequest(req: Request): import("../hooks/types.ts").HookRequest {
   return {
     method: req.method,
@@ -316,7 +335,7 @@ export function generateCrudHandlers(
     // Parse body BEFORE rule eval so rules can inspect it
     let body: Record<string, unknown>;
     try {
-      body = (await req.json()) as Record<string, unknown>;
+      body = normalizeBody(await req.json(), columns as Record<string, Column>);
     } catch {
       return errorResponse("BAD_REQUEST", "Invalid JSON body", 400);
     }
@@ -330,16 +349,13 @@ export function generateCrudHandlers(
     }
 
     let insertData: Record<string, unknown> = {};
-    for (const [key, col] of Object.entries(columns)) {
+    for (const key of Object.keys(columns)) {
       // Skip columns the client may not write (hidden/readonly). This blocks
       // mass-assignment of server-controlled columns (e.g. passwordHash, or any
       // column the app marks readonly such as `role`). Hooks may still set them.
       if (!policy.isWritable(key, "create")) continue;
-      const colName = (col as Column).name;
       if (key in body) {
         insertData[key] = body[key];
-      } else if (colName in body) {
-        insertData[key] = body[colName];
       }
     }
 
@@ -377,31 +393,22 @@ export function generateCrudHandlers(
     let createdRecord: Record<string, unknown> | null = null;
     let insertError: unknown = null;
     try {
-      const returning = await (db as any).insert(table).values(insertData).returning();
-      createdRecord = returning[0] ?? null;
-    } catch (err) {
-      insertError = err;
-      // MySQL doesn't support RETURNING — fall back to select by id.
-      // Only attempt the fallback when the caller supplied an id; otherwise
-      // we have no way to locate the row, so surface the underlying error.
-      const insertedId = insertData.id ?? insertData[idColumn.name];
-      if (insertedId) {
-        try {
+      const insert = (db as any).insert(table).values(insertData);
+      if (typeof insert.returning === "function") {
+        const returning = await insert.returning();
+        createdRecord = returning[0] ?? null;
+      } else {
+        // MySQL: execute once, then look up only the successfully inserted ID.
+        // $returningId also supports auto-increment and Drizzle $defaultFn IDs.
+        const ids = await insert.$returningId();
+        const insertedId = ids[0]?.id ?? insertData.id;
+        if (insertedId !== undefined) {
           const rows = await (db as any).select().from(table).where(eq(idColumn, insertedId));
           createdRecord = rows[0] ?? null;
-        } catch (selectErr) {
-          console.error(
-            `[BunBase] insert RETURNING and id-fallback both failed for "${tableName}":`,
-            err,
-            selectErr,
-          );
         }
-      } else {
-        console.error(
-          `[BunBase] insert RETURNING failed for "${tableName}" and no id was supplied for fallback:`,
-          err,
-        );
       }
+    } catch (err) {
+      insertError = err;
     }
 
     if (!createdRecord) {
@@ -502,7 +509,7 @@ export function generateCrudHandlers(
     // Parse body before rule eval so rules can inspect it
     let body: Record<string, unknown>;
     try {
-      body = (await req.json()) as Record<string, unknown>;
+      body = normalizeBody(await req.json(), columns as Record<string, Column>);
     } catch {
       return errorResponse("BAD_REQUEST", "Invalid JSON body", 400);
     }
@@ -535,16 +542,13 @@ export function generateCrudHandlers(
     }
 
     let filtered: Record<string, unknown> = {};
-    for (const [key, col] of Object.entries(columns)) {
+    for (const key of Object.keys(columns)) {
       // Skip columns the client may not update (hidden/readonly/immutable). This
       // blocks PATCH mass-assignment — e.g. re-keying `id`, backdating
       // `createdAt`, or escalating a readonly `role`. Hooks may still set them.
       if (!policy.isWritable(key, "update")) continue;
-      const colName = (col as Column).name;
       if (key in body) {
         filtered[key] = body[key];
-      } else if (colName in body) {
-        filtered[key] = body[colName];
       }
     }
 

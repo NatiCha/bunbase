@@ -7,6 +7,9 @@ import type { AuthUser } from "../api/types.ts";
 
 export interface RealtimeSocketData {
   auth: AuthUser | null;
+  /** Re-resolve the original credentials against current server state. */
+  authenticate?: () => Promise<AuthUser | null>;
+  releaseConnection?: () => void;
   connectedAt: number;
   presenceMeta: Record<string, unknown>;
 }

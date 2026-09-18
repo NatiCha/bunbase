@@ -2,6 +2,23 @@
 title: Testing
 ---
 
+## Release verification
+
+From a repository checkout, install dependencies (including the separate docs
+dependencies), then run `bunx playwright install chromium` and `bun run verify`.
+The chain includes the packed scaffold smoke test and `bun run smoke:production`.
+The latter uses a disposable SQLite database and Chromium to test production
+cookies, admin login/navigation, nested frontend routes, Tailwind styles, CSP,
+CRUD, realtime, uploads/downloads, graceful shutdown with an open WebSocket, and
+an offline database/upload backup restored into another directory.
+
+The browser check uses Chromium's trusted localhost context. It does not replace
+testing your deployed HTTPS origin, reverse proxy, OAuth providers, or S3 service.
+Run `bun run test:databases` with **both** `BUNBASE_TEST_POSTGRES_URL` and
+`BUNBASE_TEST_MYSQL_URL` targeting disposable databases before release. Missing
+URLs skip coverage. CI provisions PostgreSQL 17 and MySQL 8.4, and can also be
+started manually on a candidate branch with `workflow_dispatch`.
+
 BunBase ships a `@naticha/bunbase/testing` subpath with a `createTestServer` helper that spins up a real server in-process for integration tests. It handles all the boilerplate: creates a temp SQLite database, bootstraps internal tables, starts the server on a random port, and manages CSRF tokens automatically.
 
 ## Setup

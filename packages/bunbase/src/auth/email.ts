@@ -9,6 +9,7 @@ import type { Mailer } from "../mailer/index.ts";
 import { deleteUserApiKeys } from "./api-keys.ts";
 import { appendResponseCookies, serializeCookie, sessionCookieOptions } from "./cookies.ts";
 import { setCsrfCookie } from "./csrf.ts";
+import { userHasMfaEnrolled } from "./mfa/index.ts";
 import { hashPassword } from "./passwords.ts";
 import { checkRateLimit, getClientIp } from "./rate-limit.ts";
 import { createSession, deleteUserSessions } from "./sessions.ts";
@@ -300,12 +301,14 @@ a{color:#3b82f6;text-decoration:none;font-size:14px}a:hover{text-decoration:unde
           }
         }
 
-        // Create new session
+        // A reset proves email access, not possession of the enrolled second factor.
+        const mfaRequired = await userHasMfaEnrolled(db, internalSchema, tokenRow.userId);
         const sessionId = await createSession(
           db,
           internalSchema,
           tokenRow.userId,
           config.auth.tokenExpiry,
+          mfaRequired ? 0 : undefined,
         );
         const sessionCookie = serializeCookie(
           SESSION_COOKIE,
@@ -315,7 +318,10 @@ a{color:#3b82f6;text-decoration:none;font-size:14px}a:hover{text-decoration:unde
         const csrf = setCsrfCookie(isDev, cookieDomain);
 
         return new Response(
-          JSON.stringify({ message: "Password reset successfully" }),
+          JSON.stringify({
+            message: "Password reset successfully",
+            ...(mfaRequired ? { mfaRequired: true, mfaMethods: ["totp"] } : {}),
+          }),
           appendResponseCookies(
             {
               status: 200,

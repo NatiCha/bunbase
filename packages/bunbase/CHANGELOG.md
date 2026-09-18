@@ -14,6 +14,15 @@ consuming app).
 
 ### Toolchain and packaging refresh
 
+- Production HTML builds preserve application plugins configured in `bunfig.toml`,
+  including Tailwind processing. Added a Chromium smoke check for production
+  admin/frontend flows, cookies, CSP, realtime, file transfers, and SQLite restore.
+- SIGTERM/SIGINT drain requests, running jobs, and pending request logs before
+  closing the database. WebSockets receive close code 1001. Shutdown has a
+  ten-second deadline and exits nonzero on timeout or cleanup failure.
+- Updated upgrade and deployment guidance for JWT rotation/claims, trusted
+  magic-link origins, channel authorization, CSP, backups, and process-local services.
+
 - Bun 1.4.2, TypeScript 7.0.2, Biome 2.5.13, and matched Drizzle 1.0.0-rc.4 pins.
 - React 19.3, updated Radix/Lucide/Tailwind/TanStack packages, and Zod 4.6.
 - Optional passkeys provider now targets SimpleWebAuthn 14.0.2.
@@ -27,6 +36,18 @@ consuming app).
 - Docs now use Astro 7/Starlight 0.42 with a separate TypeScript 6 API toolchain.
 
 ### Security fixes
+
+- JWT verification is isolated per server and requires issuer/audience and family
+  claims. Refresh rotates once; replay revokes the family. Logout, password
+  reset/change, and account deletion invalidate existing user JWTs.
+- PostgreSQL refresh replay recognizes Bun's SQLSTATE error shape, so concurrent
+  reuse revokes the family instead of failing before the revocation is stored.
+- Magic-link emails use a configured trusted `publicUrl`. Service credentials are
+  published atomically to an owner-only file and are omitted from startup logs.
+- Realtime rechecks permissions and revoked credentials before delivery, requires
+  explicit broadcast/presence authorization, and enforces resource limits.
+- Added CSP and other browser response headers, sandboxed development email
+  previews, and guards against SMTP header and admin-asset path injection.
 
 - File deletion enforces SQL ownership predicates and provides the parent record
   to boolean rules before removing storage data or metadata.

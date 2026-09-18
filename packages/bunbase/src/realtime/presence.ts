@@ -11,6 +11,16 @@ interface PresenceEntry {
 }
 
 export class PresenceTracker {
+  constructor(private maxMetaBytes = 16384) {}
+  private mergeMeta(
+    previous: Record<string, unknown>,
+    next: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const merged = { ...previous, ...next };
+    if (Buffer.byteLength(JSON.stringify(merged)) > this.maxMetaBytes)
+      throw new Error("Presence metadata too large");
+    return merged;
+  }
   // channel → userId → { meta, connections }
   private state: Map<string, Map<string, PresenceEntry>> = new Map();
 
@@ -26,11 +36,11 @@ export class PresenceTracker {
     const channelMap = this.state.get(channel)!;
     const isNew = !channelMap.has(userId);
     if (isNew) {
-      channelMap.set(userId, { meta, connections: new Set([wsRef]) });
+      channelMap.set(userId, { meta: this.mergeMeta({}, meta), connections: new Set([wsRef]) });
     } else {
       const entry = channelMap.get(userId)!;
+      entry.meta = this.mergeMeta(entry.meta, meta);
       entry.connections.add(wsRef);
-      entry.meta = { ...entry.meta, ...meta };
     }
     return { isNew };
   }
@@ -75,7 +85,7 @@ export class PresenceTracker {
     if (!channelMap) return;
     const entry = channelMap.get(userId);
     if (!entry) return;
-    entry.meta = { ...entry.meta, ...meta };
+    entry.meta = this.mergeMeta(entry.meta, meta);
   }
 
   getUsers(channel: string): PresenceUser[] {

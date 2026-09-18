@@ -5,6 +5,13 @@ import type { AnyDb } from "../core/db-types.ts";
 import { type FieldPolicyMap, resolveFieldPolicy, stripHidden } from "../core/field-policy.ts";
 import { evaluateRule } from "../rules/evaluator.ts";
 import type { TableRules } from "../rules/types.ts";
+import type { PresenceTracker } from "./presence.ts";
+import {
+  type ChannelContext,
+  channelTopic,
+  type RealtimeOptions,
+  realtimeLimits,
+} from "./security.ts";
 import type { RealtimeSocketData, ServerMessage } from "./types.ts";
 
 /**
@@ -26,6 +33,193 @@ interface Subscriber {
 }
 
 export class RealtimeManager {
+  private sockets = new Set<ServerWebSocket<RealtimeSocketData>>();
+  private closed = new WeakSet<ServerWebSocket<RealtimeSocketData>>();
+
+  track(ws: ServerWebSocket<RealtimeSocketData>): void {
+    this.sockets.add(ws);
+  }
+
+  async refreshAuth(ws: ServerWebSocket<RealtimeSocketData>): Promise<boolean> {
+    if (this.closed.has(ws)) return false;
+    this.track(ws);
+    if (!ws.data.authenticate) return true;
+    try {
+      const previous = ws.data.auth;
+      const current = await ws.data.authenticate();
+      if (this.closed.has(ws)) return false;
+      if (previous && (!current || previous.id !== current.id)) {
+        this.removeAllSubscriptions(ws);
+        ws.close(1008, "Authentication expired or revoked");
+        return false;
+      }
+      ws.data.auth = current;
+      return true;
+    } catch {
+      this.removeAllSubscriptions(ws);
+      ws.close(1011, "Authentication check failed");
+      return false;
+    }
+  }
+
+  readonly limits;
+  private channels = new Map<
+    ServerWebSocket<RealtimeSocketData>,
+    Map<string, { kind: "broadcast" | "presence"; channel: string }>
+  >();
+  private queues = new WeakMap<
+    ServerWebSocket<RealtimeSocketData>,
+    { tail: Promise<void>; pending: number; count: number; start: number }
+  >();
+  private connections = new Map<string, number>();
+
+  reserveConnection(ip: string, userId?: string): (() => void) | null {
+    const keys: [string, number][] = [[`ip:${ip}`, this.limits.maxConnectionsPerIp]];
+    if (userId) keys.push([`user:${userId}`, this.limits.maxConnectionsPerUser]);
+    if (keys.some(([key, max]) => (this.connections.get(key) ?? 0) >= max)) return null;
+    for (const [key] of keys) this.connections.set(key, (this.connections.get(key) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      for (const [key] of keys) {
+        const count = (this.connections.get(key) ?? 1) - 1;
+        if (count) this.connections.set(key, count);
+        else this.connections.delete(key);
+      }
+    };
+  }
+
+  /** Admission is synchronous; queued operations serialize subscription decisions. */
+  enqueue(ws: ServerWebSocket<RealtimeSocketData>, work: () => Promise<void>): Promise<void> {
+    if (this.closed.has(ws)) return Promise.resolve();
+    let queue = this.queues.get(ws);
+    if (!queue) {
+      queue = { tail: Promise.resolve(), pending: 0, count: 0, start: Date.now() };
+      this.queues.set(ws, queue);
+    }
+    if (Date.now() - queue.start >= this.limits.windowMs) {
+      queue.start = Date.now();
+      queue.count = 0;
+    }
+    if (
+      ++queue.count > this.limits.messagesPerWindow ||
+      queue.pending >= this.limits.maxPendingMessages
+    ) {
+      this.removeAllSubscriptions(ws);
+      ws.close(1008, "Realtime rate limit exceeded");
+      return Promise.resolve();
+    }
+    queue.pending++;
+    const state = queue;
+    state.tail = state.tail
+      .then(async () => {
+        if (!this.closed.has(ws)) await work();
+      })
+      .catch(() => {
+        this.sendTo(ws, { type: "error", message: "Realtime operation failed" });
+      })
+      .finally(() => {
+        state.pending--;
+      });
+    return state.tail;
+  }
+
+  subscriptionCount(ws: ServerWebSocket<RealtimeSocketData>): number {
+    let count = this.channels.get(ws)?.size ?? 0;
+    for (const subs of this.tableSubscribers.values())
+      for (const sub of subs) if (sub.ws === ws) count++;
+    return count;
+  }
+  async authorizeChannel(
+    ws: ServerWebSocket<RealtimeSocketData>,
+    kind: "broadcast" | "presence",
+    channel: string,
+    action: ChannelContext["action"],
+  ): Promise<boolean> {
+    if (!(await this.refreshAuth(ws)) || !ws.data.auth || !this.options.authorize) return false;
+    try {
+      return (
+        (await this.options.authorize({
+          auth: ws.data.auth,
+          db: this.db,
+          kind,
+          channel,
+          action,
+        })) === true && !this.closed.has(ws)
+      );
+    } catch {
+      return false;
+    }
+  }
+  async subscribeChannel(
+    ws: ServerWebSocket<RealtimeSocketData>,
+    kind: "broadcast" | "presence",
+    channel: string,
+  ): Promise<boolean> {
+    const topic = channelTopic(kind, channel);
+    if (!(await this.authorizeChannel(ws, kind, channel, "subscribe"))) {
+      this.sendTo(ws, { type: "error", message: "Channel access denied" });
+      return false;
+    }
+    if (this.channels.get(ws)?.has(topic)) return true;
+    if (this.subscriptionCount(ws) >= this.limits.maxSubscriptions) {
+      this.sendTo(ws, { type: "error", message: "Subscription limit exceeded" });
+      return false;
+    }
+    if (!this.channels.has(ws)) this.channels.set(ws, new Map());
+    this.channels.get(ws)!.set(topic, { kind, channel });
+    ws.subscribe(topic);
+    return true;
+  }
+  unsubscribeChannel(
+    ws: ServerWebSocket<RealtimeSocketData>,
+    kind: "broadcast" | "presence",
+    channel: string,
+  ): void {
+    const topic = channelTopic(kind, channel);
+    this.channels.get(ws)?.delete(topic);
+    ws.unsubscribe(topic);
+    if (kind === "presence" && ws.data.auth) this.presence?.leave(channel, ws.data.auth.id, ws);
+  }
+  hasChannel(
+    ws: ServerWebSocket<RealtimeSocketData>,
+    kind: "broadcast" | "presence",
+    channel: string,
+  ): boolean {
+    return this.channels.get(ws)?.has(channelTopic(kind, channel)) ?? false;
+  }
+  async pruneChannel(kind: "broadcast" | "presence", channel: string): Promise<void> {
+    for (const [ws, topics] of this.channels) {
+      if (
+        topics.has(channelTopic(kind, channel)) &&
+        !(await this.authorizeChannel(ws, kind, channel, "subscribe"))
+      )
+        this.unsubscribeChannel(ws, kind, channel);
+    }
+  }
+  /** Reauthorize passive readers before every delivery. */
+  async publish(
+    topic: string,
+    message: string,
+    exclude?: ServerWebSocket<RealtimeSocketData>,
+  ): Promise<void> {
+    for (const [ws, topics] of this.channels) {
+      const subscription = topics.get(topic);
+      if (!subscription || ws === exclude) continue;
+      if (
+        !(await this.authorizeChannel(ws, subscription.kind, subscription.channel, "subscribe"))
+      ) {
+        this.unsubscribeChannel(ws, subscription.kind, subscription.channel);
+        continue;
+      }
+      try {
+        ws.send(message);
+      } catch {
+        /* Closed during delivery. */
+      }
+    }
+  }
   // tableName → Set of subscribers
   private tableSubscribers: Map<string, Set<Subscriber>> = new Map();
   // tableName → Drizzle Table object
@@ -40,7 +234,10 @@ export class RealtimeManager {
     schema: Record<string, unknown>,
     private rules?: Record<string, TableRules>,
     fields?: FieldPolicyMap,
+    private options: RealtimeOptions = {},
+    private presence?: PresenceTracker,
   ) {
+    this.limits = realtimeLimits(options);
     for (const value of Object.values(schema)) {
       if (typeof value !== "object" || value === null) continue;
       try {
@@ -82,9 +279,14 @@ export class RealtimeManager {
         if (sub.ws === ws) return; // already subscribed
       }
     }
+    if (this.subscriptionCount(ws) >= this.limits.maxSubscriptions) {
+      this.sendTo(ws, { type: "error", message: "Subscription limit exceeded" });
+      return;
+    }
     inFlightSet.add(ws); // reserve the slot
 
     try {
+      if (!(await this.refreshAuth(ws))) return;
       const tableRules = this.rules?.[tableName];
       const ruleResult = await evaluateRule(tableRules?.list, {
         auth: ws.data.auth,
@@ -126,6 +328,7 @@ export class RealtimeManager {
       if (!this.tableSubscribers.has(tableName)) {
         this.tableSubscribers.set(tableName, new Set());
       }
+      if (this.closed.has(ws)) return;
       this.tableSubscribers.get(tableName)?.add(subscriber);
     } finally {
       inFlightSet.delete(ws);
@@ -148,6 +351,11 @@ export class RealtimeManager {
   }
 
   removeAllSubscriptions(ws: ServerWebSocket<RealtimeSocketData>): void {
+    this.closed.add(ws);
+    this.sockets.delete(ws);
+    this.channels.delete(ws);
+    this.presence?.leaveAll(ws);
+    ws.data.releaseConnection?.();
     for (const [tableName, subscribers] of this.tableSubscribers.entries()) {
       for (const sub of subscribers) {
         if (sub.ws === ws) {
@@ -176,7 +384,26 @@ export class RealtimeManager {
     const id = record.id != null ? String(record.id) : "";
 
     for (const sub of subscribers) {
+      if (!(await this.refreshAuth(sub.ws))) continue;
+      const rule = await evaluateRule(this.rules?.[tableName]?.list, {
+        auth: sub.ws.data.auth,
+        body: {},
+        headers: {},
+        query: {},
+        method: "SUBSCRIBE",
+        db: this.db,
+      });
+      if (!rule.allowed) {
+        this.removeTableSubscriber(sub.ws, tableName);
+        continue;
+      }
+      sub.filtered = !!rule.whereClause;
+      sub.whereClause = rule.whereClause;
       if (!sub.filtered) {
+        if (id) {
+          if (action === "DELETE") sub.visibleIds.delete(id);
+          else sub.visibleIds.add(id);
+        }
         // No filter — send the full event to this subscriber
         this.sendTo(sub.ws, { type: "table:change", table: tableName, action, record, id });
         continue;
@@ -230,7 +457,8 @@ export class RealtimeManager {
             type: "table:change",
             table: tableName,
             action: "DELETE",
-            record,
+            // The row no longer exists, so its current visibility cannot be
+            // checked against a changed membership/filter. Only invalidate it.
             id,
           });
         }

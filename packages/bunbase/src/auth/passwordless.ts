@@ -125,6 +125,9 @@ async function authenticateByEmail(
 
 export function createPasswordlessRoutes(deps: PasswordlessRouteDeps) {
   const { db, internalSchema, config, usersTable, authHooks, mailer } = deps;
+  if (mailer && config.auth.mfa.magicLink.enabled && !config.publicUrl) {
+    throw new Error("BunBase: publicUrl is required when sending magic-link email");
+  }
   const isDev = config.development;
   const tokens = internalSchema.verificationTokens;
   const magicLinkConfig = config.auth.mfa.magicLink;
@@ -203,9 +206,8 @@ export function createPasswordlessRoutes(deps: PasswordlessRouteDeps) {
 
           if (mailer) {
             try {
-              // Derive base URL from the request origin
-              const origin = new URL(req.url).origin;
-              const verifyUrl = `${origin}/api/auth/magic-link/verify?token=${token}`;
+              const verifyUrl = new URL("/auth/magic-link/verify", config.publicUrl!);
+              verifyUrl.searchParams.set("token", token);
               await mailer.send({
                 to: email,
                 subject: "Sign in to your account",

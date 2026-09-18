@@ -475,26 +475,34 @@ export const rules = defineRules({
 });
 `;
 
-const saasRules = `import { defineRules, authenticated } from "@naticha/bunbase";
+const saasRules = `import { defineRules, type AnyColumn, type AuthUser } from "@naticha/bunbase";
+import { sql } from "drizzle-orm";
+import { organizations, members, invoices } from "./schema";
+
+function tenantAccess(column: AnyColumn, auth: AuthUser | null) {
+  if (!auth) return false;
+  if (auth.role === "admin") return true;
+  return sql\`\${column} in (select \${members.organizationId} from \${members} where \${members.userId} = \${auth.id} union select \${organizations.id} from \${organizations} where \${organizations.ownerId} = \${auth.id})\`;
+}
 
 export const rules = defineRules({
   organizations: {
-    list: ({ auth }) => authenticated(auth),
-    get: ({ auth }) => authenticated(auth),
-    create: ({ auth }) => authenticated(auth),
+    list: ({ auth }) => tenantAccess(organizations.id, auth),
+    get: ({ auth }) => tenantAccess(organizations.id, auth),
+    create: ({ auth, body }) => !!auth && (auth.role === "admin" || body.ownerId === auth.id),
     update: ({ auth }) => auth?.role === "admin",
     delete: ({ auth }) => auth?.role === "admin",
   },
   members: {
-    list: ({ auth }) => authenticated(auth),
-    get: ({ auth }) => authenticated(auth),
+    list: ({ auth }) => tenantAccess(members.organizationId, auth),
+    get: ({ auth }) => tenantAccess(members.organizationId, auth),
     create: ({ auth }) => auth?.role === "admin",
     update: ({ auth }) => auth?.role === "admin",
     delete: ({ auth }) => auth?.role === "admin",
   },
   invoices: {
-    list: ({ auth }) => authenticated(auth),
-    get: ({ auth }) => authenticated(auth),
+    list: ({ auth }) => tenantAccess(invoices.organizationId, auth),
+    get: ({ auth }) => tenantAccess(invoices.organizationId, auth),
     create: ({ auth }) => auth?.role === "admin",
     update: ({ auth }) => auth?.role === "admin",
     delete: ({ auth }) => auth?.role === "admin",

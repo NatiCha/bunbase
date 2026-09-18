@@ -29,6 +29,8 @@ export function makeResolvedConfig(overrides: DeepPartialResolvedConfig = {}): R
   const realtimeOverrides = overrides.realtime ?? {};
 
   return {
+    publicUrl: overrides.publicUrl,
+    securityHeaders: overrides.securityHeaders,
     auth: {
       tokenExpiry: authOverrides.tokenExpiry ?? 60 * 60,
       rateLimit: (authOverrides as any)?.rateLimit ?? { max: 10, windowMs: 60_000 },
@@ -93,6 +95,7 @@ export function makeResolvedConfig(overrides: DeepPartialResolvedConfig = {}): R
       exposeHeaders: corsOverrides.exposeHeaders ?? [],
     },
     realtime: {
+      ...realtimeOverrides,
       enabled: realtimeOverrides.enabled ?? false,
     },
     development: overrides.development ?? true,

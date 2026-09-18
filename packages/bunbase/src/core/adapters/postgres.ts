@@ -323,8 +323,8 @@ export class PostgresAdapter implements DatabaseAdapter {
     return `"${name}"`;
   }
 
-  close(): void {
-    this.sql.close();
+  close(): Promise<void> {
+    return this.sql.close();
   }
 }
 

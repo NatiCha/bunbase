@@ -1,6 +1,8 @@
-import { readFileSync, writeFileSync } from "node:fs";
 import type { ServerWebSocket } from "bun";
 import type { AnyRelations } from "drizzle-orm/relations";
+import { frontendRoute, secureResponse } from "./security-headers.ts";
+import { loadServiceKey } from "./service-key-file.ts";
+import { drainServer } from "./shutdown.ts";
 
 const adminHTMLPath = new URL("../../dist/admin/index.html", import.meta.url);
 const adminAssetsDir = new URL("../../dist/admin/", import.meta.url);
@@ -205,39 +207,11 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
 
   // Publish the resolved secure-defaults flag so the auth cookie helpers (which
   // receive only an `isDev` boolean from many call sites) emit the correct
-  // `Secure` attribute. Mirrors the `__bunbaseJwtConfig` pattern below.
+  // `Secure` attribute.
   (globalThis as { __bunbaseSecureDefaults?: boolean }).__bunbaseSecureDefaults =
     config.secureDefaults;
 
-  // Resolve service key: config/env → persisted file → auto-generate
-  if (!config.serviceKey) {
-    const keyFilePath = ".bunbase-service-key";
-    try {
-      const content = readFileSync(keyFilePath, "utf-8").trim();
-      if (content.startsWith("bb_sk_") && content.length === 37) {
-        config.serviceKey = content;
-      }
-    } catch {
-      // File doesn't exist or isn't readable — will generate below
-    }
-
-    if (!config.serviceKey) {
-      const randomBytes = new Uint8Array(16);
-      crypto.getRandomValues(randomBytes);
-      const hex = Array.from(randomBytes)
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
-      config.serviceKey = `bb_sk_${hex}`;
-      try {
-        writeFileSync(keyFilePath, config.serviceKey);
-      } catch (err) {
-        console.warn(
-          `  \x1b[33m[BunBase]\x1b[0m Warning: Could not persist service key to ${keyFilePath}:`,
-          err,
-        );
-      }
-    }
-  }
+  if (!config.serviceKey) config.serviceKey = loadServiceKey();
 
   const { db, dialect, adapter } = createDatabase(config, options.schema, options.relations);
   const internalSchema = getInternalSchema(dialect);
@@ -309,8 +283,15 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     | undefined;
 
   if (config.realtime.enabled) {
-    realtimeManager = new RealtimeManager(db, options.schema, tableRules, tableFields);
-    realtimePresence = new PresenceTracker();
+    realtimePresence = new PresenceTracker(config.realtime.limits?.maxDataBytes);
+    realtimeManager = new RealtimeManager(
+      db,
+      options.schema,
+      tableRules,
+      tableFields,
+      config.realtime,
+      realtimePresence,
+    );
     broadcastFn = (t, a, r) => {
       realtimeManager?.broadcastTableChange(t, a, r).catch((err) => {
         console.error("[BunBase] Realtime broadcast error:", err);
@@ -486,11 +467,6 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
       })
     : {};
 
-  // Store JWT config on globalThis for middleware JWT detection
-  if (config.auth.jwt.enabled) {
-    (globalThis as any).__bunbaseJwtConfig = config.auth.jwt;
-  }
-
   // Storage driver for admin operations
   const adminStorage = createStorageDriver(config);
 
@@ -645,12 +621,21 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
 
     // Job scheduler — starts once bootstrap completes
     let scheduler: JobScheduler | null = null;
+    let stopping = false;
+    const pendingLogs = new Set<Promise<void>>();
+    function trackLog(work: Promise<void>): void {
+      const pending = work.catch((error) =>
+        console.warn("[BunBase] Failed to log request:", error),
+      );
+      pendingLogs.add(pending);
+      void pending.finally(() => pendingLogs.delete(pending));
+    }
     if (options.jobs && options.jobs.length > 0) {
       scheduler = new JobScheduler(db);
       (async () => {
         try {
           await bootstrapPromise;
-          scheduler?.start(options.jobs!);
+          if (!stopping) scheduler?.start(options.jobs!);
         } catch (err) {
           console.error("[BunBase] Failed to start job scheduler:", err);
         }
@@ -659,6 +644,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
 
     // Mutable server reference needed by WS handlers for server.publish()
     let bunServer: ReturnType<typeof Bun.serve>;
+    const sockets = new Set<ServerWebSocket<unknown>>();
 
     // Unified WebSocket handler — dispatches to extend WS routes or realtime based on ws.data.
     // Bun.serve() only allows one `websocket` handler object, so all WS connections share it.
@@ -666,7 +652,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
 
     // Merge WS configs — use most permissive values since Bun allows only one config
     let wsIdleTimeout = 120;
-    let wsMaxPayloadLength = 16 * 1024 * 1024;
+    let wsMaxPayloadLength = realtimeManager?.limits.maxMessageBytes ?? 65536;
     for (const def of extendWsRoutes.values()) {
       if (def.idleTimeout !== undefined) wsIdleTimeout = Math.max(wsIdleTimeout, def.idleTimeout);
       if (def.maxPayloadLength !== undefined)
@@ -676,18 +662,31 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     const websocketHandlers = hasAnyWebSockets
       ? {
           open(ws: any) {
+            if (stopping) {
+              ws.close(1001, "Server shutting down");
+              return;
+            }
+            sockets.add(ws);
             if (WS_PATH_KEY in ws.data) {
               extendWsRoutes.get(ws.data[WS_PATH_KEY])?.open?.(ws);
+            } else {
+              realtimeManager?.track(ws);
             }
           },
           async message(ws: any, raw: string | Buffer) {
             if (WS_PATH_KEY in ws.data) {
-              await extendWsRoutes.get(ws.data[WS_PATH_KEY])?.message(ws, raw);
+              const route = extendWsRoutes.get(ws.data[WS_PATH_KEY]);
+              if (Buffer.byteLength(raw) > (route?.maxPayloadLength ?? 65536)) {
+                ws.close(1009, "Message too large");
+                return;
+              }
+              await route?.message(ws, raw);
             } else if (realtimeManager && realtimePresence) {
               await handleWebSocketMessage(ws, raw, bunServer, realtimeManager, realtimePresence);
             }
           },
           close(ws: any, code: number, reason: string) {
+            sockets.delete(ws);
             if (WS_PATH_KEY in ws.data) {
               extendWsRoutes.get(ws.data[WS_PATH_KEY])?.close?.(ws, code, reason);
             } else if (realtimeManager && realtimePresence) {
@@ -708,18 +707,21 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     // route forwarders can call it without duplicating the handler body in a route.
     async function masterFetch(req: Request, srv: ReturnType<typeof Bun.serve>): Promise<Response> {
       try {
-        return await handleRequest(req, srv);
+        return secureResponse(await handleRequest(req, srv), config);
       } catch (err) {
         // Top-level safety net: never let an unhandled throw render Bun's default
         // (stack-trace-leaking) error page. Log the real error server-side and
         // return an opaque 500 to the client, with CORS headers preserved.
         console.error("[BunBase] Unhandled request error:", err);
-        return addCorsHeaders(
-          Response.json(
-            { error: { code: "INTERNAL_SERVER_ERROR", message: "Internal server error" } },
-            { status: 500 },
+        return secureResponse(
+          addCorsHeaders(
+            Response.json(
+              { error: { code: "INTERNAL_SERVER_ERROR", message: "Internal server error" } },
+              { status: 500 },
+            ),
+            req,
+            config,
           ),
-          req,
           config,
         );
       }
@@ -752,6 +754,10 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
       // WebSocket upgrade for /realtime — must use the original req, not a clone,
       // because srv.upgrade() requires the native Bun request handle.
       if (pathname === "/realtime" && config.realtime.enabled && realtimeManager) {
+        const origin = req.headers.get("origin");
+        if (origin !== null && origin !== url.origin && !config.cors.origins.includes(origin)) {
+          return new Response("Origin not allowed", { status: 403 });
+        }
         const auth = await extractAuthFromReq(
           req,
           db,
@@ -760,13 +766,32 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
           config.serviceKey,
           config,
         ).catch(() => null);
-        const upgraded = srv.upgrade(req, {
-          data: {
-            auth,
-            connectedAt: Date.now(),
-            presenceMeta: {},
-          },
-        });
+        const releaseConnection = realtimeManager.reserveConnection(socketIp, auth?.id);
+        if (!releaseConnection)
+          return new Response("Realtime connection limit exceeded", { status: 429 });
+        const credentialRequest = new Request(req.url, { headers: new Headers(req.headers) });
+        let upgraded = false;
+        try {
+          upgraded = srv.upgrade(req, {
+            data: {
+              auth,
+              releaseConnection,
+              authenticate: () =>
+                extractAuthFromReq(
+                  credentialRequest,
+                  db,
+                  internalSchema,
+                  usersTable,
+                  config.serviceKey,
+                  config,
+                ),
+              connectedAt: Date.now(),
+              presenceMeta: {},
+            },
+          });
+        } finally {
+          if (!upgraded) releaseConnection();
+        }
         if (upgraded) return undefined as unknown as Response;
         return new Response("WebSocket upgrade failed", { status: 400 });
       }
@@ -795,7 +820,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
       enrichedHeaders.set("x-bunbase-socket-ip", socketIp);
       req = new Request(req, { headers: enrichedHeaders });
 
-      // CSRF check for state-changing mutations — covers /api/, /_admin/api/, and
+      // CSRF check for state-changing mutations — covers /api/, /auth/, /_admin/api/, and
       // the file upload/delete routes under /files/ (which use cookie auth).
       // Skipped when no session cookie is present since CSRF attacks require the
       // victim's browser to send cookies automatically. This covers bearer-only
@@ -803,6 +828,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
       // PUT is included alongside POST/PATCH/DELETE because extend routes may use it.
       if (
         (pathname.startsWith("/api/") ||
+          pathname.startsWith("/auth/") ||
           pathname.startsWith("/_admin/api/") ||
           pathname.startsWith("/files/")) &&
         ["POST", "PUT", "PATCH", "DELETE"].includes(req.method) &&
@@ -837,25 +863,27 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
         // Fire-and-forget — DB writes for the log row must not block the
         // response. If the pool is wedged, the handler has already produced
         // a response; we just lose the log row.
-        void (async () => {
-          const user = await extractAuthFromReq(
-            req,
-            db,
-            internalSchema,
-            usersTable,
-            config.serviceKey,
-            config,
-          ).catch(() => null);
-          await pushRequestLog(db, internalSchema, {
-            id: Bun.randomUUIDv7(),
-            method: req.method,
-            path: pathname,
-            status: response.status,
-            durationMs,
-            userId: user?.id ?? null,
-            timestamp: new Date().toISOString(),
-          });
-        })().catch((err) => console.warn("[BunBase] Failed to log request:", err));
+        trackLog(
+          (async () => {
+            const user = await extractAuthFromReq(
+              req,
+              db,
+              internalSchema,
+              usersTable,
+              config.serviceKey,
+              config,
+            ).catch(() => null);
+            await pushRequestLog(db, internalSchema, {
+              id: Bun.randomUUIDv7(),
+              method: req.method,
+              path: pathname,
+              status: response.status,
+              durationMs,
+              userId: user?.id ?? null,
+              timestamp: new Date().toISOString(),
+            });
+          })(),
+        );
         return addCorsHeaders(response, req, config);
       }
 
@@ -868,9 +896,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
         if (handler) {
           const response = await handler(req);
           if (!skipLogPaths.has(pathname)) {
-            logRequest(db, internalSchema, req, pathname, start, response, null).catch((err) =>
-              console.warn("[BunBase] Failed to log request:", err),
-            );
+            trackLog(logRequest(db, internalSchema, req, pathname, start, response, null));
           }
           return addCorsHeaders(response, req, config);
         }
@@ -884,9 +910,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
           if (handler) {
             const response = await handler(req);
             if (!skipLog) {
-              logRequest(db, internalSchema, req, pathname, start, response, null).catch((err) =>
-                console.warn("[BunBase] Failed to log request:", err),
-              );
+              trackLog(logRequest(db, internalSchema, req, pathname, start, response, null));
             }
             return addCorsHeaders(response, req, config);
           }
@@ -911,9 +935,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
       } else {
         notFound = errorResponse("NOT_FOUND", "Route not found", 404);
       }
-      logRequest(db, internalSchema, req, pathname, start, notFound, null).catch((err) =>
-        console.warn("[BunBase] Failed to log request:", err),
-      );
+      trackLog(logRequest(db, internalSchema, req, pathname, start, notFound, null));
       return addCorsHeaders(notFound, req, config);
     }
 
@@ -925,7 +947,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     const baseAdminRoutes = {
       "/auth/*": (req: Request, srv: any) => masterFetch(req, srv),
       "/_admin/api/*": (req: Request, srv: any) => masterFetch(req, srv),
-      "/_admin/*": () => new Response(Bun.file(adminHTMLPath)),
+      "/_admin/*": () => secureResponse(new Response(Bun.file(adminHTMLPath)), config),
     };
 
     // Forward extend WS + unscoped paths so they reach masterFetch instead
@@ -944,7 +966,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
           "/realtime": (req: Request, srv: any) => masterFetch(req, srv),
           ...extendForwards,
           // SPA catch-all — served via Bun's HTML bundler (HMR, TSX, CSS)
-          "/*": config.frontend?.html,
+          "/*": frontendRoute(config.frontend.html, config),
         }
       : {};
 
@@ -965,12 +987,16 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
       maxRequestBodySize,
 
       routes: {
-        "/health": Response.json({ status: "ok", version: pkg.version }),
-        "/_admin": () => new Response(Bun.file(adminHTMLPath)),
-        "/_admin/": () => new Response(Bun.file(adminHTMLPath)),
+        "/health": secureResponse(Response.json({ status: "ok", version: pkg.version }), config),
+        "/_admin": () => secureResponse(new Response(Bun.file(adminHTMLPath)), config),
+        "/_admin/": () => secureResponse(new Response(Bun.file(adminHTMLPath)), config),
         "/_admin-assets/*": (req: any) => {
           const filename = new URL(req.url).pathname.slice("/_admin-assets/".length);
-          return new Response(Bun.file(new URL(filename, adminAssetsDir)));
+          // Build output is flat. Never interpret request input as a URL or path.
+          if (!/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(filename)) {
+            return secureResponse(new Response("Not found", { status: 404 }), config);
+          }
+          return secureResponse(new Response(Bun.file(new URL(filename, adminAssetsDir))), config);
         },
         ...baseAdminRoutes,
         ...(frontendRoutes as any),
@@ -988,9 +1014,12 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
       // error page with internals.
       error(err) {
         console.error("[BunBase] Server error:", err);
-        return Response.json(
-          { error: { code: "INTERNAL_SERVER_ERROR", message: "Internal server error" } },
-          { status: 500 },
+        return secureResponse(
+          Response.json(
+            { error: { code: "INTERNAL_SERVER_ERROR", message: "Internal server error" } },
+            { status: 500 },
+          ),
+          config,
         );
       },
     });
@@ -1012,26 +1041,43 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     if (options.mailer) {
       console.log("  Email: mailer configured");
     }
-    console.log(
-      `\n  \x1b[33m[BunBase]\x1b[0m Service key: \x1b[1m${config.serviceKey}\x1b[0m` +
-        `\n  \x1b[2mUse as Bearer token for server-to-server admin access. Keep this secret.\x1b[0m\n`,
-    );
+    console.log("  Service key: configured (value omitted)");
 
-    // Wrap server.stop() so callers who hold the Bun server reference also stop the scheduler
-    if (scheduler) {
-      const originalStop = server.stop.bind(server);
-      (server as any).stop = (closeActiveConnections?: boolean) => {
-        scheduler?.stop();
-        return originalStop(closeActiveConnections);
-      };
-    }
+    const originalStop = server.stop.bind(server);
+    server.stop = (closeActiveConnections?: boolean) => {
+      stopping = true;
+      scheduler?.stop();
+      if (!shutdownStarted) {
+        process.off("SIGTERM", shutdown);
+        process.off("SIGINT", shutdown);
+      }
+      return originalStop(closeActiveConnections);
+    };
 
-    // Graceful shutdown
+    let shutdownStarted = false;
     const shutdown = () => {
+      if (shutdownStarted) return;
+      shutdownStarted = true;
       console.log("Shutting down...");
-      server.stop(); // scheduler.stop() is now called inside the wrapped stop()
-      adapter.close();
-      process.exit(0);
+      // Close long-lived WebSockets without aborting active HTTP requests.
+      for (const ws of sockets) ws.close(1001, "Server shutting down");
+      void drainServer({
+        stop: (force) => server.stop(force),
+        idle: async () => {
+          await bootstrapPromise;
+          await scheduler?.waitForIdle();
+        },
+        close: async () => {
+          await Promise.all(pendingLogs);
+          await adapter.close();
+        },
+      }).then(
+        () => process.exit(0),
+        (error) => {
+          console.error("[BunBase] Shutdown failed:", error);
+          process.exit(1);
+        },
+      );
     };
 
     process.on("SIGTERM", shutdown);

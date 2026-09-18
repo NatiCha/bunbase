@@ -183,7 +183,7 @@ curl -X POST http://localhost:3000/auth/reset-password \
 { "message": "Password reset successfully" }
 ```
 
-Invalidates all existing sessions and creates a new one. Sets session and CSRF cookies.
+Invalidates all existing sessions, API keys, and JWTs and creates a new session. Sets session and CSRF cookies. If TOTP is enrolled, the response also contains `mfaRequired: true` and `mfaMethods: ["totp"]`; the new session remains pending until the second factor is verified.
 
 **Errors:**
 - `400` — invalid or expired token (tokens expire after 1 hour)
@@ -269,7 +269,7 @@ defineConfig({
 
 Available providers: `google`, `github`, `discord`.
 
-If a user with the same email already exists, the OAuth account is linked to the existing user. If the user is new, a user record is created automatically.
+If an unlinked OAuth identity has the same email as an existing account, login returns `ACCOUNT_LINK_REQUIRED`, even if the provider verified that email. Sign in to the existing account and use the authenticated OAuth linking flow. Existing provider links continue to work, and a new email creates a new user.
 
 ### From a frontend
 

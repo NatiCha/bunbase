@@ -37,5 +37,5 @@ export interface DatabaseAdapter {
   quoteIdentifier(name: string): string;
 
   /** Graceful shutdown */
-  close(): void;
+  close(): void | Promise<void>;
 }

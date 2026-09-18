@@ -17,8 +17,7 @@ export interface CookieOptions {
  *
  * Baseline is the legacy `!isDev` rule (deterministic for callers that pass an
  * explicit `development` boolean). On top of that, the running server publishes
- * its resolved `config.secureDefaults` on `globalThis` (mirroring the
- * `__bunbaseJwtConfig` pattern) so the cookie helpers — which receive only an
+ * its resolved `config.secureDefaults` on `globalThis` so the cookie helpers — which receive only an
  * `isDev` boolean from many call sites across the auth modules — can fail closed
  * when `NODE_ENV` is unset (where `isDev` is `true` but secure defaults must
  * still apply).

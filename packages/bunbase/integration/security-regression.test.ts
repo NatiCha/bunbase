@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,7 @@ import { pgTable, varchar as pgVarchar } from "drizzle-orm/pg-core";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { encrypt } from "../src/auth/encryption.ts";
 import { validateAndConsumeInvite } from "../src/auth/invitations.ts";
+import { consumeRefreshJwt, signJwt, verifyJwt } from "../src/auth/jwt/core.ts";
 import { storeBackupCodes, verifyBackupCode } from "../src/auth/mfa/index.ts";
 import { createTotpRoutes } from "../src/auth/mfa/totp.ts";
 import { generateSecret, generateTotpCode } from "../src/auth/mfa/totp-core.ts";
@@ -46,6 +48,7 @@ for (const driver of ["sqlite", "postgres", "mysql"] as const) {
             });
     const schema = getInternalSchema(driver);
     const orgIds: string[] = [];
+    const jwtIds: string[] = [];
     let db: any;
     let adapter: DatabaseAdapter;
     let work: string;
@@ -71,6 +74,10 @@ for (const driver of ["sqlite", "postgres", "mysql"] as const) {
     afterAll(async () => {
       try {
         if (db) {
+          if (jwtIds.length)
+            await db
+              .delete(schema.jwtRevocations)
+              .where(inArray(schema.jwtRevocations.jti, jwtIds));
           for (const table of [schema.sessions, schema.mfaTotp, schema.mfaBackupCodes])
             await db.delete(table).where(eq(table.userId, userId));
           await db.delete(schema.invites).where(eq(schema.invites.invitedBy, userId));
@@ -86,6 +93,31 @@ for (const driver of ["sqlite", "postgres", "mysql"] as const) {
         adapter?.close();
         if (work) rmSync(work, { recursive: true, force: true });
       }
+    });
+
+    test("concurrent refresh claims are single-use and revoke the token family", async () => {
+      const secret = "dialect-refresh-test";
+      const refresh = await signJwt(
+        { sub: userId, email: "atomic@example.com", role: "user", type: "refresh" },
+        secret,
+        3600,
+      );
+      const payload = (await verifyJwt(refresh, secret))!;
+      jwtIds.push(payload.jti, `family:${createHash("sha256").update(payload.fid).digest("hex")}`);
+      const access = await signJwt({ ...payload, type: "access" }, secret, 900);
+      const results = await Promise.all([
+        consumeRefreshJwt(db, schema, payload),
+        consumeRefreshJwt(db, schema, payload),
+      ]);
+      expect(results.filter(Boolean)).toHaveLength(1);
+      expect(await verifyJwt(access, secret, db, schema)).toBeNull();
+      expect(await verifyJwt(refresh, secret, db, schema)).toBeNull();
+      const unrelated = await signJwt(
+        { sub: userId, email: "atomic@example.com", role: "user", type: "access" },
+        secret,
+        900,
+      );
+      expect(await verifyJwt(unrelated, secret, db, schema)).not.toBeNull();
     });
 
     for (const uses of [1, 3, 0]) {

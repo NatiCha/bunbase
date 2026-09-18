@@ -25,14 +25,16 @@
     "build:admin": "bun run --cwd packages/bunbase build:admin",
     "docs:check": "bun run --cwd docs check",
     "smoke": "bun run scripts/smoke-scaffold.ts",
-    "verify": "bun run check && bun run type && bun run build && bun run test && bun run docs:check && bun run docs:build && bun run smoke",
+    "verify": "bun run check && bun run type && bun run build && bun run test && bun run docs:check && bun run docs:build && bun run smoke && bun run smoke:production",
     "test:databases": "bun run --cwd packages/bunbase test:databases",
-    "preview:example": "bun run build:admin && bun run --cwd examples/task-manager ../../scripts/preview-example.ts"
+    "preview:example": "bun run build:admin && bun run --cwd examples/task-manager ../../scripts/preview-example.ts",
+    "smoke:production": "bun run scripts/smoke-production.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.13",
-    "typescript": "7.0.2",
-    "@types/bun": "1.4.2"
+    "@types/bun": "1.4.2",
+    "playwright": "1.63.0",
+    "typescript": "7.0.2"
   },
   "engines": {
     "bun": ">=1.4.2"

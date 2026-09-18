@@ -45,7 +45,7 @@ If neither config nor env var is set, BunBase will:
 
 1. Check for an existing `.bunbase-service-key` file in the working directory
 2. If not found, generate a cryptographically random key and persist it to `.bunbase-service-key`
-3. Print the key to console on startup
+3. Log only that a service key is configured; retrieve the value from `.bunbase-service-key` when needed
 
 The `.bunbase-service-key` file is automatically included in `.gitignore` when scaffolding with `bunbase init`.
 
@@ -115,3 +115,9 @@ extend: ({ extractAuth }) => ({
 - Add `.bunbase-service-key` to `.gitignore` (done automatically by `bunbase init`)
 - In production, prefer setting the key via `BUNBASE_SERVICE_KEY` env var rather than hardcoding in config
 - The key is compared using constant-time comparison to prevent timing attacks
+
+## File protection and rotation
+
+Auto-generated files are published exclusively with owner-only permissions (`0600`) on POSIX systems. Startup repairs overly broad permissions without changing the existing key. Symlinks, nonregular files, invalid contents, and permission failures stop startup rather than silently replacing credentials. Protect the working directory itself; use your operating system's ACLs on Windows.
+
+If a previous key appeared in logs or a shared file, treat it as exposed. Generate a replacement in your secret manager, update `BUNBASE_SERVICE_KEY` in the server and authorized clients, then restart the server. Verify the old credential is rejected and the replacement works. For file-backed keys, stop the server, replace the file with the new value using owner-only permissions, and restart. The code change does not rotate deployed credentials automatically.

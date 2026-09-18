@@ -270,18 +270,10 @@ describe("middleware mfa.required gate", () => {
 
 describe("JWT bearer token type enforcement", () => {
   const secret = "test-jwt-secret-value";
-  const prevJwt = (globalThis as any).__bunbaseJwtConfig;
-
-  function withJwt() {
-    (globalThis as any).__bunbaseJwtConfig = { enabled: true, secret };
-  }
-  function restore() {
-    (globalThis as any).__bunbaseJwtConfig = prevJwt;
-  }
+  const jwtConfig = { auth: { mfa: { required: false }, jwt: { enabled: true, secret } } };
 
   test("a refresh token is rejected as a bearer access token; an access token is accepted", async () => {
-    withJwt();
-    try {
+    {
       const { sqlite, db, internalSchema } = setupMiddlewareDb();
       sqlite
         .query(
@@ -300,14 +292,30 @@ describe("JWT bearer token type enforcement", () => {
         headers: { authorization: `Bearer ${refreshToken}` },
       });
 
-      expect((await extractAuth(accessReq, db as any, internalSchema, mwUsersTable))?.id).toBe(
-        "ju",
-      );
-      expect(await extractAuth(refreshReq, db as any, internalSchema, mwUsersTable)).toBeNull();
+      expect(
+        (
+          await extractAuth(
+            accessReq,
+            db as any,
+            internalSchema,
+            mwUsersTable,
+            undefined,
+            jwtConfig,
+          )
+        )?.id,
+      ).toBe("ju");
+      expect(
+        await extractAuth(
+          refreshReq,
+          db as any,
+          internalSchema,
+          mwUsersTable,
+          undefined,
+          jwtConfig,
+        ),
+      ).toBeNull();
 
       sqlite.close();
-    } finally {
-      restore();
     }
   });
 });
