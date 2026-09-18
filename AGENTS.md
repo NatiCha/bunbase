@@ -107,6 +107,8 @@ Run these commands from the repository root:
   `BUNBASE_TEST_POSTGRES_URL` and `BUNBASE_TEST_MYSQL_URL` enable the corresponding
   integration cases. Use disposable databases: these suites create tables,
   migrations, and triggers. Unset URLs mean skipped coverage, not verified support.
+  CI connects to its disposable MySQL service with `sslmode=require` so password
+  authentication runs over TLS with the container's self-signed certificate.
 - Fix scripts such as `check:fix` modify files. Scope formatting to the work being
   changed rather than rewriting unrelated work.
 - `bun run release` publishes to npm; it requires explicit user authorization.
