@@ -63,6 +63,10 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
+      - name: Permit failure-injection triggers in disposable MySQL
+        run: >-
+          docker exec --env MYSQL_PWD=bunbase_test "${{ job.services.mysql.id }}"
+          mysql -uroot -e 'SET GLOBAL log_bin_trust_function_creators = 1;'
       - run: bun run test:databases
         env:
           BUNBASE_TEST_POSTGRES_URL: postgres://bunbase:bunbase_test@localhost:5432/bunbase_test

@@ -109,6 +109,8 @@ Run these commands from the repository root:
   migrations, and triggers. Unset URLs mean skipped coverage, not verified support.
   CI connects to its disposable MySQL service with `sslmode=require` so password
   authentication runs over TLS with the container's self-signed certificate.
+  Its disposable MySQL container also permits the rollback tests' failure-injection
+  triggers; this setting is limited to CI, not an application deployment requirement.
 - Fix scripts such as `check:fix` modify files. Scope formatting to the work being
   changed rather than rewriting unrelated work.
 - `bun run release` publishes to npm; it requires explicit user authorization.
