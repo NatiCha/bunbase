@@ -81,7 +81,10 @@ When a user with TOTP enabled logs in via `POST /auth/login`, the response chang
 }
 ```
 
-A session cookie is set, but the session is **pending** — it cannot access any API routes except `/auth/mfa/*` and `/auth/logout`.
+A session cookie is set, but the session is **pending**. It can only access
+`/auth/mfa/totp/verify`, `/auth/mfa/backup/verify`, `/auth/mfa/status`, and
+`/auth/logout`. It cannot change enrollment, disable MFA, or regenerate backup
+codes until the second factor has been verified.
 
 ### Complete MFA challenge
 
@@ -139,7 +142,8 @@ GET /auth/mfa/status
 POST /auth/mfa/totp/disable
 ```
 
-Requires the user's password for confirmation. Deletes the TOTP secret and all backup codes.
+Requires a fully authenticated session and the user's password for confirmation.
+Deletes the TOTP secret and all backup codes.
 
 | Field | Type | Required |
 |---|---|---|
@@ -151,7 +155,8 @@ Requires the user's password for confirmation. Deletes the TOTP secret and all b
 POST /auth/mfa/backup/regenerate
 ```
 
-Requires the user's password. Replaces all existing backup codes with new ones.
+Requires a fully authenticated session and the user's password. Replaces all
+existing backup codes with new ones. A pending MFA login cannot call this route.
 
 | Field | Type | Required |
 |---|---|---|

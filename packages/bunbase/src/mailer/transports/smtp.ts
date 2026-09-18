@@ -32,8 +32,13 @@ export interface SmtpConfig {
 
 /** Strip display name from "Display Name <email@example.com>" → "email@example.com" */
 function extractEmail(address: string): string {
-  const match = address.match(/<([^>]+)>/);
-  return match?.[1]?.trim() ?? address.trim();
+  if (/[\r\n\0]/.test(address)) throw new MailerError("Invalid SMTP address");
+  const match = address.match(/^[^<>]*<([^<>]+)>\s*$/);
+  const mailbox = match?.[1]?.trim() ?? address.trim();
+  if (!/^[^\s<>@,;]+@[^\s<>@,;]+$/.test(mailbox)) {
+    throw new MailerError("Invalid SMTP address");
+  }
+  return mailbox;
 }
 
 /** Encode string to base64 */
@@ -60,6 +65,7 @@ function buildMessage(email: EmailMessage): string {
     `From: ${email.from}`,
     `To: ${email.to}`,
     `Subject: ${email.subject}`,
+    ...(email.replyTo ? [`Reply-To: ${email.replyTo}`] : []),
     `MIME-Version: 1.0`,
   ];
 
@@ -140,6 +146,13 @@ type SmtpState =
 export function createSmtpTransport(config: SmtpConfig): (email: EmailMessage) => Promise<void> {
   return (email: EmailMessage): Promise<void> => {
     return new Promise<void>((resolve, reject) => {
+      // Snapshot and validate before opening a socket or writing any command.
+      email = { ...email };
+      const from = extractEmail(email.from);
+      const to = extractEmail(email.to);
+      if (email.replyTo !== undefined) extractEmail(email.replyTo);
+      if (/[\r\n\0]/.test(email.subject)) throw new MailerError("Invalid SMTP subject");
+      const message = dotStuff(buildMessage(email));
       let state: SmtpState = "greeting";
       let buffer = "";
       let sock: any = null;
@@ -194,7 +207,7 @@ export function createSmtpTransport(config: SmtpConfig): (email: EmailMessage) =
               cmd(`AUTH LOGIN`);
             } else {
               state = "mail-from";
-              cmd(`MAIL FROM:<${extractEmail(email.from)}>`);
+              cmd(`MAIL FROM:<${from}>`);
             }
             break;
 
@@ -222,7 +235,7 @@ export function createSmtpTransport(config: SmtpConfig): (email: EmailMessage) =
               return;
             }
             state = "mail-from";
-            cmd(`MAIL FROM:<${extractEmail(email.from)}>`);
+            cmd(`MAIL FROM:<${from}>`);
             break;
 
           case "mail-from":
@@ -231,7 +244,7 @@ export function createSmtpTransport(config: SmtpConfig): (email: EmailMessage) =
               return;
             }
             state = "rcpt-to";
-            cmd(`RCPT TO:<${extractEmail(email.to)}>`);
+            cmd(`RCPT TO:<${to}>`);
             break;
 
           case "rcpt-to":
@@ -249,8 +262,7 @@ export function createSmtpTransport(config: SmtpConfig): (email: EmailMessage) =
               return;
             }
             state = "body";
-            const body = dotStuff(buildMessage(email));
-            sock.write(`${body}\r\n.\r\n`);
+            sock.write(`${message}\r\n.\r\n`);
             break;
           }
 

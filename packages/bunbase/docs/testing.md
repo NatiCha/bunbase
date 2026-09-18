@@ -2,12 +2,29 @@
 title: Testing
 ---
 
-BunBase ships a `bunbase/testing` subpath with a `createTestServer` helper that spins up a real server in-process for integration tests. It handles all the boilerplate: creates a temp SQLite database, bootstraps internal tables, starts the server on a random port, and manages CSRF tokens automatically.
+## Release verification
+
+From a repository checkout, install dependencies (including the separate docs
+dependencies), then run `bunx playwright install chromium` and `bun run verify`.
+The chain includes the packed scaffold smoke test and `bun run smoke:production`.
+The latter uses a disposable SQLite database and Chromium to test production
+cookies, admin login/navigation, nested frontend routes, Tailwind styles, CSP,
+CRUD, realtime, uploads/downloads, graceful shutdown with an open WebSocket, and
+an offline database/upload backup restored into another directory.
+
+The browser check uses Chromium's trusted localhost context. It does not replace
+testing your deployed HTTPS origin, reverse proxy, OAuth providers, or S3 service.
+Run `bun run test:databases` with **both** `BUNBASE_TEST_POSTGRES_URL` and
+`BUNBASE_TEST_MYSQL_URL` targeting disposable databases before release. Missing
+URLs skip coverage. CI provisions PostgreSQL 17 and MySQL 8.4, and can also be
+started manually on a candidate branch with `workflow_dispatch`.
+
+BunBase ships a `@naticha/bunbase/testing` subpath with a `createTestServer` helper that spins up a real server in-process for integration tests. It handles all the boilerplate: creates a temp SQLite database, bootstraps internal tables, starts the server on a random port, and manages CSRF tokens automatically.
 
 ## Setup
 
 ```ts
-import { createTestServer } from "bunbase/testing";
+import { createTestServer } from "@naticha/bunbase/testing";
 import { test, expect, afterAll } from "bun:test";
 import * as schema from "../src/schema";
 import { rules } from "../src/rules";
@@ -96,27 +113,22 @@ await server.adapter.rawExecute(
 
 ## Testing authenticated routes
 
-Simulate a logged-in user by registering + logging in through the API:
+`server.fetch` has no cookie jar, so it is always unauthenticated. To act as a
+logged-in user, use `server.loginAs(...)` — it seeds the user and a session row
+directly and returns a `fetch` bound to that session cookie (plus CSRF):
 
 ```ts
 test("owner can update their post", async () => {
-  // Register
-  const regRes = await server.fetch("/auth/register", {
-    method: "POST",
-    body: JSON.stringify({ email: "alice@example.com", password: "secret123" }),
-  });
-  expect(regRes.status).toBe(201);
-  const { user } = await regRes.json();
+  const alice = await server.loginAs({ email: "alice@example.com", role: "user" });
 
-  // Create a post as that user
-  const createRes = await server.fetch("/api/posts", {
+  // Create a post as Alice (her session cookie is sent automatically)
+  const createRes = await alice.fetch("/api/posts", {
     method: "POST",
-    body: JSON.stringify({ title: "Alice's Post", authorId: user.id }),
+    body: JSON.stringify({ title: "Alice's Post" }),
   });
   const post = await createRes.json();
 
-  // Update it
-  const updateRes = await server.fetch(`/api/posts/${post.id}`, {
+  const updateRes = await alice.fetch(`/api/posts/${post.id}`, {
     method: "PATCH",
     body: JSON.stringify({ title: "Updated" }),
   });
@@ -124,15 +136,18 @@ test("owner can update their post", async () => {
 });
 ```
 
-Or seed a user and their session directly with `rawExecute` if you want to avoid the HTTP round-trip.
+`loginAs` returns `{ userId, sessionId, fetch }`. Pass an email string or an
+object with `email`/`role`/`id`/`columns`. (It's SQLite-focused, matching
+`createTestServer`.) You can still seed users and sessions manually with
+`server.adapter.rawExecute(...)` if you prefer.
 
 ## Example: full CRUD test suite
 
 ```ts
-import { createTestServer } from "bunbase/testing";
+import { createTestServer } from "@naticha/bunbase/testing";
 import { test, expect, afterAll } from "bun:test";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { defineRules } from "bunbase";
+import { defineRules } from "@naticha/bunbase";
 
 const posts = sqliteTable("posts", {
   id: text("id").primaryKey(),
@@ -176,3 +191,42 @@ test("create requires auth", async () => {
 - `development: true` is always set, so CORS is open and cookies have no `Secure` flag.
 - Each `createTestServer` call creates an isolated database. Parallel test files are safe.
 - The server starts on port `0`, so the OS assigns a free port — no port conflicts between test files.
+
+## BunBase database regression suite
+
+When contributing to BunBase, run `bun run test` from the repository root. Alongside
+the main tests, it runs SQLite database/SDK and atomic-security regressions in a
+separate process so the migration-error unit tests' module mocks cannot replace
+the real migrator.
+
+The same seven scenarios run against PostgreSQL when `BUNBASE_TEST_POSTGRES_URL`
+is set. From the repository root:
+
+```sh
+BUNBASE_TEST_POSTGRES_URL="postgresql://user:password@localhost:5432/bunbase_test" bun run test:databases
+```
+
+Use a disposable database. The suite bootstraps internal tables and applies real
+generated migrations; it does not erase migration history or internal tables when
+finished. Each fixture uses unique user-table names and removes its user tables.
+SQLite uses temporary files that are removed automatically. Without a PostgreSQL
+URL, PostgreSQL cases report skips; SQLite still runs. Leave
+`BUNBASE_TEST_MYSQL_URL` unset to skip MySQL checks.
+
+Coverage includes timestamp/JSON/boolean/null round-trips, SDK CRUD over HTTP,
+205 matching records across cursor pages with duplicate sort values, optional and
+to-many relations, denied/filtered relationship access, and adding a defaulted
+column while preserving existing rows and safely rerunning the migration.
+
+The atomic-security suite runs on SQLite by default and on PostgreSQL/MySQL when
+their test URLs are set. It checks single-use TOTP and backup codes, concurrent
+invitation consumption, competing ownership transfers, and rollback after a
+failure at each write in a transfer. It creates temporary triggers for failure
+injection and removes them afterward. Use dedicated test databases with permission
+to create tables, triggers, and (on PostgreSQL) trigger functions.
+
+```sh
+BUNBASE_TEST_POSTGRES_URL="postgresql://user:password@localhost:5432/bunbase_test" \
+BUNBASE_TEST_MYSQL_URL="mysql://user:password@localhost:3306/bunbase_test" \
+bun run test:databases
+```

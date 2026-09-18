@@ -83,7 +83,10 @@ curl -X DELETE http://localhost:3000/files/file-uuid -b cookies.txt
 { "deleted": true }
 ```
 
-**Access control:** Uses the collection's `delete` rule.
+**Access control:** Uses the collection's `delete` rule with the parent record
+available as `record`. SQL predicates such as `ownerOnly(posts.authorId, auth)`
+must match that parent record before any file bytes or metadata are removed.
+Missing parent records and missing, denied, or failing rules reject deletion.
 
 **Errors:**
 - `401` — not authenticated

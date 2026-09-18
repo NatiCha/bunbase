@@ -9,7 +9,12 @@ switch (command) {
     const rest = args.slice(1);
     const nonInteractive = rest.includes("-y") || rest.includes("--yes");
     const projectName = rest.find((a) => !a.startsWith("-"));
-    await init({ projectName, nonInteractive });
+    await init({
+      projectName,
+      nonInteractive,
+      skipInstall: rest.includes("--skip-install"),
+      noStart: rest.includes("--no-start"),
+    });
     break;
   }
   case "--help":
@@ -23,6 +28,8 @@ Commands:
 
 Options:
   -y, --yes      Non-interactive mode (defaults: empty template, no OAuth)
+  --skip-install  Generate files without installing dependencies or starting
+  --no-start      Install and generate migrations without starting the server
   --help, -h     Show this help message
 
 Examples:

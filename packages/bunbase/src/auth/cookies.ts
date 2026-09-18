@@ -12,11 +12,36 @@ export interface CookieOptions {
   domain?: string;
 }
 
-/** Session cookie defaults (`HttpOnly`, 30 days, secure outside development). */
+/**
+ * Resolve whether auth cookies should carry the `Secure` attribute.
+ *
+ * Baseline is the legacy `!isDev` rule (deterministic for callers that pass an
+ * explicit `development` boolean). On top of that, the running server publishes
+ * its resolved `config.secureDefaults` on `globalThis` so the cookie helpers — which receive only an
+ * `isDev` boolean from many call sites across the auth modules — can fail closed
+ * when `NODE_ENV` is unset (where `isDev` is `true` but secure defaults must
+ * still apply).
+ *
+ * The global can only ever *upgrade* a cookie to `Secure`, never downgrade one:
+ * an explicit `setCsrfCookie(false)` (production) stays `Secure` regardless of a
+ * dev server having published `false`, which keeps the flag deterministic for
+ * unit tests and avoids cross-test global leakage.
+ *
+ * NOTE: this means local dev MUST run with `NODE_ENV=development` (or
+ * `config.development: true`); otherwise `secureDefaults` is `true` and cookies
+ * become `Secure`, so the browser will not send them over plain `http://localhost`.
+ */
+function cookieSecure(isDev: boolean): boolean {
+  const secureDefaults = (globalThis as { __bunbaseSecureDefaults?: boolean })
+    .__bunbaseSecureDefaults;
+  return !isDev || secureDefaults === true;
+}
+
+/** Session cookie defaults (`HttpOnly`, 30 days, secure unless secure defaults are off). */
 export function sessionCookieOptions(isDev: boolean, domain?: string): CookieOptions {
   return {
     httpOnly: true,
-    secure: !isDev,
+    secure: cookieSecure(isDev),
     sameSite: "lax",
     path: "/",
     maxAge: 30 * 24 * 60 * 60, // 30 days
@@ -24,11 +49,11 @@ export function sessionCookieOptions(isDev: boolean, domain?: string): CookieOpt
   };
 }
 
-/** CSRF cookie defaults (client-readable, 30 days, secure outside development). */
+/** CSRF cookie defaults (client-readable, 30 days, secure unless secure defaults are off). */
 export function csrfCookieOptions(isDev: boolean, domain?: string): CookieOptions {
   return {
     httpOnly: false, // JS needs to read this
-    secure: !isDev,
+    secure: cookieSecure(isDev),
     sameSite: "lax",
     path: "/",
     maxAge: 30 * 24 * 60 * 60,
@@ -47,12 +72,14 @@ export function serializeCookie(name: string, value: string, opts: CookieOptions
 
 /** Clear an HttpOnly cookie by setting `Max-Age=0`. */
 export function clearCookie(name: string, isDev: boolean, domain?: string): string {
-  return `${name}=; Path=/; Max-Age=0; SameSite=lax${domain ? `; Domain=${domain}` : ""}${isDev ? "" : "; Secure"}; HttpOnly`;
+  const secure = cookieSecure(isDev) ? "; Secure" : "";
+  return `${name}=; Path=/; Max-Age=0; SameSite=lax${domain ? `; Domain=${domain}` : ""}${secure}; HttpOnly`;
 }
 
 /** Clear a non-HttpOnly client cookie by setting `Max-Age=0`. */
 export function clearClientCookie(name: string, isDev: boolean, domain?: string): string {
-  return `${name}=; Path=/; Max-Age=0; SameSite=lax${domain ? `; Domain=${domain}` : ""}${isDev ? "" : "; Secure"}`;
+  const secure = cookieSecure(isDev) ? "; Secure" : "";
+  return `${name}=; Path=/; Max-Age=0; SameSite=lax${domain ? `; Domain=${domain}` : ""}${secure}`;
 }
 
 /** Append multiple `Set-Cookie` headers onto a `ResponseInit`. */

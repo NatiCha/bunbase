@@ -21,6 +21,7 @@ Query parameters:
 | `filter` | `string` (JSON) | Filter conditions (see Filtering below) |
 | `cursor` | `string` | Cursor for pagination |
 | `limit` | `number` | Results per page (1–100, default 20) |
+| `count` | `"true"` | Include the total authorized, filtered record count, independent of the cursor |
 | `sort` | `string` | Column name to sort by |
 | `order` | `"asc" \| "desc"` | Sort direction (default `"asc"`) |
 | `expand` | `string` | Comma-separated relation names to embed (see Expanding relations below) |
@@ -179,6 +180,10 @@ GET /api/posts?sort=title&order=asc&limit=10
 ```
 
 ## Expanding relations
+
+Expanded objects and arrays honor the related table's hidden-field policy,
+including fields configured by SQL column name. Password-hash columns are always
+hidden, including when their schema property has a different name.
 
 When you have [relations defined](/schema/#relations-for-expand), you can request related records inline using the `expand` query parameter. This avoids a second round-trip to fetch the related data.
 

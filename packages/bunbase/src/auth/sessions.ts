@@ -1,6 +1,7 @@
 import { eq, lt } from "drizzle-orm";
 import type { AnyDb } from "../core/db-types.ts";
 import type { InternalSchema } from "../core/internal-schema.ts";
+import { revokeUserJwts } from "./jwt/core.ts";
 
 let cleanupCounter = 0;
 
@@ -102,6 +103,7 @@ export async function deleteUserSessions(
   schema: InternalSchema,
   userId: string,
 ): Promise<void> {
+  await revokeUserJwts(db, schema, userId);
   await (db as any).delete(schema.sessions).where(eq(schema.sessions.userId, userId));
 }
 

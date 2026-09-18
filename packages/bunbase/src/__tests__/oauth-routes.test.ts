@@ -263,7 +263,7 @@ test("callback creates new user and redirects on first OAuth login", async () =>
   sqlite.close();
 });
 
-test("callback auto-links OAuth account to existing user when provider confirms email is verified", async () => {
+test("callback refuses pre-registered email collision even when provider verifies the email", async () => {
   fetchSpy = spyOn(globalThis, "fetch")
     .mockResolvedValueOnce(Response.json({ access_token: "g-token" }) as any)
     .mockResolvedValueOnce(
@@ -281,11 +281,13 @@ test("callback auto-links OAuth account to existing user when provider confirms 
 
   expect(response.status).toBe(302);
 
-  // OAuth account linked to the pre-existing user
+  // A provider email cannot authorize linking a pre-registered account.
   const account = sqlite
     .query<{ user_id: string }, []>("SELECT user_id FROM _oauth_accounts")
     .get();
-  expect(account?.user_id).toBe("existing-user");
+  expect(account).toBeNull();
+  expect(response.headers.get("Location")).toContain("error=ACCOUNT_LINK_REQUIRED");
+  expect(response.headers.get("Set-Cookie")).not.toContain("bunbase_session=");
 
   // No new user created
   const count = sqlite.query<{ n: number }, []>("SELECT COUNT(*) as n FROM users").get();
@@ -555,7 +557,11 @@ test("callback recovers from race: creates session for winning userId on unique 
   fetchSpy = spyOn(globalThis, "fetch")
     .mockResolvedValueOnce(Response.json({ access_token: "g-token" }) as any)
     .mockResolvedValueOnce(
-      Response.json({ id: "g-race-id", email: "race@example.com", verified_email: true }) as any,
+      Response.json({
+        id: "g-race-id",
+        email: "new-race@example.com",
+        verified_email: true,
+      }) as any,
     );
 
   const { sqlite, db, internalSchema } = setupDb();

@@ -1,3 +1,7 @@
+---
+title: "Session Management"
+---
+
 # Session Management
 
 List active sessions and revoke them from other devices. Always available — no config required.

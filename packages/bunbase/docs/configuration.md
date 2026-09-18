@@ -7,7 +7,7 @@ Use `defineConfig` to customize BunBase behavior. All options are optional — s
 ## Full interface
 
 ```ts
-import { defineConfig } from "bunbase";
+import { defineConfig } from "@naticha/bunbase";
 
 const config = defineConfig({
   // Development mode (default: NODE_ENV !== "production")
@@ -352,7 +352,7 @@ Default: unset (cookies scoped to exact host)
 
 A pre-shared key for server-to-server admin access. Requests with this key as a Bearer token are authenticated as a synthetic admin user (`{ id: "__service__", role: "admin" }`), bypassing the need for a real user account.
 
-If not provided via config or the `BUNBASE_SERVICE_KEY` environment variable, BunBase auto-generates a key and persists it to `.bunbase-service-key` in the working directory. The key is printed to the console on every startup.
+If not provided via config or the `BUNBASE_SERVICE_KEY` environment variable, BunBase auto-generates a key and persists it to `.bunbase-service-key` in the working directory. The key is never printed to startup logs. Retrieve an auto-generated key from that file through a trusted local workflow.
 
 See the [Service Key](/api/service-key/) guide for usage details.
 
@@ -380,3 +380,13 @@ Bun automatically loads `.env` files — no dotenv needed.
 - [Service Key](/api/service-key/) — server-to-server admin access
 - [Extending](/extending/) — add custom REST routes
 - [Deployment](/deployment/) — production checklist
+
+## Browser response security
+
+BunBase adds Content-Security-Policy, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, and Permissions-Policy to HTTP responses, including admin HTML/assets, auth responses, and errors. Production CSP allows same-origin scripts and connections, inline styles, same-origin/data images and fonts, and denies objects, framing, and base URL changes. Configure `securityHeaders.contentSecurityPolicy`, `securityHeaders.reportOnly`, and `securityHeaders.permissionsPolicy` for application-specific needs. Explicit response headers from application handlers are preserved.
+
+Production frontend HTML imports are bundled once on first use and served with these headers. The build loads `serve.static.plugins` from `bunfig.toml` in the application's working directory, resolving plugins from that directory. Keep the file and its plugin dependencies (for example, `bun-plugin-tailwind`) available in production. Prebuilt HTML bundles retain their existing assets.
+
+Explicit development uses Bun's native HTML bundler/HMR; those native frontend responses bypass BunBase's headers. Apply equivalent development headers at a proxy if required. Function-based frontend responses are wrapped in both modes.
+
+Set `publicUrl` to the trusted public HTTPS origin when sending magic links. With secure defaults, JWT mode requires explicit `auth.jwt.issuer` and `auth.jwt.audience` in addition to a secret.

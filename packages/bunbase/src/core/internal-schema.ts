@@ -198,6 +198,9 @@ export const sqliteMfaTotp = sqliteTable("_mfa_totp", {
   userId: sqliteText("user_id").notNull().unique(),
   encryptedSecret: sqliteText("encrypted_secret").notNull(),
   verified: sqliteInteger("verified").notNull().default(0),
+  // Highest TOTP time-step that has been accepted. Used to reject replay of a
+  // code within its still-valid window.
+  lastUsedStep: sqliteInteger("last_used_step"),
   createdAt: sqliteText("created_at").notNull(),
 });
 
@@ -229,6 +232,9 @@ export const pgMfaTotp = pgTable("_mfa_totp", {
   userId: pgText("user_id").notNull().unique(),
   encryptedSecret: pgText("encrypted_secret").notNull(),
   verified: pgInteger("verified").notNull().default(0),
+  // Highest TOTP time-step that has been accepted. Used to reject replay of a
+  // code within its still-valid window.
+  lastUsedStep: pgBigint("last_used_step", { mode: "number" }),
   createdAt: pgText("created_at").notNull(),
 });
 
@@ -260,6 +266,9 @@ export const mysqlMfaTotp = mysqlTable("_mfa_totp", {
   userId: mysqlText("user_id").notNull().unique(),
   encryptedSecret: mysqlText("encrypted_secret").notNull(),
   verified: mysqlInt("verified").notNull().default(0),
+  // Highest TOTP time-step that has been accepted. Used to reject replay of a
+  // code within its still-valid window.
+  lastUsedStep: mysqlBigint("last_used_step", { mode: "number" }),
   createdAt: mysqlText("created_at").notNull(),
 });
 

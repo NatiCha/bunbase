@@ -35,7 +35,7 @@ export { MailerError } from "./types.ts";
  *
  * @example
  * ```ts
- * import { createMailer } from "bunbase";
+ * import { createMailer } from "@naticha/bunbase";
  * import { Resend } from "resend";
  *
  * const resend = new Resend(process.env.RESEND_API_KEY);

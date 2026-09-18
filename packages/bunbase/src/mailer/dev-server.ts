@@ -6,7 +6,7 @@
  *
  * @example
  * ```ts
- * import { createDevMailServer } from "bunbase";
+ * import { createDevMailServer } from "@naticha/bunbase";
  *
  * // In your dev server setup:
  * const devMail = createDevMailServer();
@@ -169,7 +169,7 @@ function parseEmailBody(raw: string): {
   if (contentType.toLowerCase().includes("text/plain")) {
     return {
       subject,
-      html: `<pre style="white-space:pre-wrap;font-family:monospace">${decoded}</pre>`,
+      html: `<pre style="white-space:pre-wrap;font-family:monospace">${Bun.escapeHTML(decoded)}</pre>`,
       text: decoded,
     };
   }
@@ -278,20 +278,28 @@ function selectEmail(id) {
       '<a href="/api/emails/' + esc(email.id) + '/html" target="_blank" style="display:inline-block;margin-top:8px;font-size:11px;color:#6b7280;text-decoration:underline">Open in new tab</a>'+
     '</div>'+
     '<div id="preview-body"></div>';
-  // Render email HTML inside a Shadow DOM for style isolation (no iframe needed).
-  fetch('/api/emails/' + id + '/html')
-    .then(function(r){ return r.text(); })
-    .then(function(html){
-      var container = document.getElementById('preview-body');
-      if (!container) return;
-      var shadow = container.attachShadow({ mode: 'open' });
-      shadow.innerHTML = html;
-      // Make links open in a new tab instead of navigating the dev UI
-      shadow.querySelectorAll('a[href]').forEach(function(a){
-        a.setAttribute('target', '_blank');
-        a.setAttribute('rel', 'noopener');
-      });
+  var frame = document.createElement('iframe');
+  frame.setAttribute('sandbox', '');
+  frame.setAttribute('referrerpolicy', 'no-referrer');
+  frame.title = 'Email preview';
+  frame.style.cssText = 'border:0;width:100%;height:70vh;background:white';
+  frame.src = '/api/emails/' + encodeURIComponent(id) + '/html';
+  document.getElementById('preview-body').appendChild(frame);
+  // Explicit safe links outside the sandbox preserve testing of auth emails.
+  fetch('/api/emails/' + encodeURIComponent(id)).then(function(r) { return r.json(); }).then(function(detail) {
+    if (selectedId !== id) return;
+    var links = document.createElement('div');
+    (detail.links || []).forEach(function(url) {
+      var link = document.createElement('a');
+      link.href = url;
+      link.textContent = 'Open link: ' + url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.style.display = 'block';
+      links.appendChild(link);
     });
+    document.getElementById('preview-header').appendChild(links);
+  });
 }
 
 async function fetchEmails() {
@@ -456,7 +464,7 @@ function processSmtpData(
  * @example
  * ```ts
  * // src/server.ts (dev only)
- * import { createDevMailServer, createMailer, createSmtpTransport } from "bunbase";
+ * import { createDevMailServer, createMailer, createSmtpTransport } from "@naticha/bunbase";
  *
  * if (process.env.NODE_ENV !== "production") {
  *   const devMail = createDevMailServer();
@@ -535,10 +543,24 @@ export function createDevMailServer(config: DevMailServerConfig = {}): DevMailSe
       },
 
       "/api/emails/:id": {
-        GET(req) {
+        async GET(req) {
           const email = emails.find((e) => e.id === req.params.id);
           if (!email) return new Response("Not Found", { status: 404 });
-          return Response.json(email);
+          const links: string[] = [];
+          await new HTMLRewriter()
+            .on("a[href]", {
+              element(element) {
+                try {
+                  const url = new URL(element.getAttribute("href")!);
+                  if (url.protocol === "https:" || url.protocol === "http:") links.push(url.href);
+                } catch {
+                  /* Relative and non-HTTP links are not opened outside the sandbox. */
+                }
+              },
+            })
+            .transform(new Response(email.html))
+            .text();
+          return Response.json({ ...email, links });
         },
       },
 
@@ -547,7 +569,13 @@ export function createDevMailServer(config: DevMailServerConfig = {}): DevMailSe
           const email = emails.find((e) => e.id === req.params.id);
           if (!email) return new Response("Not Found", { status: 404 });
           return new Response(email.html, {
-            headers: { "Content-Type": "text/html; charset=utf-8" },
+            headers: {
+              "Content-Type": "text/html; charset=utf-8",
+              "Content-Security-Policy":
+                "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'",
+              "X-Content-Type-Options": "nosniff",
+              "Referrer-Policy": "no-referrer",
+            },
           });
         },
       },

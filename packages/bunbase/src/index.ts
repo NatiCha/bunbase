@@ -27,6 +27,8 @@ export {
 } from "./auth/organizations/helpers.ts";
 export type { SmsMessage, SmsTransport } from "./auth/sms/types.ts";
 export type {
+  AccountDeletionConfirmation,
+  AuthResult,
   BunBaseAPI,
   ChannelClient,
   ListParams,
@@ -35,7 +37,7 @@ export type {
   TableChangeEvent,
   TableClient,
 } from "./client.ts";
-export { createBunBaseClient } from "./client.ts";
+export { BunBaseClientError, createBunBaseClient } from "./client.ts";
 export type { DatabaseAdapter } from "./core/adapter.ts";
 export type {
   BunBaseConfig,
@@ -45,11 +47,16 @@ export type {
 } from "./core/config.ts";
 export { defineConfig } from "./core/config.ts";
 export type { AnyColumn, AnyDb, AnyTable, Dialect } from "./core/db-types.ts";
+export type { FieldPolicy, FieldPolicyFor, FieldPolicyMap } from "./core/field-policy.ts";
+export { defineFields } from "./core/field-policy.ts";
 export type {
   BunBaseServer,
   CreateServerOptions,
   ExtendContext,
   ExtendWebSocketDef,
+  HttpMethod,
+  RouteDefinition,
+  RouteHandlers,
   RouteMap,
 } from "./core/server.ts";
 export { createServer, defineWebSocket } from "./core/server.ts";

@@ -10,7 +10,7 @@ Use `defineJobs` to declare a list of scheduled tasks:
 
 ```ts
 // src/jobs.ts
-import { defineJobs } from "bunbase";
+import { defineJobs } from "@naticha/bunbase";
 import { lt } from "drizzle-orm";
 import { sessions } from "./schema";
 
@@ -149,6 +149,8 @@ The job resumes normal scheduling on the following tick.
 - **Job names must be unique.** Duplicate names throw a startup error at `createServer()` time, before any async work.
 - **Schedules must be valid 5-field cron expressions.** Invalid expressions are logged and that job is not scheduled.
 - **Jobs run in the local system timezone.** There is no per-job timezone configuration in v1.
+- **Scheduling is per process.** Every replica runs its own jobs. There is no distributed lock, durable queue, automatic retry, or catch-up for ticks missed while the process is down. Run scheduled work in one instance and make handlers idempotent.
+- **Shutdown allows running jobs to finish.** SIGTERM/SIGINT stop new scheduling and wait for active requests and jobs before closing the database, within a shared ten-second deadline. Work still running at the deadline is interrupted and the process exits nonzero.
 
 ## Next steps
 

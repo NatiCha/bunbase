@@ -20,7 +20,7 @@
     "rootDir": "./src",
     "declarationDir": "./dist/types",
 
-    "baseUrl": ".",
+    "types": ["bun"],
     "paths": {
       "@/*": ["./src/*"]
     }

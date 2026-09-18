@@ -6,6 +6,7 @@ import type { InternalSchema } from "../../core/internal-schema.ts";
 import type { AuthHooks } from "../../hooks/auth-types.ts";
 import { appendResponseCookies, serializeCookie, sessionCookieOptions } from "../cookies.ts";
 import { setCsrfCookie } from "../csrf.ts";
+import { userHasMfaEnrolled } from "../mfa/index.ts";
 import { checkRateLimit, getClientIp } from "../rate-limit.ts";
 import { createSession } from "../sessions.ts";
 import { hashToken } from "../tokens.ts";
@@ -53,7 +54,7 @@ export function createSmsOtpRoutes(deps: SmsOtpDeps) {
     "/auth/sms-otp/request": {
       async POST(req: Request): Promise<Response> {
         const ip = getClientIp(req, config.trustedProxies);
-        const { allowed } = checkRateLimit(ip);
+        const { allowed } = checkRateLimit(ip, config.auth.rateLimit);
         if (!allowed) {
           return jsonError("RATE_LIMITED", "Too many attempts", 429);
         }
@@ -135,7 +136,7 @@ export function createSmsOtpRoutes(deps: SmsOtpDeps) {
     "/auth/sms-otp/verify": {
       async POST(req: Request): Promise<Response> {
         const ip = getClientIp(req, config.trustedProxies);
-        const { allowed } = checkRateLimit(ip);
+        const { allowed } = checkRateLimit(ip, config.auth.rateLimit);
         if (!allowed) {
           return jsonError("RATE_LIMITED", "Too many attempts", 429);
         }
@@ -193,12 +194,17 @@ export function createSmsOtpRoutes(deps: SmsOtpDeps) {
         // Delete used token
         await (db as any).delete(tokens).where(eq(tokens.id, tokenRows[0].id));
 
+        // If TOTP is enrolled, SMS OTP alone is not sufficient — start the
+        // session pending so the MFA gate forces a second-factor step-up.
+        const mfaRequired = await userHasMfaEnrolled(db, internalSchema, String(user.id));
+
         // Create session
         const sessionId = await createSession(
           db,
           internalSchema,
           String(user.id),
           config.auth.tokenExpiry,
+          mfaRequired ? 0 : 1, // 0 = pending MFA, 1 = fully authenticated
         );
 
         if (authHooks?.afterSmsOtpLogin) {
@@ -223,8 +229,12 @@ export function createSmsOtpRoutes(deps: SmsOtpDeps) {
         );
         const csrf = setCsrfCookie(isDev, cookieDomain);
 
+        const smsResponseBody = mfaRequired
+          ? { mfaRequired: true, mfaMethods: ["totp"] }
+          : { user: sanitized };
+
         return new Response(
-          JSON.stringify({ user: sanitized }),
+          JSON.stringify(smsResponseBody),
           appendResponseCookies(
             {
               status: 200,

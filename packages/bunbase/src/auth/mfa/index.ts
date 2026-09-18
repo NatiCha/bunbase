@@ -1,12 +1,34 @@
 import { and, eq } from "drizzle-orm";
 import type { AnyDb } from "../../core/db-types.ts";
 import type { InternalSchema } from "../../core/internal-schema.ts";
+import { affectedRows } from "../../core/write-result.ts";
 import { hashToken } from "../tokens.ts";
 
 /**
  * Shared MFA utilities: status checks, backup code generation and verification.
  * @module
  */
+
+/**
+ * Returns true when the user has a verified TOTP MFA enrollment.
+ *
+ * Used by every login path (password, magic link, email OTP, SMS OTP, OAuth) to
+ * decide whether the new session must start in the pending-MFA state so the
+ * existing middleware gate forces a second-factor step-up. Without this check,
+ * an MFA-enrolled user could be fully logged in through a path that never
+ * prompts for the second factor.
+ */
+export async function userHasMfaEnrolled(
+  db: AnyDb,
+  schema: InternalSchema,
+  userId: string,
+): Promise<boolean> {
+  const rows = await (db as any)
+    .select({ id: schema.mfaTotp.id })
+    .from(schema.mfaTotp)
+    .where(and(eq(schema.mfaTotp.userId, userId), eq(schema.mfaTotp.verified, 1)));
+  return rows.length > 0;
+}
 
 /**
  * Check MFA enrollment status for a user.
@@ -102,11 +124,11 @@ export async function verifyBackupCode(
   const row = rows[0];
   if (!row) return false;
 
-  // Mark as used
-  await (db as any)
+  // Claim the code atomically; a concurrent verifier must not reuse it.
+  const claimed = await (db as any)
     .update(schema.mfaBackupCodes)
     .set({ used: 1 })
-    .where(eq(schema.mfaBackupCodes.id, row.id));
+    .where(and(eq(schema.mfaBackupCodes.id, row.id), eq(schema.mfaBackupCodes.used, 0)));
 
-  return true;
+  return affectedRows(claimed) === 1;
 }

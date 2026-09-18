@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import libraryPackage from "../../package.json";
 import { clack, closePrompts, multiSelect, select, text } from "./prompts.ts";
 import { printSummary } from "./summary.ts";
 import {
@@ -33,7 +34,7 @@ const STATIC_FILES: Record<string, string> = {
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
-    "baseUrl": ".",
+    "types": ["bun"],
     "paths": {
       "@/*": ["./src/*"]
     }
@@ -60,9 +61,11 @@ data/
 export interface InitOptions {
   projectName?: string;
   nonInteractive?: boolean;
+  skipInstall?: boolean;
+  noStart?: boolean;
 }
 
-export async function init({ projectName, nonInteractive }: InitOptions) {
+export async function init({ projectName, nonInteractive, skipInstall, noStart }: InitOptions) {
   clack.intro("\x1b[1m\x1b[36mBunBase\x1b[0m — create a new project");
 
   // 1. Get project name
@@ -127,6 +130,7 @@ export async function init({ projectName, nonInteractive }: InitOptions) {
     "src/index.ts": template.indexTs,
     "src/schema.ts": template.schema,
     "src/rules.ts": template.rules,
+    "src/index.test.ts": template.sampleTest,
     "drizzle.config.ts": template.drizzleConfig,
     ".env": template.env,
     "CLAUDE.md": CLAUDE_MD,
@@ -143,26 +147,39 @@ export async function init({ projectName, nonInteractive }: InitOptions) {
     await Bun.write(fullPath, content);
   }
 
-  // Write package.json
+  // Write package.json. The dependency versions are read from the library's own
+  // package.json so the generated project pins EXACTLY what this CLI ships with:
+  //  - the published package name (`@naticha/bunbase`)
+  //  - the exact `drizzle-orm` / `drizzle-kit` versions the library is built
+  //    against. drizzle-orm must match exactly across the dependency tree, or
+  //    Bun installs two physical copies and Symbol-based table identity breaks.
+  const versions = resolveDependencyVersions();
   const packageJson = {
     name: projectName,
     version: "0.0.1",
     type: "module",
+    packageManager: "bun@1.4.2",
+    engines: { bun: ">=1.4.2" },
     scripts: {
-      dev: "bun --hot src/index.ts",
+      // NODE_ENV must be declared in dev: the server treats an UNSET NODE_ENV as
+      // production for security toggles, which would force Secure cookies over http.
+      dev: "NODE_ENV=development bun --hot src/index.ts",
       start: "NODE_ENV=production bun src/index.ts",
+      test: "bun test",
+      type: "tsc --noEmit",
       "db:push": "bunx --bun drizzle-kit push --force",
       "db:generate": "bunx drizzle-kit generate",
       studio: "bunx drizzle-kit studio",
     },
     dependencies: {
-      bunbase: resolveBunBaseVersion(projectDir),
-      "drizzle-orm": "beta",
+      "@naticha/bunbase": versions.bunbase,
+      "drizzle-orm": versions.drizzleOrm,
     },
     devDependencies: {
-      "@types/bun": "latest",
-      "bun-plugin-tailwind": "latest",
-      "drizzle-kit": "beta",
+      "@types/bun": libraryPackage.devDependencies["@types/bun"],
+      typescript: libraryPackage.devDependencies.typescript,
+      "bun-plugin-tailwind": libraryPackage.devDependencies["bun-plugin-tailwind"],
+      "drizzle-kit": versions.drizzleKit,
     },
   };
 
@@ -170,6 +187,13 @@ export async function init({ projectName, nonInteractive }: InitOptions) {
 
   const allFiles = [...Object.keys(files), "package.json"];
   clack.log.info(`Created files:\n${allFiles.map((f) => `  \x1b[2m${f}\x1b[0m`).join("\n")}`);
+
+  if (skipInstall) {
+    clack.outro(
+      `Project created. Run: cd ${projectName} && bun install && bun run db:generate && bun run dev`,
+    );
+    return;
+  }
 
   // 7. Auto-install
   const installSpinner = clack.spinner();
@@ -192,13 +216,18 @@ export async function init({ projectName, nonInteractive }: InitOptions) {
     migrateSpinner.stop("Could not generate migration (run db:generate manually)");
   }
 
+  if (noStart) {
+    clack.outro(`Project ready. Run: cd ${projectName} && bun run dev`);
+    return;
+  }
+
   const port = 3000;
 
   // 8. Auto-start dev server (both SQLite and Postgres)
   const serverSpinner = clack.spinner();
   serverSpinner.start("Starting dev server");
 
-  const serverProc = Bun.spawn(["bun", "--hot", "src/index.ts"], {
+  const serverProc = Bun.spawn(["bun", "run", "dev"], {
     cwd: projectDir,
     stdout: "inherit",
     stderr: "inherit",
@@ -245,29 +274,22 @@ export async function init({ projectName, nonInteractive }: InitOptions) {
   await serverProc.exited;
 }
 
-/**
- * When running the CLI directly from the source tree (e.g. during development),
- * use a `file:` reference to the local package so the scaffolded project gets
- * the in-development code rather than the last published npm version.
- * In a normal install (bunx bunbase / npx bunbase) __dirname resolves inside
- * node_modules and the `file:` path won't exist, so we fall back to "latest".
- */
-function resolveBunBaseVersion(_projectDir: string): string {
-  // import.meta.dir is src/cli/ — two levels up reaches packages/bunbase/
-  const packageRoot = resolve(import.meta.dir, "../..");
-  const packageJsonPath = join(packageRoot, "package.json");
-  if (existsSync(packageJsonPath)) {
-    try {
-      const pkg = JSON.parse(require("node:fs").readFileSync(packageJsonPath, "utf8"));
-      if (pkg.name === "bunbase") {
-        // Running from source — point directly at the local package
-        return `file:${packageRoot}`;
-      }
-    } catch {
-      // fall through
-    }
-  }
-  return "latest";
+interface DependencyVersions {
+  /** Version range/spec for the `@naticha/bunbase` dependency. */
+  bunbase: string;
+  /** Exact `drizzle-orm` version the library pins. */
+  drizzleOrm: string;
+  /** Exact `drizzle-kit` version the library pins. */
+  drizzleKit: string;
+}
+
+/** Read embedded package metadata, including in the compiled CLI. */
+function resolveDependencyVersions(): DependencyVersions {
+  return {
+    bunbase: `^${libraryPackage.version}`,
+    drizzleOrm: libraryPackage.dependencies["drizzle-orm"],
+    drizzleKit: libraryPackage.devDependencies["drizzle-kit"],
+  };
 }
 
 async function waitForServer(

@@ -98,6 +98,45 @@ describe("nextCronTime", () => {
 describe("JobScheduler", () => {
   const fakeDb = {} as any;
 
+  test("waitForIdle drains an active job after stop without starting queued ticks", async () => {
+    const scheduler = new JobScheduler(fakeDb);
+    const blocker = Promise.withResolvers<void>();
+    let tick: (() => Promise<void>) | undefined;
+    let runs = 0;
+    const original = globalThis.setTimeout;
+    try {
+      globalThis.setTimeout = ((fn: () => Promise<void>) => {
+        tick = fn;
+        return 0;
+      }) as unknown as typeof setTimeout;
+      scheduler.start([
+        {
+          name: "draining",
+          schedule: "* * * * *",
+          run: async () => {
+            runs++;
+            await blocker.promise;
+          },
+        },
+      ]);
+    } finally {
+      globalThis.setTimeout = original;
+    }
+    const active = tick!();
+    scheduler.stop();
+    let drained = false;
+    const idle = scheduler.waitForIdle().then(() => {
+      drained = true;
+    });
+    await tick!();
+    await Bun.sleep(5);
+    expect(drained).toBe(false);
+    expect(runs).toBe(1);
+    blocker.resolve();
+    await Promise.all([active, idle]);
+    expect(drained).toBe(true);
+  });
+
   test("start() schedules via setTimeout at computed next time", async () => {
     let _ranCount = 0;
     const scheduler = new JobScheduler(fakeDb);

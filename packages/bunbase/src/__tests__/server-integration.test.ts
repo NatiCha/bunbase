@@ -188,9 +188,16 @@ test("DELETE /auth/login returns 405 Method Not Allowed", async () => {
 // ─── Pattern route method not allowed ────────────────────────────────────────
 
 test("PATCH /files/:id returns 405 Method Not Allowed", async () => {
+  // /files/ is now CSRF-protected for cookie-auth mutations, so include a valid
+  // double-submit token to reach the routing (405) branch rather than the CSRF
+  // (403) gate.
+  const csrfToken = "files-405-csrf";
   const res = await fetch(`${base}/files/some-id`, {
     method: "PATCH",
-    headers: { cookie: `bunbase_session=${adminSession}` },
+    headers: {
+      cookie: `bunbase_session=${adminSession}; csrf_token=${csrfToken}`,
+      "x-csrf-token": csrfToken,
+    },
   });
   expect(res.status).toBe(405);
 });
@@ -209,6 +216,24 @@ test("POST /api/posts without CSRF token returns 403", async () => {
   expect(res.status).toBe(403);
   const body = (await res.json()) as { error: { code: string } };
   expect(body.error.code).toBe("FORBIDDEN");
+});
+
+test("POST /files/:collection/:recordId without CSRF token returns 403 (cookie auth)", async () => {
+  const res = await fetch(`${base}/files/posts/rec-1`, {
+    method: "POST",
+    headers: { cookie: `bunbase_session=${adminSession}` },
+  });
+  expect(res.status).toBe(403);
+  const body = (await res.json()) as { error: { code: string } };
+  expect(body.error.code).toBe("FORBIDDEN");
+});
+
+test("DELETE /files/:id without CSRF token returns 403 (cookie auth)", async () => {
+  const res = await fetch(`${base}/files/some-file-id`, {
+    method: "DELETE",
+    headers: { cookie: `bunbase_session=${adminSession}` },
+  });
+  expect(res.status).toBe(403);
 });
 
 // ─── REST CRUD handler ────────────────────────────────────────────────────────

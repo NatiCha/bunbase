@@ -1,3 +1,5 @@
+import { type RealtimeOptions, realtimeLimits } from "../realtime/security.ts";
+
 /**
  * BunBase configuration types and resolution helpers.
  * @module
@@ -34,8 +36,26 @@ export interface DatabaseConfig {
 }
 
 export interface BunBaseConfig {
+  /** Trusted public origin for emailed authentication links. */
+  publicUrl?: string;
+  /** Browser response policy; override CSP for application-specific resources. */
+  securityHeaders?: {
+    contentSecurityPolicy?: string;
+    reportOnly?: boolean;
+    permissionsPolicy?: string;
+  };
   auth?: {
     tokenExpiry?: number; // session TTL in seconds, default 30 days
+    /**
+     * Rate limiting for sensitive auth endpoints (login, register, password
+     * reset, OTP/MFA verification). Applied per client IP.
+     */
+    rateLimit?: {
+      /** Max attempts per window. Default: 10. */
+      max?: number;
+      /** Window length in milliseconds. Default: 60000 (1 minute). */
+      windowMs?: number;
+    };
     email?: {
       webhook?: string;
     };
@@ -171,6 +191,8 @@ export interface BunBaseConfig {
       enabled?: boolean;
       /** HMAC secret. Falls back to BUNBASE_JWT_SECRET env var. */
       secret?: string;
+      issuer?: string;
+      audience?: string;
       /** Access token TTL in seconds. Default: 900 (15 min). */
       accessTokenTtl?: number;
       /** Refresh token TTL in seconds. Default: 604800 (7 days). */
@@ -197,7 +219,7 @@ export interface BunBaseConfig {
     /** Response headers to expose to the browser (appended to defaults). */
     exposeHeaders?: string[];
   };
-  realtime?: {
+  realtime?: RealtimeOptions & {
     enabled?: boolean;
   };
   development?: boolean; // default: NODE_ENV !== 'production'
@@ -269,8 +291,14 @@ export interface ResolvedDatabaseConfig {
 
 /** Fully-resolved BunBase runtime configuration with defaults applied. */
 export interface ResolvedConfig {
+  publicUrl?: string;
+  securityHeaders?: BunBaseConfig["securityHeaders"];
   auth: {
     tokenExpiry: number;
+    rateLimit: {
+      max: number;
+      windowMs: number;
+    };
     email?: {
       webhook?: string;
     };
@@ -353,6 +381,8 @@ export interface ResolvedConfig {
     jwt: {
       enabled: boolean;
       secret: string | undefined;
+      issuer?: string;
+      audience?: string;
       accessTokenTtl: number;
       refreshTokenTtl: number;
     };
@@ -375,10 +405,16 @@ export interface ResolvedConfig {
     allowHeaders: string[];
     exposeHeaders: string[];
   };
-  realtime: {
+  realtime: RealtimeOptions & {
     enabled: boolean;
   };
   development: boolean;
+  /**
+   * True when security-sensitive defaults (Secure cookies, strict CORS) should
+   * be enforced. Derived from NODE_ENV: only an explicit `development` disables
+   * them. Unset NODE_ENV ⇒ true (fail closed).
+   */
+  secureDefaults: boolean;
   database: ResolvedDatabaseConfig;
   /** @deprecated Use `database.url` for SQLite path */
   dbPath: string;
@@ -443,6 +479,17 @@ function resolveDatabaseConfig(config?: BunBaseConfig): ResolvedDatabaseConfig {
  */
 export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
   const isDev = config?.development ?? process.env.NODE_ENV !== "production";
+  // Security-sensitive toggles (Secure cookies, strict CORS) fail closed: they
+  // stay ON unless the environment is *explicitly* development. An unset
+  // NODE_ENV is treated as production for these — so a deploy that forgets to
+  // set NODE_ENV=production is still secure. Local dev must set
+  // NODE_ENV=development (the scaffolder's `dev` script does this).
+  const secureDefaults =
+    config?.development === true
+      ? false
+      : config?.development === false
+        ? true
+        : process.env.NODE_ENV !== "development";
   const database = resolveDatabaseConfig(config);
 
   // Validate cookieDomain — reject values that could inject into Set-Cookie header
@@ -477,8 +524,14 @@ export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
   }
 
   const resolved: ResolvedConfig = {
+    publicUrl: config?.publicUrl,
+    securityHeaders: config?.securityHeaders,
     auth: {
       tokenExpiry: config?.auth?.tokenExpiry ?? 30 * 24 * 60 * 60, // 30 days
+      rateLimit: {
+        max: config?.auth?.rateLimit?.max ?? 10,
+        windowMs: config?.auth?.rateLimit?.windowMs ?? 60_000,
+      },
       email: config?.auth?.email,
       oauth: config?.auth?.oauth,
       apiKeys: { defaultExpirationDays, maxExpirationDays },
@@ -546,6 +599,8 @@ export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
       jwt: {
         enabled: config?.auth?.jwt?.enabled ?? false,
         secret: config?.auth?.jwt?.secret ?? process.env.BUNBASE_JWT_SECRET,
+        issuer: config?.auth?.jwt?.issuer ?? "bunbase",
+        audience: config?.auth?.jwt?.audience ?? "bunbase",
         accessTokenTtl: config?.auth?.jwt?.accessTokenTtl ?? 900,
         refreshTokenTtl: config?.auth?.jwt?.refreshTokenTtl ?? 604800,
       },
@@ -563,9 +618,12 @@ export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
       exposeHeaders: config?.cors?.exposeHeaders ?? [],
     },
     realtime: {
+      authorize: config?.realtime?.authorize,
+      limits: realtimeLimits(config?.realtime),
       enabled: config?.realtime?.enabled ?? false,
     },
     development: isDev,
+    secureDefaults,
     database,
     dbPath: database.url,
     migrationsPath: config?.migrationsPath ?? "./drizzle",
@@ -574,6 +632,33 @@ export function resolveConfig(config?: BunBaseConfig): ResolvedConfig {
     cookieDomain: config?.cookieDomain,
     serviceKey: config?.serviceKey ?? process.env.BUNBASE_SERVICE_KEY ?? "",
   };
+
+  if (resolved.publicUrl !== undefined) {
+    const url = new URL(resolved.publicUrl);
+    const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    if (
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      url.pathname !== "/" ||
+      (url.protocol !== "https:" && !(url.protocol === "http:" && !secureDefaults && local))
+    ) {
+      throw new Error(
+        "BunBase: publicUrl must be an HTTPS origin (HTTP loopback is allowed in explicit development)",
+      );
+    }
+    resolved.publicUrl = url.origin;
+  }
+  if (
+    resolved.auth.jwt.enabled &&
+    secureDefaults &&
+    (!config?.auth?.jwt?.issuer?.trim() || !config?.auth?.jwt?.audience?.trim())
+  ) {
+    throw new Error(
+      "BunBase: auth.jwt.issuer and auth.jwt.audience are required with secure defaults",
+    );
+  }
 
   if (!isDev) {
     if (

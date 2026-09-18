@@ -58,14 +58,19 @@ export async function buildAuthResponse(
       );
     }
 
+    const family = {
+      fid: crypto.randomUUID(),
+      iss: config.auth.jwt.issuer,
+      aud: config.auth.jwt.audience,
+    };
     const accessToken = await signJwt(
-      { sub: userId, email, role, type: "access", mfaVerified },
+      { ...family, sub: userId, email, role, type: "access", mfaVerified },
       secret,
       config.auth.jwt.accessTokenTtl,
     );
 
     const refreshToken = await signJwt(
-      { sub: userId, email, role, type: "refresh", mfaVerified },
+      { ...family, sub: userId, email, role, type: "refresh", mfaVerified },
       secret,
       config.auth.jwt.refreshTokenTtl,
     );

@@ -1,3 +1,7 @@
+---
+title: "Account Deletion"
+---
+
 # Account Deletion
 
 GDPR-compliant cascading account deletion. Enabled by default.
@@ -31,6 +35,13 @@ Requires an active session and CSRF token.
 **Request (when `requirePassword: false`):**
 ```json
 {}
+```
+
+For a passwordless account with `requirePassword: true`, confirm with the account
+email instead:
+
+```json
+{ "confirmEmail": "alice@example.com" }
 ```
 
 **Response:**
@@ -72,6 +83,12 @@ defineAuthHooks({
 ```ts
 // With password confirmation
 await client.auth.deleteAccount("mypassword");
+
+// Passwordless account confirmation (default deletion policy)
+await client.auth.deleteAccount({ confirmEmail: "alice@example.com" });
+
+// Object form also supports password confirmation
+await client.auth.deleteAccount({ password: "mypassword" });
 
 // Without password (when requirePassword: false)
 await client.auth.deleteAccount();

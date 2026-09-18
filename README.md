@@ -6,7 +6,7 @@
 
 ```ts
 // server.ts
-import { createServer, defineRules, defineConfig } from "bunbase";
+import { createServer, defineRules, defineConfig } from "@naticha/bunbase";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 const tasks = sqliteTable("tasks", {
@@ -37,7 +37,7 @@ bun server.ts
 ## New project
 
 ```sh
-bunx bunbase init my-app
+bunx @naticha/bunbase init my-app
 cd my-app
 bun install
 bun dev
@@ -48,7 +48,7 @@ bun dev
 ## Installation (existing project)
 
 ```sh
-bun add bunbase
+bun add @naticha/bunbase
 ```
 
 ## Core concepts
@@ -81,9 +81,9 @@ See [`docs/examples.ts`](./docs/examples.ts) for compile-checked code snippets c
 
 ## Fetching all records with `listAll()`
 
-`listAll()` returns every matching record in a single HTTP request — no cursor
-loop, no pagination. Internally it passes `limit=-1` to the server, which
-queries without a LIMIT clause and returns `hasMore: false`.
+`listAll()` follows bounded cursor pages and returns every matching record in one
+array. It preserves filters, sorting, and expansions. Failed or stalled pages
+reject the operation; `limit=-1` no longer bypasses pagination.
 
 ```ts
 const allTasks = await client.api.tasks.listAll({ filter: { done: false } });
@@ -111,7 +111,7 @@ Enable it with the `frontend` config option.
 ```ts
 // server.ts
 import indexHtml from "./frontend/index.html";   // static import — required
-import { createServer, defineConfig } from "bunbase";
+import { createServer, defineConfig } from "@naticha/bunbase";
 
 createServer({
   schema,
@@ -129,3 +129,29 @@ specificity-based, not order-based.
 
 Run with `bun --hot server.ts` for hot module replacement during development.
 Tailwind, TSX, and CSS bundling are handled natively by Bun — no Vite needed.
+
+## Development and verification
+
+Use Bun **1.4.2**. This repository uses the Bun lockfile; install docs separately
+because Astro's typechecking tools currently use the TypeScript 6 compatibility API.
+
+```sh
+bun install --frozen-lockfile
+bun install --cwd docs --frozen-lockfile
+bunx playwright install chromium
+bun run verify
+```
+
+`verify` checks formatting, library/example/tool types, the CLI and admin build,
+unit/integration tests, docs, and an installed-package scaffold smoke test.
+`check`, `lint`, and `format` are read-only; use their `:fix` counterparts to write fixes.
+
+- `bun run dev` starts the example API and frontend.
+- `bun run preview:example` serves the full example against a disposable database;
+  stop it with Ctrl+C to remove that database.
+- `bun run test:databases` runs migration and CRUD checks when
+  `BUNBASE_TEST_POSTGRES_URL` and/or `BUNBASE_TEST_MYSQL_URL` point to disposable
+  test databases. CI provides PostgreSQL 17 and MySQL 8.4 services for both checks.
+
+The CLI supports `--skip-install` (generate files only) and `--no-start` (install
+and generate migrations without starting the server).

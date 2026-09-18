@@ -1,3 +1,7 @@
+---
+title: "Guest / Anonymous Auth"
+---
+
 # Guest / Anonymous Auth
 
 Create temporary sessions without requiring signup. Guest sessions can be converted to real accounts.

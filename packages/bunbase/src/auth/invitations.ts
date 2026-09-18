@@ -1,9 +1,10 @@
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, lt, or, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import type { AuthUser } from "../api/types.ts";
 import type { ResolvedConfig } from "../core/config.ts";
 import type { AnyDb } from "../core/db-types.ts";
 import type { InternalSchema } from "../core/internal-schema.ts";
+import { affectedRows } from "../core/write-result.ts";
 import type { AuthHooks } from "../hooks/auth-types.ts";
 import { validateCsrf } from "./csrf.ts";
 import { isBearerOnly } from "./middleware.ts";
@@ -231,17 +232,22 @@ export async function validateAndConsumeInvite(
   const invite = rows[0];
   if (!invite) return null;
 
-  // Check max uses
-  if (invite.maxUses > 0 && invite.useCount >= invite.maxUses) return null;
-
   // Check email match if invite is email-specific
   if (invite.email && invite.email.toLowerCase() !== email.toLowerCase()) return null;
 
-  // Increment use count
-  await (db as any)
+  // Only the request whose UPDATE changed a row owns the claimed use. Reading
+  // the shared counter afterward cannot distinguish a winner from a loser.
+  const claimed = await (db as any)
     .update(invites)
-    .set({ useCount: invite.useCount + 1 })
-    .where(eq(invites.id, invite.id));
+    .set({ useCount: sql`${invites.useCount} + 1` })
+    .where(
+      and(
+        eq(invites.id, invite.id),
+        gt(invites.expiresAt, Math.floor(Date.now() / 1000)),
+        or(lt(invites.maxUses, 1), lt(invites.useCount, invites.maxUses)),
+      ),
+    );
+  if (affectedRows(claimed) !== 1) return null;
 
   return { role: invite.role };
 }

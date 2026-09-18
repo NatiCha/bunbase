@@ -1,7 +1,10 @@
 /**
- * Integration tests for the listAll() / ?limit=-1 feature.
- * Verifies that passing limit=-1 returns all records without a cursor,
- * respects filters, works with expand, and does not regress paginated defaults.
+ * Integration tests for list pagination limits.
+ *
+ * SECURITY: `?limit=-1` (and any non-positive value) must NOT dump the whole
+ * table — that previously let any list-permitted caller exfiltrate every row.
+ * `resolveLimit` clamps such values to the default page size; the upper bound is
+ * always MAX_LIMIT (100). These tests guard that behavior plus normal pagination.
  */
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
@@ -88,8 +91,8 @@ beforeAll(async () => {
     "INSERT INTO users (id, email, role, name) VALUES ('u2', 'bob@example.com', 'user', 'Bob')",
   );
 
-  // Seed 25 tasks — more than the default page size of 20 — to verify listAll
-  // returns all of them in a single request while limit=20 still truncates.
+  // Seed 25 tasks — more than the default page size of 20 — to verify that
+  // limit=-1 does NOT dump all of them and that limit=20 truncates as expected.
   for (let i = 1; i <= 25; i++) {
     const done = i % 2 === 0 ? "true" : "false";
     const ownerId = i % 2 === 0 ? "u1" : "u2";
@@ -107,23 +110,41 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-// ─── Core behaviour ────────────────────────────────────────────────────────
+// ─── Security: limit=-1 is NOT a table dump ────────────────────────────────
 
-test("GET /api/tasks?limit=-1 returns all 25 records", async () => {
+test("GET /api/tasks?limit=-1 clamps to the default page size (no table dump)", async () => {
   const res = await fetch(`${base}/api/tasks?limit=-1`);
   expect(res.status).toBe(200);
   const body = (await res.json()) as any;
   expect(body.data).toBeArray();
-  expect(body.data.length).toBe(25);
-  expect(body.nextCursor).toBeNull();
-  expect(body.hasMore).toBe(false);
+  // 25 rows seeded; -1 must clamp to the default page (20), not return all.
+  expect(body.data.length).toBe(20);
+  expect(body.nextCursor).not.toBeNull();
+  expect(body.hasMore).toBe(true);
 });
 
-test("GET /api/tasks?limit=-1 nextCursor is null and hasMore is false", async () => {
-  const res = await fetch(`${base}/api/tasks?limit=-1`);
+test("GET /api/tasks?limit=-1.0 also clamps to the default page size", async () => {
+  const res = await fetch(`${base}/api/tasks?limit=-1.0`);
+  expect(res.status).toBe(200);
   const body = (await res.json()) as any;
-  expect(body.nextCursor).toBeNull();
-  expect(body.hasMore).toBe(false);
+  expect(body.data.length).toBe(20);
+  expect(body.hasMore).toBe(true);
+});
+
+test("GET /api/tasks?limit=-1&expand=owner still paginates (and never leaks passwordHash)", async () => {
+  const res = await fetch(`${base}/api/tasks?limit=-1&expand=owner`);
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as any;
+  expect(body.data).toBeArray();
+  expect(body.data.length).toBe(20);
+  expect(body.hasMore).toBe(true);
+
+  for (const task of body.data) {
+    expect(task.owner).toBeDefined();
+    expect(typeof task.owner.id).toBe("string");
+    // passwordHash must never leak, even via expand
+    expect(task.owner.passwordHash).toBeUndefined();
+  }
 });
 
 // ─── Regression guard: default pagination still works ─────────────────────
@@ -144,20 +165,18 @@ test("GET /api/tasks?limit=5 returns 5 records", async () => {
   expect(body.hasMore).toBe(true);
 });
 
-test("GET /api/tasks?limit=999 is capped at 100", async () => {
+test("GET /api/tasks?limit=999 is capped at 100 (here, the 25 seeded rows)", async () => {
   const res = await fetch(`${base}/api/tasks?limit=999`);
   const body = (await res.json()) as any;
-  // Only 25 seeded tasks, so all fit within the 100 cap
+  // Only 25 seeded tasks, all within the 100 cap → all returned.
   expect(body.data.length).toBe(25);
-  // Verify the sentinel -1 is NOT treated as a huge positive number
-  // by checking hasMore is false (all records returned)
   expect(body.hasMore).toBe(false);
 });
 
-// ─── Filter + listAll ─────────────────────────────────────────────────────
+// ─── Filter still works with a clamped page ───────────────────────────────
 
-test("GET /api/tasks?limit=-1&filter=... returns filtered subset", async () => {
-  // 12 even-numbered tasks have done='true', 13 odd-numbered have done='false'
+test("GET /api/tasks?filter=... returns the filtered subset within the page", async () => {
+  // 12 even-numbered tasks have done='true' (< 20, so all fit in one page).
   const filter = JSON.stringify({ done: "true" });
   const res = await fetch(`${base}/api/tasks?limit=-1&filter=${encodeURIComponent(filter)}`);
   expect(res.status).toBe(200);
@@ -171,9 +190,9 @@ test("GET /api/tasks?limit=-1&filter=... returns filtered subset", async () => {
   }
 });
 
-test("GET /api/tasks?limit=-1 with filter returning no rows returns empty array", async () => {
+test("GET /api/tasks with a filter matching no rows returns an empty array", async () => {
   const filter = JSON.stringify({ title: "nonexistent-xyz-abc" });
-  const res = await fetch(`${base}/api/tasks?limit=-1&filter=${encodeURIComponent(filter)}`);
+  const res = await fetch(`${base}/api/tasks?filter=${encodeURIComponent(filter)}`);
   expect(res.status).toBe(200);
   const body = (await res.json()) as any;
   expect(body.data).toBeArray();
@@ -182,65 +201,19 @@ test("GET /api/tasks?limit=-1 with filter returning no rows returns empty array"
   expect(body.hasMore).toBe(false);
 });
 
-// ─── listAll + expand ─────────────────────────────────────────────────────
-
-test("GET /api/tasks?limit=-1&expand=owner returns all tasks with owner", async () => {
-  const res = await fetch(`${base}/api/tasks?limit=-1&expand=owner`);
-  expect(res.status).toBe(200);
-  const body = (await res.json()) as any;
-  expect(body.data).toBeArray();
-  expect(body.data.length).toBe(25);
-  expect(body.nextCursor).toBeNull();
-  expect(body.hasMore).toBe(false);
-
-  // Every task should have an embedded owner
-  for (const task of body.data) {
-    expect(task.owner).toBeDefined();
-    expect(typeof task.owner.id).toBe("string");
-    // passwordHash must never leak
-    expect(task.owner.passwordHash).toBeUndefined();
-  }
-});
-
-test("listAll + expand assigns correct owner to each task", async () => {
-  const res = await fetch(`${base}/api/tasks?limit=-1&expand=owner`);
-  const body = (await res.json()) as any;
-
-  // Even-indexed tasks (t2, t4, ...) belong to u1 (Alice); odd to u2 (Bob)
-  const t1 = body.data.find((t: any) => t.id === "t1");
-  const t2 = body.data.find((t: any) => t.id === "t2");
-  expect(t1).toBeDefined();
-  expect(t2).toBeDefined();
-  expect(t1.owner.id).toBe("u2"); // odd → Bob
-  expect(t2.owner.id).toBe("u1"); // even → Alice
-});
-
 // ─── resolveLimit unit guard ──────────────────────────────────────────────
-// These verify the sentinel without going through the HTTP stack.
 
-// ─── Sentinel consistency (P1 regression) ────────────────────────────────
-
-test("GET /api/tasks?limit=-1.0 treats numeric -1 as sentinel (all records, no cursor)", async () => {
-  // -1.0 parses to -1 via Number(); should trigger fetchAll, not the paginated path.
-  // Before fix: fetchAll was keyed off raw string "-1", so -1.0 would produce
-  // hasMore:true and a non-null nextCursor even though all rows were returned.
-  const res = await fetch(`${base}/api/tasks?limit=-1.0`);
-  expect(res.status).toBe(200);
-  const body = (await res.json()) as any;
-  expect(body.data.length).toBe(25);
-  expect(body.nextCursor).toBeNull();
-  expect(body.hasMore).toBe(false);
-});
-
-// ─── resolveLimit unit guard ──────────────────────────────────────────────
-// These verify the sentinel without going through the HTTP stack.
-
-test("resolveLimit(-1) passes through as -1", async () => {
+test("resolveLimit clamps non-positive values to the default (no -1 sentinel)", async () => {
   const { resolveLimit } = await import("../crud/pagination.ts");
-  expect(resolveLimit(-1)).toBe(-1);
-});
-
-test("resolveLimit(-2) still defaults to 20 (only -1 is the sentinel)", async () => {
-  const { resolveLimit } = await import("../crud/pagination.ts");
+  expect(resolveLimit(-1)).toBe(20);
   expect(resolveLimit(-2)).toBe(20);
+  expect(resolveLimit(0)).toBe(20);
+  expect(resolveLimit(undefined)).toBe(20);
+  expect(resolveLimit(Number.NaN)).toBe(20);
+});
+
+test("resolveLimit caps positive values at MAX_LIMIT (100)", async () => {
+  const { resolveLimit } = await import("../crud/pagination.ts");
+  expect(resolveLimit(50)).toBe(50);
+  expect(resolveLimit(999)).toBe(100);
 });

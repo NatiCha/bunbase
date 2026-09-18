@@ -168,8 +168,17 @@ export class PostgresAdapter implements DatabaseAdapter {
         user_id TEXT NOT NULL UNIQUE,
         encrypted_secret TEXT NOT NULL,
         verified INTEGER NOT NULL DEFAULT 0,
+        last_used_step BIGINT,
         created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
       )
+    `;
+
+    // Migration: add last_used_step to _mfa_totp if missing (TOTP replay guard)
+    await this.sql`
+      DO $$ BEGIN
+        ALTER TABLE _mfa_totp ADD COLUMN last_used_step BIGINT;
+      EXCEPTION WHEN duplicate_column THEN NULL;
+      END $$
     `;
 
     await this.sql`
@@ -314,8 +323,8 @@ export class PostgresAdapter implements DatabaseAdapter {
     return `"${name}"`;
   }
 
-  close(): void {
-    this.sql.close();
+  close(): Promise<void> {
+    return this.sql.close();
   }
 }
 

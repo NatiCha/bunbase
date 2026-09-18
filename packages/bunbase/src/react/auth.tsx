@@ -1,9 +1,22 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type React from "react";
 import { createContext, useContext } from "react";
+import { BunBaseClientError } from "../client.ts";
 import type { AuthUser, UseAuthReturn } from "./types.ts";
 
 const AuthContext = createContext<{ baseUrl: string } | null>(null);
+
+/** Parse a non-ok auth response and throw the consistent client error type. */
+async function throwAuthError(res: Response, fallback: string): Promise<never> {
+  const body = (await res.json().catch(() => ({}))) as {
+    error?: { code?: string; message?: string; fields?: Record<string, string> };
+  };
+  throw new BunBaseClientError(body?.error?.message ?? fallback, {
+    code: body?.error?.code,
+    status: res.status,
+    fields: body?.error?.fields,
+  });
+}
 
 export function AuthProvider({
   baseUrl,
@@ -50,11 +63,16 @@ export function useAuth(): UseAuthReturn {
       credentials: "include",
       body: JSON.stringify({ email, password }),
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error((err as any)?.error?.message ?? "Login failed");
-    }
+    if (!res.ok) await throwAuthError(res, "Login failed");
     const data = await res.json();
+    // When MFA is required the server returns `{ mfaRequired: true }` with no
+    // `user`; surface that as an error so callers know a second factor is needed.
+    if (data?.mfaRequired) {
+      throw new BunBaseClientError("Multi-factor authentication required", {
+        code: "MFA_REQUIRED",
+        status: res.status,
+      });
+    }
     const authUser = data.user as AuthUser;
     queryClient.setQueryData(["bunbase", "auth", "me"], authUser);
     return authUser;
@@ -69,10 +87,7 @@ export function useAuth(): UseAuthReturn {
       credentials: "include",
       body: JSON.stringify(data),
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error((err as any)?.error?.message ?? "Registration failed");
-    }
+    if (!res.ok) await throwAuthError(res, "Registration failed");
     const result = await res.json();
     const authUser = result.user as AuthUser;
     queryClient.setQueryData(["bunbase", "auth", "me"], authUser);

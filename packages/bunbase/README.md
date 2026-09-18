@@ -6,7 +6,7 @@
 
 ```ts
 // server.ts
-import { createServer, defineRules, defineConfig } from "bunbase";
+import { createServer, defineRules, defineConfig } from "@naticha/bunbase";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 const tasks = sqliteTable("tasks", {
@@ -37,7 +37,7 @@ bun server.ts
 ## New project
 
 ```sh
-bunx bunbase init my-app
+bunx @naticha/bunbase init my-app
 cd my-app
 bun install
 bun dev
@@ -48,7 +48,7 @@ bun dev
 ## Installation (existing project)
 
 ```sh
-bun add bunbase
+bun add @naticha/bunbase
 ```
 
 ## Core concepts
@@ -81,9 +81,9 @@ See [`docs/examples.ts`](https://github.com/NatiCha/bunbase/blob/main/packages/b
 
 ## Fetching all records with `listAll()`
 
-`listAll()` returns every matching record in a single HTTP request — no cursor
-loop, no pagination. Internally it passes `limit=-1` to the server, which
-queries without a LIMIT clause and returns `hasMore: false`.
+`listAll()` follows bounded cursor pages and returns every matching record in one
+array. It preserves filters, sorting, and expansions. Failed or stalled pages
+reject the operation; `limit=-1` no longer bypasses pagination.
 
 ```ts
 const allTasks = await client.api.tasks.listAll({ filter: { done: false } });
@@ -111,7 +111,7 @@ Enable it with the `frontend` config option.
 ```ts
 // server.ts
 import indexHtml from "./frontend/index.html";   // static import — required
-import { createServer, defineConfig } from "bunbase";
+import { createServer, defineConfig } from "@naticha/bunbase";
 
 createServer({
   schema,

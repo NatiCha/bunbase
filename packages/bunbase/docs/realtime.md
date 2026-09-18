@@ -10,7 +10,7 @@ Realtime is opt-in. Add `realtime` to your config:
 
 ```ts
 // src/index.ts
-import { createServer, defineConfig } from "bunbase";
+import { createServer, defineConfig } from "@naticha/bunbase";
 import * as schema from "./schema";
 
 const bunbase = createServer({
@@ -30,11 +30,12 @@ When enabled, a WebSocket endpoint is available at `ws://localhost:3000/realtime
 Import the client and use the `realtime` namespace:
 
 ```ts
-import { createBunBaseClient } from "bunbase/client";
-import type * as schema from "../server/src/schema";
+import { createBunBaseClient } from "@naticha/bunbase/client";
+import * as schema from "../server/src/schema";
 
 const client = createBunBaseClient<typeof schema>({
   url: "http://localhost:3000",
+  schema,
 });
 
 // client.realtime.subscribe()  — table change events
@@ -43,6 +44,11 @@ const client = createBunBaseClient<typeof schema>({
 ```
 
 The WebSocket connection is lazy — it opens the first time you call `subscribe()` or `channel(...).subscribe()`. It reconnects automatically if dropped.
+
+Subscriptions, broadcast delivery, and presence live in one BunBase process.
+Multiple replicas do not share events or presence, even with a shared database.
+Changes made through direct database writes do not generate CRUD broadcasts.
+Use one application instance for the built-in realtime service in 0.1.0.
 
 ---
 
@@ -96,7 +102,7 @@ Example with an `ownerOnly` rule:
 
 ```ts
 // src/rules.ts
-import { defineRules, ownerOnly, authenticated } from "bunbase";
+import { defineRules, ownerOnly, authenticated } from "@naticha/bunbase";
 import { tasks } from "./schema";
 
 export const rules = defineRules({
@@ -291,12 +297,12 @@ This clears all table subscriptions, channel subscriptions, and presence state. 
 
 | Feature | Auth required | Access control |
 |---|---|---|
-| Table subscriptions | Per `list` rule | `list` rule evaluated at subscribe time; WHERE clause applied per-event |
+| Table subscriptions | Per `list` rule | `list` rule and current credentials evaluated at subscribe time and before each event |
 | Broadcast subscribe | Yes | Authenticated users only |
 | Broadcast send | Yes | Authenticated users only |
 | Presence track | Yes | Authenticated users only |
 
-Auth is extracted from the session cookie when the WebSocket connection is upgraded. The session is snapshotted at connect time — if a user's role or session changes, they must reconnect for it to take effect. This matches the behavior of Supabase and Firebase Realtime.
+The upgrade accepts the same origin or an origin listed in `cors.origins`; native clients may omit Origin. Credentials are checked again before messages and deliveries, including passive broadcast and presence recipients. Revoked or expired credentials close the connection; role changes and list rules take effect before the next table event. Public table subscriptions remain available when their list rules allow anonymous access. Filtered DELETE events include only the record ID: once the row is deleted, its current visibility cannot be checked against changed membership.
 
 ---
 
@@ -379,3 +385,32 @@ Session authentication is read from the `Cookie` header on the upgrade request. 
 - [Rules](/rules/) — control which tables clients can subscribe to
 - [Client SDK](/client/) — full client reference
 - [Configuration](/configuration/) — all config options
+
+## Channel authorization and limits
+
+Broadcast and presence channels deny access unless `realtime.authorize` explicitly returns `true`. Table subscriptions continue to use table list rules. The callback receives current `auth`, `db`, `channel`, `kind` (`broadcast` or `presence`), and `action` (`subscribe`, `publish`, or `update`). A presence subscription both joins and reads the channel. Check your application's membership data on each call; BunBase also invokes the subscription check before passive delivery, so revoked members stop receiving events. Errors deny access.
+
+```ts
+realtime: {
+  enabled: true,
+  authorize: async ({ auth, channel, kind, action, db }) => {
+    // Supply your own membership lookup; channel names alone do not grant access.
+    return canUseChannel({ userId: auth.id, channel, kind, action, db });
+  },
+  limits: {
+    maxMessageBytes: 65536,
+    maxDataBytes: 16384,
+    maxDepth: 16,
+    maxSubscriptions: 32,
+    messagesPerWindow: 60,
+    windowMs: 10000,
+    maxPendingMessages: 16,
+    maxConnectionsPerIp: 32,
+    maxConnectionsPerUser: 8,
+  },
+}
+```
+
+These are the defaults; limit values must be positive integers. Connection IP limits use the actual socket peer, so reverse proxies may require a higher limit. Names are limited to 128 characters. Messages use strict schemas; malformed messages count toward rate limits. Presence metadata merges are capped at `maxDataBytes`, including accumulated fields. Updates require an active presence subscription. Internal broadcast and presence topics are isolated.
+
+Custom WebSocket routes also enforce their own `maxPayloadLength` before calling the handler (default 64 KiB), even if another route needs a larger global payload setting. Configure an explicit higher value for legitimate larger messages.

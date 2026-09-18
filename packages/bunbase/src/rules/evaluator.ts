@@ -29,7 +29,16 @@ export async function evaluateRule(
     return { allowed: false };
   }
 
-  const result: RuleResult = await rule(arg);
+  let result: RuleResult;
+  try {
+    result = await rule(arg);
+  } catch (err) {
+    // A rule that throws (e.g. it dereferences `record` on a non-existent row,
+    // or an async lookup fails) must fail closed — deny rather than surfacing a
+    // 500, which would also leak existence (403-vs-500) for missing records.
+    console.error("[BunBase] rule evaluation threw — denying:", err);
+    return { allowed: false };
+  }
 
   // null = no restriction
   if (result === null) {

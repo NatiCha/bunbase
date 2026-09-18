@@ -7,6 +7,7 @@ import type { AuthHooks } from "../hooks/auth-types.ts";
 import type { Mailer } from "../mailer/index.ts";
 import { appendResponseCookies, serializeCookie, sessionCookieOptions } from "./cookies.ts";
 import { setCsrfCookie } from "./csrf.ts";
+import { userHasMfaEnrolled } from "./mfa/index.ts";
 import { checkRateLimit, getClientIp } from "./rate-limit.ts";
 import { createSession } from "./sessions.ts";
 import { hashToken } from "./tokens.ts";
@@ -58,6 +59,7 @@ async function authenticateByEmail(
   user: Record<string, unknown>;
   userId: string;
   isNewUser: boolean;
+  mfaRequired: boolean;
   sessionCookie: string;
   csrfCookie: string;
 } | null> {
@@ -92,12 +94,16 @@ async function authenticateByEmail(
 
   if (!user) return null;
 
+  // If the user has TOTP enrolled, this passwordless login is NOT sufficient on
+  // its own — start the session pending so the MFA gate forces a step-up.
+  const mfaRequired = await userHasMfaEnrolled(db, internalSchema, user.id);
+
   const sessionId = await createSession(
     db,
     internalSchema,
     user.id,
     config.auth.tokenExpiry,
-    1, // mfaVerified = 1, passwordless is full auth
+    mfaRequired ? 0 : 1, // 0 = pending MFA, 1 = fully authenticated
   );
 
   const sessionCookie = serializeCookie(
@@ -111,6 +117,7 @@ async function authenticateByEmail(
     user,
     userId: user.id,
     isNewUser,
+    mfaRequired,
     sessionCookie,
     csrfCookie: csrf.cookie,
   };
@@ -118,6 +125,9 @@ async function authenticateByEmail(
 
 export function createPasswordlessRoutes(deps: PasswordlessRouteDeps) {
   const { db, internalSchema, config, usersTable, authHooks, mailer } = deps;
+  if (mailer && config.auth.mfa.magicLink.enabled && !config.publicUrl) {
+    throw new Error("BunBase: publicUrl is required when sending magic-link email");
+  }
   const isDev = config.development;
   const tokens = internalSchema.verificationTokens;
   const magicLinkConfig = config.auth.mfa.magicLink;
@@ -131,7 +141,7 @@ export function createPasswordlessRoutes(deps: PasswordlessRouteDeps) {
     routes["/auth/magic-link/request"] = {
       async POST(req: Request): Promise<Response> {
         const ip = getClientIp(req, config.trustedProxies);
-        const { allowed } = checkRateLimit(ip);
+        const { allowed } = checkRateLimit(ip, config.auth.rateLimit);
         if (!allowed) {
           return jsonError("RATE_LIMITED", "Too many attempts", 429);
         }
@@ -196,9 +206,8 @@ export function createPasswordlessRoutes(deps: PasswordlessRouteDeps) {
 
           if (mailer) {
             try {
-              // Derive base URL from the request origin
-              const origin = new URL(req.url).origin;
-              const verifyUrl = `${origin}/api/auth/magic-link/verify?token=${token}`;
+              const verifyUrl = new URL("/auth/magic-link/verify", config.publicUrl!);
+              verifyUrl.searchParams.set("token", token);
               await mailer.send({
                 to: email,
                 subject: "Sign in to your account",
@@ -268,8 +277,12 @@ export function createPasswordlessRoutes(deps: PasswordlessRouteDeps) {
           return jsonError("BAD_REQUEST", "Invalid or expired magic link", 400);
         }
 
+        const magicResponseBody = authResult.mfaRequired
+          ? { mfaRequired: true, mfaMethods: ["totp"] }
+          : { user: stripSensitive(authResult.user) };
+
         return new Response(
-          JSON.stringify({ user: stripSensitive(authResult.user) }),
+          JSON.stringify(magicResponseBody),
           appendResponseCookies({ status: 200, headers: { "Content-Type": "application/json" } }, [
             authResult.sessionCookie,
             authResult.csrfCookie,
@@ -285,7 +298,7 @@ export function createPasswordlessRoutes(deps: PasswordlessRouteDeps) {
     routes["/auth/otp/request"] = {
       async POST(req: Request): Promise<Response> {
         const ip = getClientIp(req, config.trustedProxies);
-        const { allowed } = checkRateLimit(ip);
+        const { allowed } = checkRateLimit(ip, config.auth.rateLimit);
         if (!allowed) {
           return jsonError("RATE_LIMITED", "Too many attempts", 429);
         }
@@ -368,7 +381,7 @@ export function createPasswordlessRoutes(deps: PasswordlessRouteDeps) {
     routes["/auth/otp/verify"] = {
       async POST(req: Request): Promise<Response> {
         const ip = getClientIp(req, config.trustedProxies);
-        const { allowed } = checkRateLimit(ip);
+        const { allowed } = checkRateLimit(ip, config.auth.rateLimit);
         if (!allowed) {
           return jsonError("RATE_LIMITED", "Too many attempts", 429);
         }
@@ -439,8 +452,14 @@ export function createPasswordlessRoutes(deps: PasswordlessRouteDeps) {
           }
         }
 
+        // When the account has TOTP enrolled the session is pending — the client
+        // must still complete the second factor at /auth/mfa/totp/verify.
+        const otpResponseBody = authResult.mfaRequired
+          ? { mfaRequired: true, mfaMethods: ["totp"] }
+          : { user: stripSensitive(authResult.user) };
+
         return new Response(
-          JSON.stringify({ user: stripSensitive(authResult.user) }),
+          JSON.stringify(otpResponseBody),
           appendResponseCookies({ status: 200, headers: { "Content-Type": "application/json" } }, [
             authResult.sessionCookie,
             authResult.csrfCookie,
@@ -485,12 +504,15 @@ export function createPasswordlessRoutes(deps: PasswordlessRouteDeps) {
     const isDev = config.development;
     const cookieDomain = config.cookieDomain;
 
+    // TOTP-enrolled users must still complete the second factor: start pending.
+    const mfaRequired = await userHasMfaEnrolled(db, internalSchema, user.id);
+
     const sessionId = await createSession(
       db,
       internalSchema,
       user.id,
       config.auth.tokenExpiry,
-      1, // mfaVerified = 1
+      mfaRequired ? 0 : 1, // 0 = pending MFA, 1 = fully authenticated
     );
 
     const sessionCookie = serializeCookie(
@@ -512,7 +534,7 @@ export function createPasswordlessRoutes(deps: PasswordlessRouteDeps) {
       }
     }
 
-    return { user, sessionCookie, csrfCookie: csrf.cookie };
+    return { user, mfaRequired, sessionCookie, csrfCookie: csrf.cookie };
   }
 
   function magicLinkResultHtml(success: boolean, message: string): string {

@@ -42,8 +42,11 @@ export function decodeCursor(cursor: string): CursorData | null {
 }
 
 export function resolveLimit(limit?: number): number {
-  if (limit === -1) return -1; // sentinel: no limit (listAll)
-  if (!limit || limit < 1) return DEFAULT_LIMIT;
+  // NOTE: the `-1` listAll sentinel is intentionally NOT honored from client
+  // input — exposing it let any list-permitted caller dump an entire table.
+  // Non-positive / NaN / unbounded values clamp to the default, and the upper
+  // bound is always MAX_LIMIT.
+  if (!limit || Number.isNaN(limit) || limit < 1) return DEFAULT_LIMIT;
   return Math.min(limit, MAX_LIMIT);
 }
 
@@ -59,12 +62,20 @@ export function buildCursorCondition(
   const comparator = order === "asc" ? gt : lt;
 
   if (sortColumn && data.sortValue !== undefined) {
+    // JSON cursors serialize Date values to ISO strings. Restore the column's
+    // input type before Drizzle invokes its timestamp encoder on the next page.
+    let sortValue = data.sortValue;
+    if (sortColumn.dataType === "object date" && typeof sortValue === "string") {
+      const date = new Date(sortValue);
+      if (Number.isNaN(date.getTime())) return undefined;
+      sortValue = date;
+    }
     // Tuple-equivalent cursor predicate:
     // ASC:  (sort > lastSort) OR (sort = lastSort AND id > lastId)
     // DESC: (sort < lastSort) OR (sort = lastSort AND id < lastId)
     return or(
-      comparator(sortColumn, data.sortValue),
-      and(eq(sortColumn, data.sortValue), comparator(idColumn, data.id)),
+      comparator(sortColumn, sortValue),
+      and(eq(sortColumn, sortValue), comparator(idColumn, data.id)),
     );
   }
 

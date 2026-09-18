@@ -36,7 +36,10 @@ export const discord: OAuthProvider = {
         grant_type: "authorization_code",
       }),
     });
-    const data = (await res.json()) as { access_token: string };
+    const data = (await res.json().catch(() => ({}))) as { access_token?: string };
+    if (!res.ok || !data.access_token) {
+      throw new Error(`Discord OAuth token exchange failed (status ${res.status})`);
+    }
     return { accessToken: data.access_token };
   },
 

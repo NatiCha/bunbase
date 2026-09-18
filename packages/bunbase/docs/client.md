@@ -6,16 +6,16 @@ BunBase includes a frontend SDK that provides a type-safe REST client alongside 
 
 ## Installation
 
-The client is included in the `bunbase` package:
+The client is included in the `@naticha/bunbase` package:
 
 ```ts
-import { createBunBaseClient } from "bunbase/client";
+import { createBunBaseClient } from "@naticha/bunbase/client";
 ```
 
 ## Setup
 
 ```ts
-import { createBunBaseClient } from "bunbase/client";
+import { createBunBaseClient } from "@naticha/bunbase/client";
 import * as schema from "../server/src/schema"; // your Drizzle schema
 
 const client = createBunBaseClient({
@@ -36,7 +36,7 @@ The client has four namespaces: `api`, `auth`, `files`, and `realtime`.
 
 ## `api` — CRUD operations
 
-The `api` namespace is typed directly from your Drizzle schema. Every table gets `list`, `get`, `create`, `update`, and `delete` methods.
+The `api` namespace is typed directly from your Drizzle schema. Every table gets `list`, `listAll`, `get`, `create`, `update`, and `delete` methods.
 
 ```ts
 // List posts
@@ -49,6 +49,10 @@ const { data, nextCursor, hasMore } = await client.api.posts.list({
 
 // Get a single post
 const post = await client.api.posts.get("post-id");
+
+// Optional total across all authorized, filtered records, not just this page
+const page = await client.api.posts.list({ filter: { published: 1 }, count: true });
+console.log(page.total); // omitted unless count: true was requested
 
 // Create a post
 const newPost = await client.api.posts.create({
@@ -65,7 +69,7 @@ const updated = await client.api.posts.update("post-id", {
 // Delete a post
 const result = await client.api.posts.delete("post-id");
 
-// Fetch ALL records matching a filter in one request (no pagination loop needed)
+// Fetch all matching records; the SDK follows cursor pages automatically
 const allDrafts = await client.api.posts.listAll({ filter: { status: "draft" } });
 ```
 
@@ -91,6 +95,13 @@ const post = await client.api.posts.get("post-id", {
 Relations must be defined in your server schema using `defineRelations`. See the [Schema](/schema/) guide for setup.
 
 ### Pagination
+
+`listAll()` collects all matching rows using sequential requests of up to 100 rows.
+Filters, sorting, and expansions apply to every page. A failed request or a missing
+or repeated continuation cursor rejects the call rather than returning partial data.
+For large collections, use `list()` to process one page at a time instead of holding
+every row in memory. Separate page requests do not form a database snapshot.
+
 
 ```ts
 let cursor: string | undefined;
@@ -217,3 +228,22 @@ client.realtime.disconnect();
 - [Auth API](/api/auth/) — auth endpoint reference
 - [Files API](/api/files/) — file storage details
 - [Realtime](/realtime/) — live subscriptions, broadcast, and presence
+
+## Server-assigned fields
+
+When a hook supplies a required column, describe that contract with `serverFields`.
+The column remains in returned records but is omitted from client create/update inputs:
+
+```ts
+const client = createBunBaseClient({
+  url: "http://localhost:3000",
+  schema,
+  serverFields: { projects: ["ownerId"] },
+});
+await client.api.projects.create({ name: "New project" });
+```
+
+`createBunBaseReact` accepts the same option, including its mutation factories.
+This option controls TypeScript input types only. Enforce the contract on the server
+with `fields: { projects: { readonly: ["ownerId"] } }` and a `beforeCreate` hook
+that assigns `ownerId` from the authenticated user. Other required columns remain required.

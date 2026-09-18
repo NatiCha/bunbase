@@ -1,53 +1,21 @@
 #!/usr/bin/env bun
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-const output = resolve(process.cwd(), process.argv[2] ?? "./dist/bunbase");
-const outDir = dirname(output);
+const output = resolve(import.meta.dir, process.argv[2] ?? "dist/bunbase");
+mkdirSync(dirname(output), { recursive: true });
 
-if (!existsSync(outDir)) {
-  mkdirSync(outDir, { recursive: true });
+async function run(command: string[]) {
+  const proc = Bun.spawn(command, {
+    cwd: import.meta.dir,
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  const code = await proc.exited;
+  if (code !== 0) process.exit(code);
 }
 
-// Build CLI executable
-const buildProc = Bun.spawn(["bun", "build", "--compile", "./src/index.ts", "--outfile", output], {
-  stdout: "inherit",
-  stderr: "inherit",
-});
-
-const buildCode = await buildProc.exited;
-if (buildCode !== 0) {
-  process.exit(buildCode);
-}
-
-console.log(`Built executable at ${output}`);
-
-// Build admin UI (Tailwind CSS + TSX) into dist/admin with stable public path
-console.log("Building admin UI...");
-const tailwindPlugin = (await import("bun-plugin-tailwind")).default;
-const adminBuild = await Bun.build({
-  entrypoints: ["./admin-ui/index.html"],
-  outdir: "./dist/admin",
-  publicPath: "/_admin-assets/",
-  plugins: [tailwindPlugin],
-  minify: true,
-});
-if (!adminBuild.success) {
-  console.error("Admin UI build failed:", adminBuild.logs);
-  process.exit(1);
-}
-console.log("Admin UI built at ./dist/admin");
-
-// Generate TypeScript declaration files
-console.log("Generating type declarations...");
-const tscProc = Bun.spawn(["bunx", "tsc", "--project", "tsconfig.emit.json"], {
-  stdout: "inherit",
-  stderr: "inherit",
-});
-
-const tscCode = await tscProc.exited;
-if (tscCode !== 0) {
-  process.exit(tscCode);
-}
-
-console.log("Type declarations generated at ./dist/types");
+await run(["bun", "run", "build-admin.ts"]);
+await run(["bun", "build", "--compile", "src/cli/index.ts", "--outfile", output]);
+await run(["bun", "run", "tsc", "--project", "tsconfig.emit.json"]);
+console.log(`Built CLI at ${output} and declarations at dist/types`);

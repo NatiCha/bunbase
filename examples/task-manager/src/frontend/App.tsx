@@ -47,7 +47,7 @@ export function App() {
     <Layout user={user} page={page} onNavigate={setPage} onLogout={handleLogout}>
       {page.name === "dashboard" && <Dashboard />}
       {page.name === "projects" && (
-        <ProjectList userId={user.id} onSelectProject={(id) => setPage({ name: "project", id })} />
+        <ProjectList onSelectProject={(id) => setPage({ name: "project", id })} />
       )}
       {page.name === "project" && (
         <ProjectDetail

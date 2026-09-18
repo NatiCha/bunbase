@@ -1,8 +1,25 @@
 import type { ResolvedConfig } from "./core/config.ts";
 
+/**
+ * Whether CORS should run in strict mode (only reflect configured origins).
+ *
+ * Driven by `config.secureDefaults` (fail-closed): an unset `NODE_ENV` resolves
+ * to strict so a misconfigured production deploy never reflects arbitrary
+ * origins with credentials. Only explicit development relaxes this. We fall back
+ * to `!config.development` when `secureDefaults` is absent (e.g. a hand-built
+ * `ResolvedConfig` in a unit test that predates the field).
+ */
+function corsStrict(config: ResolvedConfig): boolean {
+  return config.secureDefaults ?? !config.development;
+}
+
 function isOriginAllowed(origin: string, config: ResolvedConfig): boolean {
-  if (config.development) return origin.length > 0;
-  return config.cors.origins.includes(origin);
+  if (origin.length === 0) return false;
+  // Strict mode: only reflect explicitly-configured origins. Never reflect an
+  // arbitrary origin while also sending Access-Control-Allow-Credentials: true.
+  if (corsStrict(config)) return config.cors.origins.includes(origin);
+  // Permissive (explicit dev only): reflect any origin for localhost DX.
+  return true;
 }
 
 function corsHeaders(origin: string, config: ResolvedConfig): Headers {

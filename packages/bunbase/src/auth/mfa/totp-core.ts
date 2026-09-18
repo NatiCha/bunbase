@@ -102,6 +102,16 @@ export function validateTotpCode(
 }
 
 /**
+ * Compute the absolute TOTP time-step (counter) for a given time.
+ * Pair with the `delta` returned by {@link validateTotpCode} to get the exact
+ * step a presented code belongs to: `getTotpStep() + delta`.
+ */
+export function getTotpStep(time?: number, period = 30): number {
+  const now = time ?? Math.floor(Date.now() / 1000);
+  return Math.floor(now / period);
+}
+
+/**
  * Build an otpauth:// URI for QR code scanning.
  */
 export function buildTotpUri(

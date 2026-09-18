@@ -14,7 +14,7 @@ Pass the Drizzle table as the first argument to get full type inference on `data
 
 ```ts
 // src/hooks.ts
-import { defineHooks, ApiError } from "bunbase";
+import { defineHooks, ApiError } from "@naticha/bunbase";
 import { tasks } from "./schema";
 
 export const hooks = {
@@ -182,7 +182,7 @@ type AfterDeleteContext = {
 Throw an `ApiError` in any `before*` hook to abort the operation and return an error response to the client. The database is not modified.
 
 ```ts
-import { ApiError } from "bunbase";
+import { ApiError } from "@naticha/bunbase";
 
 beforeDelete: ({ record, auth }) => {
   if (record.ownerId !== auth?.id) {
@@ -242,7 +242,7 @@ Use `defineAuthHooks` to hook into auth events — registration, login, OAuth, a
 
 ```ts
 // src/auth-hooks.ts
-import { defineAuthHooks, ApiError } from "bunbase";
+import { defineAuthHooks, ApiError } from "@naticha/bunbase";
 
 export const authHooks = defineAuthHooks({
   beforeRegister: async ({ email, data }) => {

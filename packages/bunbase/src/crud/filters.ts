@@ -65,16 +65,21 @@ export type FilterInput = Record<string, FilterOperators | unknown>;
  * @remarks
  * - Direct primitive values are treated as `eq`.
  * - Unknown fields (not present in `columns`) are ignored.
+ * - Hidden fields (per the table's field policy) are ignored, so a client
+ *   cannot use a filter as a boolean oracle to brute-force a hidden column
+ *   (e.g. a password hash) prefix-by-prefix.
  */
 export function buildWhereConditions(
   filters: FilterInput,
   columns: Record<string, Column>,
+  hidden?: Set<string>,
 ): SQL | undefined {
   const conditions: SQL[] = [];
 
   for (const [fieldName, filterValue] of Object.entries(filters)) {
     const column = columns[fieldName];
     if (!column) continue;
+    if (hidden?.has(fieldName)) continue;
 
     // Direct value means eq
     if (typeof filterValue !== "object" || filterValue === null || Array.isArray(filterValue)) {
