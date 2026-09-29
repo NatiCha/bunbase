@@ -63,9 +63,18 @@ export interface InitOptions {
   nonInteractive?: boolean;
   skipInstall?: boolean;
   noStart?: boolean;
+  template?: TemplateType;
+  driver?: DatabaseDriver;
 }
 
-export async function init({ projectName, nonInteractive, skipInstall, noStart }: InitOptions) {
+export async function init({
+  projectName,
+  nonInteractive,
+  skipInstall,
+  noStart,
+  template: chosenTemplate,
+  driver: chosenDriver,
+}: InitOptions) {
   clack.intro("\x1b[1m\x1b[36mBunBase\x1b[0m — create a new project");
 
   // 1. Get project name
@@ -89,8 +98,8 @@ export async function init({ projectName, nonInteractive, skipInstall, noStart }
   }
 
   // 3. Select database driver
-  let driver: DatabaseDriver = "sqlite";
-  if (!nonInteractive) {
+  let driver: DatabaseDriver = chosenDriver ?? "sqlite";
+  if (!nonInteractive && !chosenDriver && chosenTemplate !== "team-workspace") {
     driver = await select("Database", DATABASE_OPTIONS);
   }
 
@@ -102,14 +111,17 @@ export async function init({ projectName, nonInteractive, skipInstall, noStart }
   }
 
   // 5. Select template
-  let templateType: TemplateType = "empty";
-  if (!nonInteractive) {
-    templateType = await select("What are you building?", TEMPLATE_OPTIONS);
+  let templateType: TemplateType = chosenTemplate ?? "empty";
+  if (!nonInteractive && !chosenTemplate) {
+    templateType = await select(
+      "What are you building?",
+      TEMPLATE_OPTIONS.filter((option) => driver === "sqlite" || option.value !== "team-workspace"),
+    );
   }
 
   // 6. Select OAuth providers
   let oauthProviders: OAuthProvider[] = [];
-  if (!nonInteractive) {
+  if (!nonInteractive && templateType !== "team-workspace") {
     oauthProviders = await multiSelect(
       "OAuth providers? (Space to select, Enter to skip)",
       OAUTH_OPTIONS,
@@ -136,6 +148,7 @@ export async function init({ projectName, nonInteractive, skipInstall, noStart }
     "CLAUDE.md": CLAUDE_MD,
     "AGENTS.md": AGENTS_MD,
     ...STATIC_FILES,
+    ...template.files,
   };
 
   for (const [filePath, content] of Object.entries(files)) {
@@ -170,6 +183,9 @@ export async function init({ projectName, nonInteractive, skipInstall, noStart }
       "db:push": "bunx --bun drizzle-kit push --force",
       "db:generate": "bunx drizzle-kit generate",
       studio: "bunx drizzle-kit studio",
+      doctor: "bunbase doctor",
+      backup: "bunbase backup",
+      restore: "bunbase restore",
     },
     dependencies: {
       "@naticha/bunbase": versions.bunbase,
@@ -254,12 +270,18 @@ export async function init({ projectName, nonInteractive, skipInstall, noStart }
   // Offer to open admin UI
   if (!nonInteractive) {
     const openAdmin = await clack.confirm({
-      message: "Open admin UI in browser?",
+      message:
+        templateType === "team-workspace"
+          ? "Open your workspace in browser?"
+          : "Open admin UI in browser?",
       initialValue: true,
     });
     if (!clack.isCancel(openAdmin) && openAdmin) {
       const cmd = process.platform === "darwin" ? "open" : "xdg-open";
-      Bun.spawn([cmd, `http://localhost:${port}/_admin`]);
+      Bun.spawn([
+        cmd,
+        `http://localhost:${port}${templateType === "team-workspace" ? "/" : "/_admin"}`,
+      ]);
     }
   }
 
@@ -301,7 +323,7 @@ async function waitForServer(
 
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(`http://localhost:${port}/health`);
+      const res = await fetch(`http://localhost:${port}/ready`);
       if (res.ok) return true;
     } catch {
       // Server not ready yet

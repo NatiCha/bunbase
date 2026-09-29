@@ -42,8 +42,6 @@ import type { DatabaseAdapter } from "../core/adapter.ts";
 import type { AnyDb } from "../core/db-types.ts";
 import type { FieldPolicyMap } from "../core/field-policy.ts";
 import { type CreateServerOptions, createServer } from "../core/server.ts";
-import type { Hooks } from "../hooks/types.ts";
-import type { Rules } from "../rules/types.ts";
 
 /** An authenticated fetch bound to a seeded user's session cookie. */
 export interface AuthedTestSession {
@@ -96,10 +94,12 @@ export interface TestServer {
   cleanup(): void;
 }
 
-export interface CreateTestServerOptions {
-  schema: Record<string, unknown>;
-  rules?: Rules;
-  hooks?: Hooks;
+export interface CreateTestServerOptions<
+  TSchema extends Record<string, unknown> = Record<string, unknown>,
+> {
+  schema: TSchema;
+  rules?: CreateServerOptions<TSchema>["rules"];
+  hooks?: CreateServerOptions<TSchema>["hooks"];
   fields?: FieldPolicyMap;
   extend?: CreateServerOptions["extend"];
   /** Drizzle relations object (from `defineRelations`). */
@@ -116,13 +116,19 @@ export interface CreateTestServerOptions {
  * - `server.fetch()` prepends the base URL and handles CSRF transparently.
  * - Call `server.cleanup()` in `afterAll` to stop the server and delete temp files.
  */
-export async function createTestServer(options: CreateTestServerOptions): Promise<TestServer> {
+export function createTestServer(options: CreateTestServerOptions): Promise<TestServer>;
+export function createTestServer<TSchema extends Record<string, unknown>>(
+  options: CreateTestServerOptions<TSchema>,
+): Promise<TestServer>;
+export async function createTestServer<TSchema extends Record<string, unknown>>(
+  options: CreateTestServerOptions<TSchema>,
+): Promise<TestServer> {
   const root = join(tmpdir(), `bunbase-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   mkdirSync(root, { recursive: true });
   const dbPath = join(root, "db.sqlite");
 
   const bunbase = createServer({
-    schema: options.schema as Record<string, Table>,
+    schema: options.schema,
     rules: options.rules,
     hooks: options.hooks,
     fields: options.fields,

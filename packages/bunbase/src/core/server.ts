@@ -1,4 +1,5 @@
 import type { ServerWebSocket } from "bun";
+import type { Table } from "drizzle-orm";
 import type { AnyRelations } from "drizzle-orm/relations";
 import { frontendRoute, secureResponse } from "./security-headers.ts";
 import { loadServiceKey } from "./service-key-file.ts";
@@ -19,7 +20,12 @@ import { createGuestRoutes } from "../auth/guest.ts";
 import { createInvitationRoutes } from "../auth/invitations.ts";
 import { createJwtRoutes } from "../auth/jwt/routes.ts";
 import { createTotpRoutes } from "../auth/mfa/totp.ts";
-import { extractAuth as extractAuthFromReq, extractSessionId } from "../auth/middleware.ts";
+import {
+  extractAuth as extractAuthFromReq,
+  extractBearerToken,
+  extractSessionId,
+  isServiceKey,
+} from "../auth/middleware.ts";
 import { createOAuthRoutes } from "../auth/oauth/routes.ts";
 import { createOrganizationRoutes } from "../auth/organizations/routes.ts";
 import { createPasskeyRoutes } from "../auth/passkeys.ts";
@@ -32,14 +38,14 @@ import type { SmsTransport } from "../auth/sms/types.ts";
 import { addCorsHeaders, handleCorsPreflightOrNull } from "../cors.ts";
 import { generateAllCrudHandlers } from "../crud/handler.ts";
 import type { AuthHooks } from "../hooks/auth-types.ts";
-import type { TableHooks } from "../hooks/types.ts";
+import type { TableHooks, TableHooksFor } from "../hooks/types.ts";
 import { JobScheduler } from "../jobs/scheduler.ts";
 import type { JobDefinition } from "../jobs/types.ts";
 import type { Mailer } from "../mailer/index.ts";
 import { handleWebSocketClose, handleWebSocketMessage } from "../realtime/handler.ts";
 import { RealtimeManager } from "../realtime/manager.ts";
 import { PresenceTracker } from "../realtime/presence.ts";
-import type { TableRules } from "../rules/types.ts";
+import type { TableRules, TableRulesFor } from "../rules/types.ts";
 import { createFilesContext, type FilesContext } from "../storage/files-context.ts";
 import { createFileRoutes, createStorageDriver } from "../storage/routes.ts";
 import type { DatabaseAdapter } from "./adapter.ts";
@@ -48,6 +54,13 @@ import type { BunBaseConfig } from "./config.ts";
 import { type ResolvedConfig, resolveConfig } from "./config.ts";
 import { createDatabase, runUserMigrations } from "./database.ts";
 import type { AnyDb } from "./db-types.ts";
+import {
+  createDiagnostics,
+  type DiagnosticsReport,
+  type ReadinessOptions,
+  type ReadinessReport,
+  validateReadinessOptions,
+} from "./diagnostics.ts";
 import type { FieldPolicyMap } from "./field-policy.ts";
 import type { InternalSchema } from "./internal-schema.ts";
 import { getInternalSchema } from "./internal-schema.ts";
@@ -138,8 +151,16 @@ export interface CreateServerOptions<
 > {
   schema: TSchema;
   relations?: AnyRelations;
-  rules?: Record<string, TableRules>;
-  hooks?: Record<string, TableHooks>;
+  rules?: {
+    [K in keyof TSchema as TSchema[K] extends Table
+      ? TSchema[K]["_"]["name"]
+      : K]?: TSchema[K] extends Table ? TableRulesFor<TSchema[K]> : TableRules;
+  };
+  hooks?: {
+    [K in keyof TSchema as TSchema[K] extends Table
+      ? TSchema[K]["_"]["name"]
+      : K]?: TSchema[K] extends Table ? TableHooksFor<TSchema[K]> : TableHooks;
+  };
   /**
    * Optional per-table field policy controlling which columns are hidden from
    * responses (and non-filterable/sortable), read-only, or immutable. Password
@@ -163,6 +184,8 @@ export interface CreateServerOptions<
    * Optional SMS transport for phone-based OTP authentication.
    */
   smsTransport?: SmsTransport;
+  /** Dependencies that must be available before GET /ready returns 200. */
+  readiness?: ReadinessOptions;
 }
 
 /** Runtime BunBase server instance. */
@@ -171,6 +194,8 @@ export interface BunBaseServer {
   adapter: DatabaseAdapter;
   config: ResolvedConfig;
   listen: (port?: number) => ReturnType<typeof Bun.serve>;
+  readiness: () => Promise<ReadinessReport>;
+  diagnostics: () => Promise<DiagnosticsReport>;
 }
 
 /**
@@ -186,7 +211,13 @@ export interface BunBaseServer {
  * server.listen(3000);
  * ```
  */
-export function createServer(options: CreateServerOptions): BunBaseServer {
+export function createServer(options: CreateServerOptions): BunBaseServer;
+export function createServer<TSchema extends Record<string, unknown>>(
+  options: CreateServerOptions<TSchema>,
+): BunBaseServer;
+export function createServer<TSchema extends Record<string, unknown>>(
+  options: CreateServerOptions<TSchema>,
+): BunBaseServer {
   const tableRules = options.rules as Record<string, TableRules> | undefined;
   const tableHooks = options.hooks as Record<string, TableHooks> | undefined;
   const tableFields = options.fields;
@@ -204,6 +235,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
   }
 
   const config = resolveConfig(options.config);
+  validateReadinessOptions(options.readiness);
 
   // Publish the resolved secure-defaults flag so the auth cookie helpers (which
   // receive only an `isDev` boolean from many call sites) emit the correct
@@ -218,6 +250,14 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
 
   // Bootstrap internal tables (DDL via adapter)
   let bootstrapped = false;
+  let bootstrapFailed = false;
+  let stopping = false;
+  const diagnostics = createDiagnostics(
+    adapter,
+    config,
+    () => (bootstrapFailed ? "failed" : bootstrapped ? "ready" : "starting"),
+    options.readiness,
+  );
   const bootstrapPromise = (async () => {
     await adapter.bootstrapInternalTables();
 
@@ -240,6 +280,11 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     bootstrapped = true;
     return usersTable;
   })();
+  // Observe failure immediately even if no application request has arrived yet.
+  void bootstrapPromise.catch((error) => {
+    bootstrapFailed = true;
+    console.error("[BunBase] Startup failed:", error);
+  });
 
   let usersTable: any = null;
 
@@ -508,7 +553,7 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
   const skipLogPatternPaths = new Set<string>();
 
   // Reserved path prefixes that unscoped routes must not collide with
-  const reservedPrefixes = ["/health", "/_admin", "/auth/", "/realtime", "/files/"];
+  const reservedPrefixes = ["/health", "/ready", "/_admin", "/auth/", "/realtime", "/files/"];
 
   if (options.extend) {
     const filesContext = createFilesContext(db, adminStorage, internalSchema.files);
@@ -516,6 +561,9 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     for (const [path, definition] of Object.entries(extendRoutes)) {
       const { websocket, unscoped, skipLog, ...httpHandlers } = definition;
       const hasHttp = Object.keys(httpHandlers).length > 0;
+      if (path === "/ready" || path.startsWith("/ready/")) {
+        throw new Error(`BunBase: extend route "${path}" collides with reserved path "/ready".`);
+      }
 
       if (hasHttp) {
         if (!unscoped && !path.startsWith("/api/")) {
@@ -621,7 +669,6 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
 
     // Job scheduler — starts once bootstrap completes
     let scheduler: JobScheduler | null = null;
-    let stopping = false;
     const pendingLogs = new Set<Promise<void>>();
     function trackLog(work: Promise<void>): void {
       const pending = work.catch((error) =>
@@ -988,6 +1035,40 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
 
       routes: {
         "/health": secureResponse(Response.json({ status: "ok", version: pkg.version }), config),
+        "/ready": async (req: Request) => {
+          if (req.method !== "GET" && req.method !== "HEAD")
+            return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
+          const report = await diagnostics.readiness(stopping);
+          return secureResponse(
+            new Response(req.method === "HEAD" ? null : JSON.stringify({ status: report.status }), {
+              status: report.status === "ready" ? 200 : 503,
+              headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+            }),
+            config,
+          );
+        },
+        "/_admin/api/diagnostics": async (req: Request) => {
+          if (req.method !== "GET")
+            return new Response(null, { status: 405, headers: { Allow: "GET" } });
+          const token = extractBearerToken(req);
+          if (!token || !isServiceKey(token, config.serviceKey!)) {
+            return secureResponse(
+              Response.json(
+                { error: { code: "UNAUTHORIZED", message: "A service key is required." } },
+                { status: 401, headers: { "Cache-Control": "no-store" } },
+              ),
+              config,
+            );
+          }
+          const report = await diagnostics.diagnostics(stopping);
+          return secureResponse(
+            Response.json(report, {
+              status: report.status === "fail" ? 503 : 200,
+              headers: { "Cache-Control": "no-store" },
+            }),
+            config,
+          );
+        },
         "/_admin": () => secureResponse(new Response(Bun.file(adminHTMLPath)), config),
         "/_admin/": () => secureResponse(new Response(Bun.file(adminHTMLPath)), config),
         "/_admin-assets/*": (req: any) => {
@@ -1086,7 +1167,14 @@ export function createServer(options: CreateServerOptions): BunBaseServer {
     return server;
   }
 
-  return { db, adapter, config, listen };
+  return {
+    db,
+    adapter,
+    config,
+    listen,
+    readiness: () => diagnostics.readiness(stopping),
+    diagnostics: () => diagnostics.diagnostics(stopping),
+  };
 }
 
 const DEFAULT_ADMIN_EMAIL = "admin@example.com";

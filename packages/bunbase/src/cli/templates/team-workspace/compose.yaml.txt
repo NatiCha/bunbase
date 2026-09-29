@@ -1,0 +1,34 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PUBLIC_URL: ${PUBLIC_URL:?Set PUBLIC_URL to your HTTPS origin}
+      BUNBASE_SERVICE_KEY: ${BUNBASE_SERVICE_KEY:?Set a persistent service key}
+      BUNBASE_ADMIN_EMAIL: ${BUNBASE_ADMIN_EMAIL:?Set an admin email}
+      BUNBASE_ADMIN_PASSWORD: ${BUNBASE_ADMIN_PASSWORD:?Set an admin password}
+    volumes:
+      - workspace_data:/app/data
+    expose:
+      - "3000"
+    stop_grace_period: 20s
+  proxy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set your application domain without https://}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+volumes:
+  workspace_data:
+  caddy_data:
+  caddy_config:

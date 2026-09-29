@@ -1,0 +1,149 @@
+import { afterAll, expect, test } from "bun:test";
+import { createTestServer } from "@naticha/bunbase/testing";
+import { routes } from "./routes.ts";
+import { fields, hooks, rules } from "./rules.ts";
+import * as schema from "./schema.ts";
+
+const server = await createTestServer({
+  schema,
+  fields,
+  hooks,
+  rules,
+  extend: routes,
+  config: { auth: { organizations: { enabled: true } } },
+});
+afterAll(() => server.cleanup());
+const alice = await server.loginAs("alice@example.com");
+const bob = await server.loginAs("bob@example.com");
+const member = await server.loginAs("member@example.com");
+const outsiderAdmin = await server.loginAs({ email: "admin-outsider@example.com", role: "admin" });
+const mutation = (body: unknown, method = "POST") => ({ method, body: JSON.stringify(body) });
+const orgA = (
+  await (await alice.fetch("/auth/organizations", mutation({ name: "Alice Team" }))).json()
+).organization.id as string;
+const orgB = (await (await bob.fetch("/auth/organizations", mutation({ name: "Bob Team" }))).json())
+  .organization.id as string;
+const created = await alice.fetch(
+  "/api/requests",
+  mutation({ orgId: orgA, title: "Launch proposal", status: "approved", createdBy: bob.userId }),
+);
+const record = await created.json();
+
+test("server assigns creator and approval state; no public records", async () => {
+  expect(created.status).toBe(201);
+  expect(record.createdBy).toBe(alice.userId);
+  expect(record.status).toBe("open");
+  expect((await server.fetch("/api/requests")).status).toBe(403);
+});
+
+test("list, read, create, update, approval and files respect workspace boundaries", async () => {
+  expect((await (await bob.fetch("/api/requests")).json()).data).toHaveLength(0);
+  for (const session of [bob, outsiderAdmin]) {
+    expect((await session.fetch(`/api/requests/${record.id}`)).status).not.toBe(200);
+    expect(
+      (await session.fetch("/api/requests", mutation({ orgId: orgA, title: "Intrusion" }))).status,
+    ).toBe(403);
+    expect(
+      (await session.fetch(`/api/requests/${record.id}`, mutation({ title: "Changed" }, "PATCH")))
+        .status,
+    ).toBe(403);
+    expect((await session.fetch(`/api/requests/${record.id}`, { method: "DELETE" })).status).toBe(
+      403,
+    );
+    expect(
+      (await session.fetch(`/api/workspace/requests/${record.id}/approve`, { method: "POST" }))
+        .status,
+    ).toBe(403);
+    expect((await session.fetch(`/api/workspace/requests/${record.id}/files`)).status).toBe(403);
+    const form = new FormData();
+    form.set("file", new File(["denied"], "denied.txt"));
+    const response = await fetch(`${server.baseUrl}/files/requests/${record.id}`, {
+      method: "POST",
+      headers: {
+        cookie: `bunbase_session=${session.sessionId}; csrf_token=test`,
+        "X-CSRF-Token": "test",
+      },
+      body: form,
+    });
+    expect(response.status).toBe(403);
+  }
+  expect(
+    (await alice.fetch(`/api/requests/${record.id}`, mutation({ orgId: orgB }, "PATCH"))).status,
+  ).toBe(403);
+});
+
+test("invited member can collaborate but cannot approve; revocation removes access", async () => {
+  const inviteResponse = await alice.fetch(
+    `/auth/organizations/${orgA}/invites`,
+    mutation({ email: "member@example.com", role: "member" }),
+  );
+  expect(inviteResponse.status).toBe(201);
+  const { invite } = await inviteResponse.json();
+  expect(
+    (await bob.fetch("/auth/organization-invites/accept", mutation({ token: invite.token })))
+      .status,
+  ).toBe(403);
+  expect(
+    (await member.fetch("/auth/organization-invites/accept", mutation({ token: invite.token })))
+      .status,
+  ).toBe(200);
+  expect((await member.fetch(`/api/requests/${record.id}`)).status).toBe(200);
+  expect(
+    (await member.fetch(`/api/workspace/requests/${record.id}/approve`, { method: "POST" })).status,
+  ).toBe(403);
+  expect(
+    (
+      await alice.fetch(`/auth/organizations/${orgA}/members/${member.userId}`, {
+        method: "DELETE",
+      })
+    ).status,
+  ).toBe(200);
+  expect((await member.fetch(`/api/requests/${record.id}`)).status).not.toBe(200);
+});
+
+test("attachment contents remain private and restore-compatible", async () => {
+  const body = new FormData();
+  body.set("file", new File(["Private proposal"], "proposal.txt"));
+  const uploaded = await fetch(`${server.baseUrl}/files/requests/${record.id}`, {
+    method: "POST",
+    headers: {
+      cookie: `bunbase_session=${alice.sessionId}; csrf_token=test`,
+      "X-CSRF-Token": "test",
+    },
+    body,
+  });
+  expect(uploaded.status).toBe(201);
+  const { file } = await uploaded.json();
+  expect(await (await alice.fetch(`/files/${file.id}`)).text()).toBe("Private proposal");
+  expect((await bob.fetch(`/files/${file.id}`)).status).toBe(403);
+  expect((await bob.fetch(`/files/${file.id}`, { method: "DELETE" })).status).toBe(403);
+  expect(
+    (await (await alice.fetch(`/api/workspace/requests/${record.id}/files`)).json()).files,
+  ).toHaveLength(1);
+});
+
+test("approval is atomic and cannot be forged through CRUD", async () => {
+  const spoof = await alice.fetch(
+    `/api/requests/${record.id}`,
+    mutation({ status: "approved", approvedBy: bob.userId, title: "Launch proposal" }, "PATCH"),
+  );
+  expect(spoof.status).toBe(200);
+  expect((await spoof.json()).status).toBe("open");
+  const responses = await Promise.all(
+    [1, 2].map(() =>
+      alice.fetch(`/api/workspace/requests/${record.id}/approve`, { method: "POST" }),
+    ),
+  );
+  expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+  const approved = await (await alice.fetch(`/api/requests/${record.id}`)).json();
+  expect(approved.approvedBy).toBe(alice.userId);
+  expect(approved.approvedAt).toBeString();
+  expect(
+    (
+      await alice.fetch(
+        `/api/requests/${record.id}`,
+        mutation({ title: "Rewrite after approval" }, "PATCH"),
+      )
+    ).status,
+  ).toBe(403);
+});

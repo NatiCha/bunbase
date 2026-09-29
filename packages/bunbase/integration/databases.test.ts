@@ -8,6 +8,7 @@ import { mysqlTable, varchar as mysqlVarchar } from "drizzle-orm/mysql-core";
 import { pgTable, varchar as pgVarchar } from "drizzle-orm/pg-core";
 import { resolveConfig } from "../src/core/config.ts";
 import { createDatabase, runUserMigrations } from "../src/core/database.ts";
+import { createDiagnostics, migrationCheck } from "../src/core/diagnostics.ts";
 
 // These URLs must identify disposable test databases, never production databases.
 for (const driver of ["postgres", "mysql"] as const) {
@@ -63,6 +64,12 @@ export const items = ${tableBuilder}(${JSON.stringify(name)}, {
         await adapter.bootstrapInternalTables(); // Upgrades must tolerate existing internal tables.
         await runUserMigrations(db, config);
         await runUserMigrations(db, config); // Applied migrations must be idempotent.
+        // Journal queries and readiness probes use the same adapter on both external engines.
+        const migrations = await migrationCheck(adapter, migrationsPath);
+        expect(migrations.message).toContain("0 pending, 0 changed");
+        expect((await createDiagnostics(adapter, config, () => "ready").readiness()).status).toBe(
+          "ready",
+        );
         if (driver === "postgres") {
           const items = pgTable(name, {
             id: pgVarchar("id", { length: 80 }).primaryKey(),
