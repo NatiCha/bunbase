@@ -6,11 +6,19 @@ title: Testing
 
 From a repository checkout, install dependencies (including the separate docs
 dependencies), then run `bunx playwright install chromium` and `bun run verify`.
-The chain includes the packed scaffold smoke test and `bun run smoke:production`.
+The chain includes the packed scaffold smoke test, `bun run smoke:production`,
+and `bun run smoke:workspace`. The workspace smoke builds an installed-package
+application, runs its tenant tests, exercises the UI in Chromium, and verifies
+login/records/attachments after the CLI backup and restore.
 The latter uses a disposable SQLite database and Chromium to test production
 cookies, admin login/navigation, nested frontend routes, Tailwind styles, CSP,
 CRUD, realtime, uploads/downloads, graceful shutdown with an open WebSocket, and
 an offline database/upload backup restored into another directory.
+
+`bun run smoke:container` requires Docker and is a separate CI job. It validates
+the generated Compose configuration, builds the starter image, runs it as the Bun
+user, and restores a backup into a new Docker volume. It does not test live public
+DNS or certificate issuance.
 
 The browser check uses Chromium's trusted localhost context. It does not replace
 testing your deployed HTTPS origin, reverse proxy, OAuth providers, or S3 service.

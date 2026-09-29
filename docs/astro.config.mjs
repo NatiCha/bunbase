@@ -11,6 +11,7 @@ export default defineConfig({
       sidebar: [
         { label: "Introduction", slug: "index" },
         { label: "Quickstart", slug: "quickstart" },
+        { label: "Team workspace", slug: "team-workspace" },
         {
           label: "Guides",
           items: [
@@ -22,6 +23,8 @@ export default defineConfig({
             { label: "Client SDK", slug: "client" },
             { label: "Extending", slug: "extending" },
             { label: "Deployment", slug: "deployment" },
+            { label: "Production operations", slug: "operations" },
+            { label: "Upgrading to 0.2", slug: "upgrading-02" },
           ],
         },
         {

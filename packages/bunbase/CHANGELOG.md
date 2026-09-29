@@ -4,6 +4,30 @@ All notable changes to `@naticha/bunbase` are documented here. This project
 adheres to [Semantic Versioning](https://semver.org/) (pre-1.0: minor versions
 may contain breaking changes).
 
+## 0.2.0 — Production workflows
+
+- Added the `team-workspace` starter: responsive UI, organizations/invitations,
+  private attachments, requests, atomic approval, tenant tests, and Docker/Caddy
+  deployment/recovery instructions. Both CLI entry points support explicit
+  `--template` and `--database` flags.
+- Added `/ready` with bounded dependency probes, bootstrap/failure/shutdown states,
+  application checks, and a server-side readiness API. `/health` remains liveness.
+- Added service-key-only diagnostics and `bunbase doctor`, including JSON output,
+  exit codes, migration journal comparison, local-storage access, and environment
+  checks. Reports omit secrets and raw dependency errors.
+- Added offline SQLite `backup`, `backup verify`, and `restore`: standalone WAL-aware
+  snapshots, local files/migrations, optional service-key preservation, checksums,
+  integrity validation, and restoration into new directories only.
+- File upload rules now receive the parent record/id and enforce SQL predicates
+  against that parent before storing attachments.
+- Typed rule/hook maps are accepted by server and testing APIs under strict
+  TypeScript, including aliased schema exports.
+- Expanded packed-package, production browser, and Docker recovery checks.
+
+**Compatibility:** `/ready` is now reserved. Upload predicates that were previously
+ignored now deny nonmatching records. Unknown CLI flags now fail. See
+[`UPGRADING-0.2.md`](./docs/UPGRADING-0.2.md).
+
 ## 0.1.0 — Security & hardening release
 
 This is a security-focused release that closes several data-exposure and

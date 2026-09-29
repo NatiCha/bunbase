@@ -1,0 +1,60 @@
+import { type ExtendContext, orgAdmin, orgMember, type RouteMap } from "@naticha/bunbase";
+import { and, eq } from "drizzle-orm";
+import type { SQLiteBunDatabase } from "drizzle-orm/bun-sqlite";
+import { requests } from "./schema.ts";
+
+export function routes({ db: database, extractAuth, files }: ExtendContext): RouteMap {
+  // index.ts fixes the database driver to SQLite for this application.
+  const db = database as SQLiteBunDatabase;
+  return {
+    "/api/workspace/requests/:id/approve": {
+      POST: async (req) => {
+        const auth = await extractAuth(req);
+        if (!auth)
+          return Response.json(
+            { error: { message: "Sign in to approve a request." } },
+            { status: 401 },
+          );
+        const id = new URL(req.url).pathname.split("/").at(-2)!;
+        const rows = await db.select().from(requests).where(eq(requests.id, id));
+        const record = rows[0];
+        if (!record || !(await orgAdmin(record.orgId, auth, db))) {
+          return Response.json(
+            { error: { message: "Workspace administrator access required." } },
+            { status: 403 },
+          );
+        }
+        // This starter uses SQLite. The conditional write makes approval single-use
+        // without a read/modify/write race, and the approver fields change together.
+        const updated = await db
+          .update(requests)
+          .set({ status: "approved", approvedBy: auth.id, approvedAt: new Date().toISOString() })
+          .where(and(eq(requests.id, id), eq(requests.status, "open")))
+          .returning();
+        if (!updated.length)
+          return Response.json(
+            { error: { message: "This request is already approved." } },
+            { status: 409 },
+          );
+        return Response.json({ request: updated[0] });
+      },
+    },
+    "/api/workspace/requests/:id/files": {
+      GET: async (req) => {
+        const auth = await extractAuth(req);
+        const id = new URL(req.url).pathname.split("/").at(-2)!;
+        const rows = await db.select().from(requests).where(eq(requests.id, id));
+        if (!rows[0] || !(await orgMember(rows[0].orgId, auth, db))) {
+          return Response.json(
+            { error: { message: "Workspace membership required." } },
+            { status: 403 },
+          );
+        }
+        const attachments = await files.list("requests", id);
+        return Response.json({
+          files: attachments.map(({ id, filename, size }) => ({ id, filename, size })),
+        });
+      },
+    },
+  };
+}

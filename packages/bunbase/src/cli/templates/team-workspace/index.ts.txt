@@ -1,0 +1,34 @@
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { createServer, defineConfig } from "@naticha/bunbase";
+import indexHtml from "./portal/index.html";
+import { routes } from "./routes.ts";
+import { fields, hooks, rules } from "./rules.ts";
+import * as schema from "./schema.ts";
+
+const development = process.env.NODE_ENV === "development";
+const data = process.env.BUNBASE_DATA_DIR ?? "./data";
+const origin = process.env.PUBLIC_URL;
+if (!development && !origin) throw new Error("Set PUBLIC_URL to your HTTPS application origin.");
+if (!development && new URL(origin!).protocol !== "https:")
+  throw new Error("PUBLIC_URL must use HTTPS in production.");
+mkdirSync(join(data, "uploads"), { recursive: true });
+
+const app = createServer({
+  schema,
+  rules,
+  hooks,
+  fields,
+  extend: routes,
+  config: defineConfig({
+    development,
+    database: { driver: "sqlite", path: join(data, "db.sqlite") },
+    migrationsPath: process.env.BUNBASE_MIGRATIONS_DIR ?? "./drizzle",
+    publicUrl: origin,
+    cors: { origins: origin ? [new URL(origin).origin] : [] },
+    storage: { driver: "local", localPath: join(data, "uploads") },
+    auth: { organizations: { enabled: true } },
+    frontend: { html: indexHtml },
+  }),
+});
+app.listen();

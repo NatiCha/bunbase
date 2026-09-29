@@ -194,8 +194,10 @@ GET /health
 
 Returns `200 OK` with JSON such as `{"status":"ok","version":"0.1.0"}`.
 This is a process liveness check: it does not query the database or verify that
-startup migrations have completed. Use an application-specific readiness route
-that checks required dependencies before routing production traffic.
+startup migrations have completed. Use `GET /ready` to gate traffic on completed
+startup and database connectivity. Add application dependencies through the
+`readiness.checks` server option. See [Production operations](/operations/) for
+readiness, `bunbase doctor`, and the verified offline backup/restore CLI.
 
 ## Restarts and shutdown
 

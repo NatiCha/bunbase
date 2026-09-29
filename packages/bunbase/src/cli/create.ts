@@ -1,14 +1,12 @@
 #!/usr/bin/env bun
-// Entry point for the installed `create-bunbase` command.
+import { INIT_HELP, parseInitArgs } from "./args.ts";
 import { init } from "./init.ts";
 
 const args = process.argv.slice(2);
-const nonInteractive = args.includes("-y") || args.includes("--yes");
-const projectName = args.find((a) => !a.startsWith("-"));
-
-await init({
-  projectName,
-  nonInteractive,
-  skipInstall: args.includes("--skip-install"),
-  noStart: args.includes("--no-start"),
-});
+try {
+  if (args.includes("--help") || args.includes("-h")) console.log(INIT_HELP);
+  else await init(parseInitArgs(args));
+} catch (error) {
+  console.error(error instanceof Error ? error.message : "Could not create project.");
+  process.exitCode = 1;
+}

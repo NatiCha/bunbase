@@ -69,6 +69,46 @@ function makeConfig(overrides = {}) {
   });
 }
 
+test("uploads apply the create SQL predicate to the parent and supply record/id", async () => {
+  const { sqlite, db, adapter, internalSchema } = setupDb();
+  try {
+    const session = await createUser(sqlite, db, internalSchema);
+    sqlite.run("INSERT INTO posts VALUES ('allowed', 'Allowed'), ('denied', 'Denied')");
+    const routes = createFileRoutes({
+      db,
+      adapter,
+      internalSchema,
+      usersTable,
+      schema: { posts: postsTable },
+      config: makeConfig(),
+      rules: {
+        posts: {
+          create: ({ id, record }) => {
+            expect(record?.id).toBe(id);
+            expect(record?.title).toBeString();
+            return eq(postsTable.id, "allowed");
+          },
+        },
+      },
+    });
+    for (const id of ["allowed", "denied"]) {
+      const body = new FormData();
+      body.set("file", new File(["content"], "sql-rule.txt"));
+      const response = await routes["/files/:collection/:recordId"].POST(
+        new Request(`http://localhost/files/posts/${id}`, {
+          method: "POST",
+          headers: { cookie: `bunbase_session=${session}` },
+          body,
+        }),
+      );
+      expect(response.status).toBe(id === "allowed" ? 201 : 403);
+    }
+    expect(sqlite.query("SELECT COUNT(*) AS count FROM _files").get()).toEqual({ count: 1 });
+  } finally {
+    sqlite.close();
+  }
+});
+
 // ─── createStorageDriver — S3 branch (line 35) ────────────────────────────────
 
 test("createStorageDriver returns S3 driver when config uses s3 driver", () => {
