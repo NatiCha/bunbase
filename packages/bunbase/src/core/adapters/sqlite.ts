@@ -76,19 +76,12 @@ export class SqliteAdapter implements DatabaseAdapter {
     `);
 
     // Migration: add columns to _sessions if missing
-    const sessionMigrations = [
-      "ALTER TABLE _sessions ADD COLUMN mfa_verified INTEGER",
-      "ALTER TABLE _sessions ADD COLUMN user_agent TEXT",
-      "ALTER TABLE _sessions ADD COLUMN ip_address TEXT",
-      "ALTER TABLE _sessions ADD COLUMN is_guest INTEGER DEFAULT 0",
-    ];
-    for (const stmt of sessionMigrations) {
-      try {
-        this.sqlite.run(stmt);
-      } catch {
-        // Column already exists
-      }
-    }
+    this.addMissingColumns("_sessions", [
+      ["mfa_verified", "INTEGER"],
+      ["user_agent", "TEXT"],
+      ["ip_address", "TEXT"],
+      ["is_guest", "INTEGER DEFAULT 0"],
+    ]);
 
     this.sqlite.run(`
       CREATE TABLE IF NOT EXISTS _mfa_totp (
@@ -102,11 +95,7 @@ export class SqliteAdapter implements DatabaseAdapter {
     `);
 
     // Migration: add last_used_step to _mfa_totp if missing (TOTP replay guard)
-    try {
-      this.sqlite.run("ALTER TABLE _mfa_totp ADD COLUMN last_used_step INTEGER");
-    } catch {
-      // Column already exists
-    }
+    this.addMissingColumns("_mfa_totp", [["last_used_step", "INTEGER"]]);
 
     this.sqlite.run(`
       CREATE TABLE IF NOT EXISTS _mfa_backup_codes (
@@ -240,6 +229,20 @@ export class SqliteAdapter implements DatabaseAdapter {
     this.sqlite.run(
       "CREATE INDEX IF NOT EXISTS idx_jwt_revocations_expires ON _jwt_revocations(expires_at)",
     );
+  }
+
+  /** Add only the columns the table lacks, read from the catalog first. */
+  private addMissingColumns(table: string, columns: [string, string][]): void {
+    const existing = new Set(
+      this.sqlite
+        .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
+        .all()
+        .map((row) => row.name),
+    );
+    for (const [column, type] of columns) {
+      if (!existing.has(column))
+        this.sqlite.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    }
   }
 
   async rawQuery<T = Record<string, unknown>>(

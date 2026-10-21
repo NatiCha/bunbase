@@ -23,6 +23,12 @@ may contain breaking changes).
 - Typed rule/hook maps are accepted by server and testing APIs under strict
   TypeScript, including aliased schema exports.
 - Expanded packed-package, production browser, and Docker recovery checks.
+- Startup no longer takes table locks on an up-to-date database: internal-table
+  columns and indexes are read from the catalog and only missing ones are created,
+  with a 5s lock wait on Postgres. Previously every start queued an exclusive lock
+  on `_sessions` behind any lock holder (e.g. `pg_dump`).
+- A failed startup now retries with backoff (1s doubling to 30s) instead of being
+  cached until restart. Requests get `503` with `Retry-After` until it succeeds.
 
 **Compatibility:** `/ready` is now reserved. Upload predicates that were previously
 ignored now deny nonmatching records. Unknown CLI flags now fail. See

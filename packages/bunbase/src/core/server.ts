@@ -258,7 +258,7 @@ export function createServer<TSchema extends Record<string, unknown>>(
     () => (bootstrapFailed ? "failed" : bootstrapped ? "ready" : "starting"),
     options.readiness,
   );
-  const bootstrapPromise = (async () => {
+  async function bootstrapOnce() {
     await adapter.bootstrapInternalTables();
 
     // Migrate user-defined tables from Drizzle migrations
@@ -277,14 +277,42 @@ export function createServer<TSchema extends Record<string, unknown>>(
       await seedDefaultAdmin(db, usersTable, config.development, devExplicit);
     }
 
-    bootstrapped = true;
     return usersTable;
+  }
+
+  // A failed startup (e.g. a DDL lock wait timing out behind a backup) is
+  // retried with backoff instead of being cached: requests answer 503 until it
+  // succeeds, and the process never needs a restart to recover.
+  let wakeRetry: (() => void) | null = null;
+  const firstAttempt = Promise.withResolvers<void>();
+  const bootstrapPromise = (async () => {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const result = await bootstrapOnce();
+        bootstrapFailed = false;
+        bootstrapped = true;
+        firstAttempt.resolve();
+        return result;
+      } catch (error) {
+        bootstrapFailed = true;
+        firstAttempt.resolve();
+        if (stopping) throw error;
+        const delayMs = Math.min(1000 * 2 ** (attempt - 1), 30_000);
+        console.error(
+          `[BunBase] Startup failed (attempt ${attempt}); retrying in ${delayMs / 1000}s:`,
+          error,
+        );
+        await new Promise<void>((resolve) => {
+          wakeRetry = resolve;
+          setTimeout(resolve, delayMs).unref();
+        });
+        wakeRetry = null;
+        if (stopping) throw error;
+      }
+    }
   })();
-  // Observe failure immediately even if no application request has arrived yet.
-  void bootstrapPromise.catch((error) => {
-    bootstrapFailed = true;
-    console.error("[BunBase] Startup failed:", error);
-  });
+  // Shutdown also awaits this; a startup abandoned by stop() is not an error there.
+  void bootstrapPromise.catch(() => {});
 
   let usersTable: any = null;
 
@@ -781,8 +809,22 @@ export function createServer<TSchema extends Record<string, unknown>>(
       // Capture socket IP before any cloning — srv.requestIP() needs the original request.
       const socketIp = srv.requestIP(req)?.address ?? "unknown";
 
-      // Ensure bootstrap is complete (important for Postgres)
+      // Ensure bootstrap is complete (important for Postgres). Requests wait
+      // out the first attempt; once one has failed they get 503 until a retry
+      // succeeds rather than queueing behind it.
       if (!bootstrapped) {
+        await firstAttempt.promise;
+        if (!bootstrapped) {
+          return secureResponse(
+            Response.json(
+              {
+                error: { code: "STARTING", message: "The server is starting. Try again shortly." },
+              },
+              { status: 503, headers: { "Retry-After": "5", "Cache-Control": "no-store" } },
+            ),
+            config,
+          );
+        }
         const bootstrapResult = await bootstrapPromise;
         if (bootstrapResult && !usersTable) {
           usersTable = bootstrapResult;
@@ -1127,6 +1169,7 @@ export function createServer<TSchema extends Record<string, unknown>>(
     const originalStop = server.stop.bind(server);
     server.stop = (closeActiveConnections?: boolean) => {
       stopping = true;
+      wakeRetry?.();
       scheduler?.stop();
       if (!shutdownStarted) {
         process.off("SIGTERM", shutdown);
@@ -1145,7 +1188,7 @@ export function createServer<TSchema extends Record<string, unknown>>(
       void drainServer({
         stop: (force) => server.stop(force),
         idle: async () => {
-          await bootstrapPromise;
+          await bootstrapPromise.catch(() => {});
           await scheduler?.waitForIdle();
         },
         close: async () => {
