@@ -72,3 +72,15 @@ jobs:
           BUNBASE_TEST_POSTGRES_URL: postgres://bunbase:bunbase_test@localhost:5432/bunbase_test
           # Encrypt authentication to the disposable MySQL service (self-signed certificate).
           BUNBASE_TEST_MYSQL_URL: mysql://bunbase:bunbase_test@127.0.0.1:3306/bunbase_test?sslmode=require
+
+  workspace-container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: Verify the generated workspace container and restore workflow
+        run: bun run smoke:container

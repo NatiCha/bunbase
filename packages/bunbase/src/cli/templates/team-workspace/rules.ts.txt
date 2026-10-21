@@ -1,0 +1,92 @@
+import {
+  ApiError,
+  defineFields,
+  defineHooks,
+  defineRules,
+  orgAdmin,
+  orgMember,
+} from "@naticha/bunbase";
+import { eq, sql } from "drizzle-orm";
+import * as schema from "./schema.ts";
+
+// Apply a SQL predicate to EACH returned row, including file downloads and realtime.
+// A global administrator is not automatically a member of a customer's workspace.
+function scope(userId: string) {
+  return sql`${schema.requests.orgId} in (select org_id from _organization_members where user_id = ${userId} and role in ('owner', 'admin', 'member'))`;
+}
+
+export const rules = {
+  users: defineRules(schema.users, {
+    list: () => false,
+    get: ({ auth }) => (auth ? eq(schema.users.id, auth.id) : false),
+    create: () => false,
+    update: ({ auth }) => (auth ? eq(schema.users.id, auth.id) : false),
+    delete: () => false,
+  }),
+  requests: defineRules(schema.requests, {
+    list: ({ auth }) => (auth ? scope(auth.id) : false),
+    get: ({ auth }) => (auth ? scope(auth.id) : false),
+    // File uploads use the parent record's create rule with its ID and an empty body.
+    create: async ({ auth, body, record, id, db }) => {
+      if (!auth) return false;
+      if (id) {
+        return orgMember(record?.orgId, auth, db);
+      }
+      return typeof body.orgId === "string" && orgMember(body.orgId, auth, db);
+    },
+    update: ({ auth, record, body, db }) =>
+      !!record &&
+      !("orgId" in body) &&
+      record.status === "open" &&
+      orgMember(record.orgId, auth, db),
+    delete: ({ auth, record, db }) => orgAdmin(record?.orgId, auth, db),
+  }),
+};
+
+export const fields = {
+  users: defineFields(schema.users, { readonly: ["role", "email"] }),
+  requests: defineFields(schema.requests, {
+    readonly: ["createdBy", "status", "approvedBy", "approvedAt"],
+    immutable: ["orgId"],
+  }),
+};
+
+export const hooks = {
+  requests: defineHooks(schema.requests, {
+    beforeCreate: ({ data, auth }) => {
+      if (!auth) throw new ApiError("UNAUTHORIZED", "Authentication required.", 401);
+      if (
+        typeof data.title !== "string" ||
+        !data.title.trim() ||
+        data.title.length > 160 ||
+        (data.description !== undefined &&
+          (typeof data.description !== "string" || data.description.length > 5000))
+      ) {
+        throw new ApiError(
+          "VALIDATION_ERROR",
+          "Provide a title of 1-160 characters and details of at most 5000 characters.",
+          400,
+        );
+      }
+      return {
+        ...data,
+        title: data.title.trim(),
+        createdBy: auth.id,
+        status: "open" as const,
+        approvedBy: null,
+        approvedAt: null,
+      };
+    },
+    beforeUpdate: ({ data }) => {
+      if (
+        (data.title !== undefined &&
+          (typeof data.title !== "string" || !data.title.trim() || data.title.length > 160)) ||
+        (data.description !== undefined &&
+          (typeof data.description !== "string" || data.description.length > 5000))
+      ) {
+        throw new ApiError("VALIDATION_ERROR", "Invalid request title or details.", 400);
+      }
+      return data;
+    },
+  }),
+};

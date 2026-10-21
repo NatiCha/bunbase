@@ -1,5 +1,17 @@
 # BunBase release follow-ups
 
+## 0.2.0 — Production workflows
+
+- [x] Team-workspace starter with organization isolation, invitations, private files, and approvals.
+- [x] Readiness and service-key diagnostics with migration-history checks.
+- [x] Offline SQLite backup, verification, and restore into a new directory.
+- [x] Packed starter tests, production browser recovery, docs, and upgrade guidance.
+- [ ] Review the 0.2.0 PR and authorize package publication separately.
+
+The 0.1.0 notes below are historical; the current implementation and release
+contracts are documented in the package changelog and `docs/UPGRADING-0.2.md`.
+
+
 The September 2026 refresh resolved the earlier workspace dependency, Drizzle
 version, example typecheck, scaffold, and package build issues. See
 [UPGRADE-NOTES.md](./UPGRADE-NOTES.md) for the verified work and limitations.

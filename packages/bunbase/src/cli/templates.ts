@@ -1,4 +1,12 @@
-export type TemplateType = "task-manager" | "blog" | "saas" | "inventory" | "empty";
+import { teamWorkspace } from "./team-workspace.ts";
+
+export type TemplateType =
+  | "task-manager"
+  | "blog"
+  | "saas"
+  | "inventory"
+  | "empty"
+  | "team-workspace";
 export type OAuthProvider = "google" | "github" | "discord";
 export type DatabaseDriver = "sqlite" | "postgres" | "mysql";
 
@@ -12,6 +20,7 @@ export interface Template {
   sampleTest: string;
   tables: string[];
   description: string;
+  files?: Record<string, string>;
 }
 
 // ─── Schema helpers ───────────────────────────────────────────────────────────
@@ -563,7 +572,7 @@ type TemplateBody = {
   publicTable: string | null;
 };
 
-const TEMPLATES: Record<TemplateType, TemplateBody> = {
+const TEMPLATES: Record<Exclude<TemplateType, "team-workspace">, TemplateBody> = {
   "task-manager": {
     schema: taskManagerSchema,
     rules: taskManagerRules,
@@ -607,6 +616,19 @@ export function getTemplate(
   oauthProviders: OAuthProvider[],
   dbName: string = "myapp",
 ): Template {
+  if (type === "team-workspace") {
+    if (driver !== "sqlite")
+      throw new Error("The team-workspace starter uses SQLite. Select SQLite or another template.");
+    if (oauthProviders.length)
+      throw new Error(
+        "The team-workspace starter uses email/password authentication. Add OAuth after setup using the bundled docs.",
+      );
+    return {
+      ...teamWorkspace,
+      drizzleConfig: buildDrizzleConfig(driver),
+      env: "# Run bun dev for local development. See .env.example and README.md for production.\nPORT=3000\n",
+    };
+  }
   const t = TEMPLATES[type];
   return {
     schema: t.schema(driver),
@@ -631,6 +653,10 @@ export function slugifyDbName(name: string): string {
 }
 
 export const TEMPLATE_OPTIONS: { label: string; value: TemplateType }[] = [
+  {
+    label: "Team workspace — private requests, invitations & approvals (SQLite)",
+    value: "team-workspace",
+  },
   { label: "Task Manager — projects & tasks", value: "task-manager" },
   { label: "Blog — posts, categories & comments", value: "blog" },
   { label: "SaaS — organizations, members & invoices", value: "saas" },
@@ -655,115 +681,7 @@ export const OAUTH_OPTIONS: { label: string; value: OAuthProvider }[] = [
 
 // ─── AI agent instruction files ───────────────────────────────────────────────
 
-export const CLAUDE_MD = `## BunBase Project
-
-This project uses [BunBase](https://bunbase.dev) — a TypeScript-native backend built on Bun and Drizzle ORM. It auto-generates a full REST API (CRUD, auth, file storage, realtime) from your Drizzle schema.
-
-### Project structure
-
-- \`src/schema.ts\` — Drizzle table definitions (source of truth for the data model)
-- \`src/rules.ts\` — access control rules (deny by default; define what each role can do)
-- \`src/index.ts\` — server entry point (\`createServer\` + \`listen\`)
-- \`src/hooks.ts\` — lifecycle hooks, if present (run code before/after CRUD operations)
-
-### Commands
-
-- \`bun dev\` — start dev server with hot reload
-- \`bun start\` — production server
-- \`bun run db:push\` — push schema changes to the database
-- \`bun run db:generate\` — generate migration files
-- \`bun test\` — run all tests
-
-### Key APIs
-
-**Rules** — deny by default; every operation must be explicitly allowed:
-
-\`\`\`ts
-import { defineRules, authenticated, ownerOnly, admin } from "@naticha/bunbase";
-import { posts } from "./schema";
-
-export const rules = defineRules({
-  posts: {
-    list: () => true,                                  // public
-    get: () => true,                                   // public
-    create: ({ auth }) => authenticated(auth),         // logged-in users
-    update: ({ auth }) => ownerOnly(posts.authorId, auth), // owner only
-    delete: ({ auth }) => admin(auth),                 // admins only
-  },
-});
-\`\`\`
-
-Rule return values:
-- \`true\` or \`null\` → allow
-- \`false\` → deny (403)
-- Drizzle SQL expression → allow but scope results to matching rows
-
-**Hooks** — run code before/after CRUD operations:
-
-\`\`\`ts
-import { defineHooks } from "@naticha/bunbase";
-import { posts } from "./schema";
-
-export const hooks = {
-  posts: defineHooks(posts, {
-    beforeCreate: ({ data, auth, request }) => ({ ...data, authorId: auth!.id }),
-    afterCreate: ({ record, request }) => { /* send notification, etc. */ },
-    beforeUpdate: ({ data, existing, auth }) => data,
-    afterDelete: ({ record }) => { /* cleanup */ },
-  }),
-};
-\`\`\`
-
-**Testing** — use \`createTestServer\` for integration tests:
-
-\`\`\`ts
-import { createTestServer } from "@naticha/bunbase/testing";
-import { test, expect, afterAll } from "bun:test";
-import * as schema from "../src/schema";
-import { rules } from "../src/rules";
-
-const server = await createTestServer({ schema, rules });
-afterAll(() => server.cleanup());
-
-test("creates record", async () => {
-  const res = await server.fetch("/api/posts", {
-    method: "POST",
-    body: JSON.stringify({ title: "Hello" }),
-  });
-  expect(res.status).toBe(201);
-});
-\`\`\`
-
-Use \`server.adapter.rawExecute(sql)\` to seed test data directly.
-
-**Client SDK** — typed frontend client:
-
-\`\`\`ts
-import { createBunBaseClient } from "@naticha/bunbase/client";
-
-import * as schema from "./schema";
-
-const client = createBunBaseClient({ url: "http://localhost:3000", schema });
-
-// CRUD
-const { data } = await client.api.posts.list({ filter: { status: "published" } });
-const post = await client.api.posts.create({ title: "Hello", body: "World" });
-
-// Auth
-await client.auth.login({ email, password });
-const me = await client.auth.me();
-\`\`\`
-
-### BunBase Docs Index
-
-IMPORTANT: Before implementing a BunBase feature you are unfamiliar with, read the relevant doc file. All docs are bundled in \`node_modules/@naticha/bunbase/docs/\`.
-
-\`\`\`
-[BunBase Docs]|root: ./node_modules/@naticha/bunbase/docs
-|:{index.md,quickstart.md,schema.md,rules.md,hooks.md,client.md,configuration.md,deployment.md,extending.md,jobs.md,realtime.md,testing.md}
-|api:{auth.md,crud.md,files.md,api-keys.md}
-\`\`\`
-`;
+export const CLAUDE_MD = "@AGENTS.md\n";
 
 export const AGENTS_MD = `# BunBase Project — Agent Instructions
 
@@ -788,6 +706,9 @@ bun start          # production server
 bun test           # run all tests
 bun run db:push    # push schema to database (no migration file)
 bun run db:generate # generate migration files
+bun run doctor     # check the running server; --json for scripts
+bun run backup backups/snapshot --stopped # only after all writers are stopped
+bun run restore backups/snapshot restored # new directory only
 \`\`\`
 
 ## Auto-generated API endpoints (per table)
@@ -850,7 +771,8 @@ const server = await createTestServer({ schema, rules });
 afterAll(() => server.cleanup());
 
 test("creates post", async () => {
-  const res = await server.fetch("/api/posts", {
+  const session = await server.loginAs("writer@example.com");
+  const res = await session.fetch("/api/posts", {
     method: "POST",
     body: JSON.stringify({ title: "Hello" }),
   });
@@ -859,6 +781,16 @@ test("creates post", async () => {
 \`\`\`
 
 \`createTestServer\` auto-creates tables, handles CSRF, starts on a random port. Use \`server.adapter.rawExecute(sql)\` to seed data.
+
+## Production and workspace conventions
+
+- Keep generated migrations and the lockfile in Git. Review migration SQL before deploying.
+- Use one application process for built-in jobs, realtime, presence, and rate limits.
+- Use \`/ready\` to gate traffic; \`/health\` only reports liveness.
+- Read \`operations.md\` before running backup or restore. Stop every writer; restore to a new directory.
+- Keep source, application versions, and environment-managed secrets separately from data backups.
+- If this is a team-workspace app, preserve organization predicates and server-assigned approval fields.
+- Use \`bun test\` to verify tenant and attachment isolation after changing rules.
 
 ## Reference docs (bundled in node_modules)
 
@@ -877,6 +809,8 @@ Read the relevant file before implementing unfamiliar features:
 | Scheduled jobs | \`./node_modules/@naticha/bunbase/docs/jobs.md\` |
 | Full config reference | \`./node_modules/@naticha/bunbase/docs/configuration.md\` |
 | Custom routes | \`./node_modules/@naticha/bunbase/docs/extending.md\` |
+| Operations / backup | \`./node_modules/@naticha/bunbase/docs/operations.md\` |
+| Team workspace starter | \`./node_modules/@naticha/bunbase/docs/team-workspace.md\` |
 | Deployment checklist | \`./node_modules/@naticha/bunbase/docs/deployment.md\` |
 | Testing / createTestServer | \`./node_modules/@naticha/bunbase/docs/testing.md\` |
 | API keys (bearer auth) | \`./node_modules/@naticha/bunbase/docs/api/api-keys.md\` |

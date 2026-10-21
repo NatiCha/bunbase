@@ -83,7 +83,7 @@ Run these commands from the repository root:
 | Command | Purpose |
 | --- | --- |
 | `bun run dev` | Build admin assets and start the demo server/client |
-| `bun run check` | Biome formatting, lint, and import checks |
+| `bun run check` | Biome formatting, lint, and import checks, including embedded starter TypeScript/CSS |
 | `bun run type` | Library, declaration, example, and root script type checks |
 | `bun run build:admin` | Build assets required by admin routes and their tests |
 | `bun run build` | Build admin assets, compiled CLI, and type declarations |
@@ -93,7 +93,9 @@ Run these commands from the repository root:
 | `bun run docs:build` | Build the documentation site |
 | `bun run smoke` | Exercise a packed consumer app; run `bun run build` first |
 | `bun run smoke:production` | Chromium production flows and offline SQLite/upload restore; run `bun run build:admin` first |
-| `bun run verify` | Full local CI verification chain, including scaffold and production browser smoke tests |
+| `bun run smoke:workspace` | Packed team-workspace app, tenant tests, Chromium flows, and CLI recovery; run `bun run build` first |
+| `bun run smoke:container` | Docker image/Compose and volume recovery checks; requires Docker and `bun run build` |
+| `bun run verify` | Full local CI verification chain, including scaffold, production, and workspace browser smoke tests |
 
 - Use targeted `bun test <path>` runs while developing. Prefer `bun run test` for
   the standard suite: its separate test processes prevent migration mocks from
@@ -103,7 +105,7 @@ Run these commands from the repository root:
   For documentation-only changes, validate affected paths/content and use docs
   checks when site content changes; an unrelated full test run is unnecessary.
 - Report what actually ran, including failures or skipped database coverage.
-- `bun run verify` does not run the separate external-database CI job.
+- `bun run verify` does not run the separate external-database or workspace-container CI jobs.
   `BUNBASE_TEST_POSTGRES_URL` and `BUNBASE_TEST_MYSQL_URL` enable the corresponding
   integration cases. Use disposable databases: these suites create tables,
   migrations, and triggers. Unset URLs mean skipped coverage, not verified support.
@@ -188,7 +190,12 @@ Always call `server.cleanup()` in `afterAll`.
 The `bunbase` binary uses `init [name]` (`src/cli/index.ts`). The `create-bunbase`
 binary accepts the project name directly (`src/cli/create.ts`). Keep both entry
 points and `src/cli/templates.ts` consistent, and exercise the packed scaffold
-when changing generated apps or CLI behavior.
+when changing generated apps or CLI behavior. Both entry points support `--template`
+and `--database`; keep argument parsing and help in sync. The `team-workspace`
+template sources live under `src/cli/templates/team-workspace/` as text assets
+embedded into the compiled CLI. `smoke:workspace` typechecks and tests the generated
+source, then exercises the production UI and recovery. Update bundled agent
+instructions and operations documentation whenever CLI behavior changes.
 
 ## Documentation lookup
 
@@ -197,7 +204,7 @@ Read the relevant guide under `packages/bunbase/docs/`:
 - Getting started/data: `quickstart.md`, `schema.md`, `configuration.md`,
   `rules.md`, `hooks.md`, `testing.md`, `UPGRADING-0.1.md`.
 - Runtime/client: `client.md`, `realtime.md`, `jobs.md`, `email.md`,
-  `extending.md`, `deployment.md`.
+  `extending.md`, `deployment.md`, `operations.md`, `team-workspace.md`.
 - Endpoint and auth contracts: `api/` (CRUD, files, authentication, API/service
   keys, JWT, sessions, MFA, passkeys, organizations, invitations, and other flows).
 

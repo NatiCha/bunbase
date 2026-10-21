@@ -1,0 +1,275 @@
+import { BunBaseClientError, createBunBaseClient } from "@naticha/bunbase/client";
+import * as schema from "../schema.ts";
+
+const client = createBunBaseClient({
+  url: location.origin,
+  schema,
+  serverFields: { requests: ["createdBy", "status", "approvedBy", "approvedAt"] },
+});
+type RequestRecord = typeof schema.requests.$inferSelect;
+type Organization = { id: string; name: string; role: string };
+const element = <T extends HTMLElement = HTMLElement>(id: string) =>
+  document.getElementById(id) as T;
+let register = false;
+let organizations: Organization[] = [];
+let selectedOrg = "";
+let selected: RequestRecord | undefined;
+let noticeTimer: ReturnType<typeof setTimeout>;
+let revision = 0;
+function notice(message: string, error = false) {
+  clearTimeout(noticeTimer);
+  const target = element("notice");
+  target.textContent = message;
+  target.className = error ? "error" : "";
+  target.hidden = false;
+  noticeTimer = setTimeout(() => {
+    target.hidden = true;
+  }, 6500);
+}
+function run(action: () => Promise<void>) {
+  void action().catch((error: unknown) =>
+    notice(error instanceof Error ? error.message : "Something went wrong. Try again.", true),
+  );
+}
+function form(id: string, action: (data: FormData) => Promise<void>) {
+  element<HTMLFormElement>(id).addEventListener("submit", (event) => {
+    event.preventDefault();
+    const target = event.currentTarget as HTMLFormElement;
+    const button = target.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    button.disabled = true;
+    run(async () => {
+      try {
+        await action(new FormData(target));
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+}
+const value = (data: FormData, key: string) => String(data.get(key) ?? "").trim();
+function canApprove() {
+  return ["owner", "admin"].includes(
+    organizations.find((org) => org.id === selectedOrg)?.role ?? "",
+  );
+}
+async function request<T>(path: string, method = "GET"): Promise<T> {
+  const csrf =
+    document.cookie
+      .split("; ")
+      .find((cookie) => cookie.startsWith("csrf_token="))
+      ?.split("=")[1] ?? "";
+  const response = await fetch(path, {
+    method,
+    credentials: "include",
+    headers: { "X-CSRF-Token": decodeURIComponent(csrf) },
+  });
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error?.message ?? "Request failed.");
+  return body as T;
+}
+async function loadWorkspaces(preferred = selectedOrg) {
+  const result = await client.auth.organizations.list();
+  organizations = result.organizations.map((org) => ({
+    id: String(org.id),
+    name: String(org.name),
+    role: String(org.role),
+  }));
+  selectedOrg = organizations.some((org) => org.id === preferred)
+    ? preferred
+    : (organizations[0]?.id ?? "");
+  const select = element<HTMLSelectElement>("workspace-select");
+  select.replaceChildren();
+  if (!organizations.length) select.add(new Option("No workspaces yet", ""));
+  for (const org of organizations)
+    select.add(new Option(org.name, org.id, false, org.id === selectedOrg));
+  await refresh();
+}
+async function signedIn() {
+  const user = await client.auth.me();
+  if (!user) return;
+  element("account-email").textContent = String(user.email);
+  element("auth-screen").hidden = true;
+  element("workspace-screen").hidden = false;
+  await loadWorkspaces();
+}
+async function refresh() {
+  const current = ++revision;
+  const org = selectedOrg;
+  selected = undefined;
+  element("request-detail").hidden = true;
+  element("invite-result").hidden = true;
+  element<HTMLInputElement>("invite-token").value = "";
+  element("no-workspace").hidden = !!org;
+  element("request-area").hidden = !org;
+  element("invite-panel").hidden = !org || !canApprove();
+  element("workspace-role").textContent = org
+    ? `Your role: ${organizations.find((item) => item.id === org)?.role}`
+    : "";
+  const rows = org
+    ? await client.api.requests.listAll({ filter: { orgId: org }, sort: "-createdAt" })
+    : [];
+  if (current !== revision) return;
+  element("total-count").textContent = String(rows.length);
+  element("nav-count").textContent = String(rows.length);
+  element("open-count").textContent = String(rows.filter((row) => row.status === "open").length);
+  element("approved-count").textContent = String(
+    rows.filter((row) => row.status === "approved").length,
+  );
+  const list = element("request-list");
+  list.replaceChildren();
+  if (!rows.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "No requests yet. Create one above to get things moving.";
+    list.append(empty);
+  }
+  for (const row of rows) {
+    const button = document.createElement("button");
+    button.className = "request-row";
+    const title = document.createElement("span");
+    title.textContent = row.title;
+    const date = document.createElement("small");
+    date.textContent = new Date(row.createdAt).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    title.append(date);
+    const badge = document.createElement("span");
+    badge.className = `badge ${row.status}`;
+    badge.textContent = row.status === "approved" ? "Approved" : "Awaiting approval";
+    button.append(title, badge);
+    button.onclick = () => run(() => showRequest(row));
+    list.append(button);
+  }
+}
+async function showRequest(record: RequestRecord) {
+  selected = record;
+  const current = revision;
+  element("request-detail").hidden = false;
+  element("detail-title").textContent = record.title;
+  element("detail-description").textContent = record.description || "No additional details.";
+  element("detail-status").textContent =
+    record.status === "approved"
+      ? `Approved ${new Date(record.approvedAt!).toLocaleString()}`
+      : "Awaiting approval from a workspace administrator.";
+  element("approve-request").hidden = record.status !== "open" || !canApprove();
+  const list = element("file-list");
+  list.replaceChildren();
+  const result = await request<{ files: { id: string; filename: string; size: number }[] }>(
+    `/api/workspace/requests/${encodeURIComponent(record.id)}/files`,
+  );
+  if (current !== revision || selected?.id !== record.id) return;
+  if (!result.files.length) {
+    const item = document.createElement("li");
+    item.textContent = "No attachments yet.";
+    item.className = "muted";
+    list.append(item);
+  }
+  for (const file of result.files) {
+    const item = document.createElement("li");
+    const link = document.createElement("a");
+    link.href = client.files.downloadUrl(file.id);
+    link.textContent = `${file.filename} · ${Math.ceil(file.size / 1024)} KB`;
+    item.append(link);
+    list.append(item);
+  }
+  element("request-detail").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+element("auth-toggle").onclick = () => {
+  register = !register;
+  element("auth-title").textContent = register
+    ? "Create your account"
+    : "Sign in to your workspace";
+  element("auth-submit").textContent = register ? "Create account" : "Sign in";
+  element("auth-toggle").textContent = register
+    ? "Already have an account? Sign in"
+    : "New here? Create an account";
+};
+form("auth-form", async (data) => {
+  const credentials = { email: value(data, "email"), password: String(data.get("password") ?? "") };
+  if (register) await client.auth.register(credentials);
+  const result = await client.auth.login(credentials);
+  if ("mfaRequired" in result)
+    throw new Error(
+      "This starter does not enable MFA. Complete your configured MFA flow before continuing.",
+    );
+  await signedIn();
+});
+element("logout").onclick = () =>
+  run(async () => {
+    await client.auth.logout();
+    location.reload();
+  });
+form("workspace-form", async (data) => {
+  const { organization } = await client.auth.organizations.create({ name: value(data, "name") });
+  element<HTMLFormElement>("workspace-form").reset();
+  await loadWorkspaces(String(organization.id));
+  notice("Workspace created. You're ready to collaborate.");
+});
+form("join-form", async (data) => {
+  const { organization } = await client.auth.organizations.acceptInvite(value(data, "token"));
+  element<HTMLFormElement>("join-form").reset();
+  await loadWorkspaces(String(organization.id));
+  notice("You've joined the workspace.");
+});
+form("invite-form", async (data) => {
+  const org = selectedOrg;
+  const { invite } = await client.auth.organizations.invite(org, {
+    email: value(data, "email"),
+    role: value(data, "role"),
+  });
+  if (org !== selectedOrg) return;
+  element<HTMLInputElement>("invite-token").value = String(invite.token);
+  element("invite-result").hidden = false;
+  notice("Invitation created. Share the token with your teammate.");
+});
+element("copy-invite").onclick = () =>
+  run(async () => {
+    await navigator.clipboard.writeText(element<HTMLInputElement>("invite-token").value);
+    notice("Invitation copied.");
+  });
+element<HTMLSelectElement>("workspace-select").onchange = (event) => {
+  selectedOrg = (event.target as HTMLSelectElement).value;
+  run(refresh);
+};
+element("refresh").onclick = () => run(() => loadWorkspaces());
+form("request-form", async (data) => {
+  await client.api.requests.create({
+    orgId: selectedOrg,
+    title: value(data, "title"),
+    description: value(data, "description"),
+  });
+  element<HTMLFormElement>("request-form").reset();
+  await refresh();
+  notice("Request created.");
+});
+element("close-detail").onclick = () => {
+  selected = undefined;
+  element("request-detail").hidden = true;
+};
+element("approve-request").onclick = () =>
+  run(async () => {
+    const record = selected;
+    if (!record) return;
+    const current = revision;
+    await request(`/api/workspace/requests/${encodeURIComponent(record.id)}/approve`, "POST");
+    if (current !== revision) return;
+    await refresh();
+    notice("Request approved.");
+  });
+form("upload-form", async (data) => {
+  const record = selected;
+  const file = data.get("file");
+  if (!record || !(file instanceof File)) return;
+  const current = revision;
+  await client.files.upload("requests", record.id, file);
+  if (current !== revision || selected?.id !== record.id) return;
+  element<HTMLFormElement>("upload-form").reset();
+  await showRequest(record);
+  notice("Attachment uploaded.");
+});
+void signedIn().catch((error: unknown) => {
+  if (!(error instanceof BunBaseClientError && error.status === 401))
+    notice(error instanceof Error ? error.message : "Could not load workspace.", true);
+});

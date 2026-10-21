@@ -142,19 +142,12 @@ export class MysqlAdapter implements DatabaseAdapter {
     `);
 
     // Migration: add columns to _sessions if missing
-    const sessionCols = [
-      "ALTER TABLE `_sessions` ADD COLUMN `mfa_verified` INTEGER",
-      "ALTER TABLE `_sessions` ADD COLUMN `user_agent` TEXT",
-      "ALTER TABLE `_sessions` ADD COLUMN `ip_address` TEXT",
-      "ALTER TABLE `_sessions` ADD COLUMN `is_guest` INTEGER DEFAULT 0",
-    ];
-    for (const stmt of sessionCols) {
-      try {
-        await this.sql.unsafe(stmt);
-      } catch {
-        // Column already exists
-      }
-    }
+    await this.addMissingColumns("_sessions", [
+      ["mfa_verified", "INTEGER"],
+      ["user_agent", "TEXT"],
+      ["ip_address", "TEXT"],
+      ["is_guest", "INTEGER DEFAULT 0"],
+    ]);
 
     await this.sql.unsafe(`
       CREATE TABLE IF NOT EXISTS \`_mfa_totp\` (
@@ -170,11 +163,7 @@ export class MysqlAdapter implements DatabaseAdapter {
     `);
 
     // Migration: add last_used_step to _mfa_totp if missing (TOTP replay guard)
-    try {
-      await this.sql.unsafe("ALTER TABLE `_mfa_totp` ADD COLUMN `last_used_step` BIGINT");
-    } catch {
-      // Column already exists
-    }
+    await this.addMissingColumns("_mfa_totp", [["last_used_step", "BIGINT"]]);
 
     await this.sql.unsafe(`
       CREATE TABLE IF NOT EXISTS \`_mfa_backup_codes\` (
@@ -287,7 +276,15 @@ export class MysqlAdapter implements DatabaseAdapter {
       "CREATE INDEX idx_org_invites_org ON `_organization_invites`(`org_id`(191))",
       "CREATE INDEX idx_jwt_revocations_expires ON `_jwt_revocations`(`expires_at`)",
     ];
+    const indexRows = await this.sql.unsafe(
+      "SELECT DISTINCT index_name AS name FROM information_schema.statistics WHERE table_schema = DATABASE()",
+    );
+    const existingIndexes = new Set(
+      Array.from(indexRows, (row: any) => String(row.name ?? row.NAME)),
+    );
     for (const stmt of idxStmts) {
+      const name = /INDEX (\w+) ON/.exec(stmt)?.[1];
+      if (name && existingIndexes.has(name)) continue;
       try {
         await this.sql.unsafe(stmt);
       } catch {
@@ -298,6 +295,22 @@ export class MysqlAdapter implements DatabaseAdapter {
 
   quoteIdentifier(name: string): string {
     return `\`${name}\``;
+  }
+
+  /**
+   * Add only the columns the table lacks, read from the catalog first: ALTER
+   * takes a metadata lock even when it then fails on a duplicate column.
+   */
+  private async addMissingColumns(table: string, columns: [string, string][]): Promise<void> {
+    const rows = await this.sql.unsafe(
+      "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ?",
+      [table],
+    );
+    const existing = new Set(Array.from(rows, (row: any) => String(row.name ?? row.NAME)));
+    for (const [column, type] of columns) {
+      if (existing.has(column)) continue;
+      await this.sql.unsafe(`ALTER TABLE \`${table}\` ADD COLUMN \`${column}\` ${type}`);
+    }
   }
 
   async rawQuery<T = Record<string, unknown>>(

@@ -64,7 +64,7 @@ export function createStorageDriver(config: ResolvedConfig): StorageDriver {
 
 /** Create authenticated file upload, download, and delete routes. */
 export function createFileRoutes(deps: FileRouteDeps) {
-  const { db, adapter, internalSchema, config, schema, rules, usersTable } = deps;
+  const { db, internalSchema, config, schema, rules, usersTable } = deps;
   const storage = createStorageDriver(config);
   const files = internalSchema.files;
   const collectionTables = new Map<string, any>();
@@ -162,8 +162,25 @@ export function createFileRoutes(deps: FileRouteDeps) {
         }
 
         const { headers, query } = extractHeadersAndQuery(req);
+        const table = collectionTables.get(collection);
+        const idColumn = getColumns(table).id as Column | undefined;
+        if (!idColumn) return jsonError("NOT_FOUND", "Collection not found", 404);
+        let record: Record<string, unknown> | undefined;
+        try {
+          const records = await (db as any)
+            .select()
+            .from(table)
+            .where(eq(idColumn, recordId))
+            .limit(1);
+          record = records[0];
+        } catch {
+          return jsonError("NOT_FOUND", "Collection not found", 404);
+        }
+        if (!record) return jsonError("NOT_FOUND", "Record not found", 404);
         const createRuleResult = await evaluateRule(rules?.[collection]?.create, {
           auth: user,
+          id: recordId,
+          record,
           body: {},
           headers,
           query,
@@ -174,18 +191,13 @@ export function createFileRoutes(deps: FileRouteDeps) {
           return jsonError("FORBIDDEN", "Access denied", 403);
         }
 
-        // Check the record exists via adapter (dynamic table name)
-        try {
-          const row = await adapter.rawQueryOne<{ id: string }>(
-            `SELECT id FROM "${collection}" WHERE id = $id`,
-            { $id: recordId },
-          );
-
-          if (!row) {
-            return jsonError("NOT_FOUND", "Record not found", 404);
-          }
-        } catch {
-          return jsonError("NOT_FOUND", "Collection not found", 404);
+        if (createRuleResult.whereClause) {
+          const allowed = await (db as any)
+            .select({ id: idColumn })
+            .from(table)
+            .where(and(eq(idColumn, recordId), createRuleResult.whereClause))
+            .limit(1);
+          if (!allowed.length) return jsonError("FORBIDDEN", "Access denied", 403);
         }
 
         // Reject oversized uploads up front via Content-Length, before buffering

@@ -5,7 +5,7 @@
     "examples/*"
   ],
   "scripts": {
-    "check": "biome check .",
+    "check": "biome check . && bun run scripts/check-templates.ts",
     "format": "biome format .",
     "lint": "biome lint .",
     "dev": "bun run build:admin && bun run --cwd examples/task-manager dev",
@@ -25,10 +25,12 @@
     "build:admin": "bun run --cwd packages/bunbase build:admin",
     "docs:check": "bun run --cwd docs check",
     "smoke": "bun run scripts/smoke-scaffold.ts",
-    "verify": "bun run check && bun run type && bun run build && bun run test && bun run docs:check && bun run docs:build && bun run smoke && bun run smoke:production",
+    "verify": "bun run check && bun run type && bun run build && bun run test && bun run docs:check && bun run docs:build && bun run smoke && bun run smoke:production && bun run smoke:workspace",
     "test:databases": "bun run --cwd packages/bunbase test:databases",
     "preview:example": "bun run build:admin && bun run --cwd examples/task-manager ../../scripts/preview-example.ts",
-    "smoke:production": "bun run scripts/smoke-production.ts"
+    "smoke:production": "bun run scripts/smoke-production.ts",
+    "smoke:workspace": "bun run scripts/smoke-workspace.ts",
+    "smoke:container": "bun run scripts/smoke-container.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.13",

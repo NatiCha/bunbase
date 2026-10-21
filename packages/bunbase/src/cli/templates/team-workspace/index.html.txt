@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Team workspace · BunBase</title><link rel="stylesheet" href="./style.css"></head>
+<body>
+  <div id="notice" role="status" aria-live="polite" hidden></div>
+  <section id="auth-screen" class="auth-shell">
+    <div class="intro"><div class="brand"><span class="mark">b.</span> BUNBASE WORKSPACE</div><p class="eyebrow">A shared place to get things done</p><h1>Good work<br>starts together.</h1><p>Bring your team, requests, and decisions into one clear workspace.</p><div class="intro-foot">Your team. Your data. Your workspace.</div></div>
+    <div class="auth-card"><p class="eyebrow">WELCOME</p><h2 id="auth-title">Sign in to your workspace</h2><p class="muted">Pick up where your team left off.</p><form id="auth-form"><label>Email<input name="email" type="email" autocomplete="email" required></label><label>Password<input name="password" type="password" autocomplete="current-password" minlength="8" required></label><button class="primary" type="submit" id="auth-submit">Sign in</button></form><button id="auth-toggle" class="text-button">New here? Create an account</button></div>
+  </section>
+  <div id="workspace-screen" hidden>
+    <header><a class="brand" href="/"><span class="mark">b.</span> WORKSPACE</a><div class="account"><span id="account-email"></span><button id="logout" class="quiet">Sign out</button></div></header>
+    <div class="workspace-layout">
+      <aside><p class="eyebrow">YOUR TEAM</p><label>Current workspace<select id="workspace-select" aria-label="Current workspace"></select></label><p id="workspace-role" class="muted"></p><div class="nav-item">Requests <span id="nav-count">0</span></div>
+        <details><summary>Create a workspace</summary><form id="workspace-form"><label>Workspace name<input name="name" required maxlength="80" placeholder="e.g. Acme Studio"></label><button class="primary" type="submit">Create workspace</button></form></details>
+        <details><summary>Join a workspace</summary><form id="join-form"><label>Invitation token<input name="token" required autocomplete="off" placeholder="Paste your invitation token"></label><button class="primary" type="submit">Accept invitation</button></form></details>
+        <details id="invite-panel" hidden><summary>Invite a teammate</summary><form id="invite-form"><label>Teammate email<input name="email" type="email" required></label><label>Role<select name="role"><option value="member">Member</option><option value="admin">Administrator</option></select></label><button class="primary" type="submit">Create invitation</button></form><div id="invite-result" hidden><p class="muted">Share this token with your teammate. They must sign in with the invited email and choose Join a workspace.</p><label>Invitation token<input id="invite-token" readonly></label><button id="copy-invite" class="quiet">Copy token</button></div></details>
+        <div class="aside-footer">Built with BunBase<br><span>A place for your next idea.</span></div>
+      </aside>
+      <main><div class="page-heading"><div><p class="eyebrow">TEAM OPERATIONS</p><h1>Requests</h1><p class="muted">Keep work moving, from first request to final approval.</p></div><button id="refresh" class="quiet">Refresh</button></div>
+        <div class="metrics"><div><span>All requests</span><strong id="total-count">0</strong></div><div><span>Awaiting approval</span><strong id="open-count">0</strong></div><div><span>Approved</span><strong id="approved-count">0</strong></div></div>
+        <div id="no-workspace" class="empty"><h2>A fresh start for your team</h2><p>Create a workspace or accept an invitation to begin.</p></div>
+        <div id="request-area" hidden><section class="panel"><div class="section-heading"><h2>New request</h2><span class="muted">Visible to your workspace</span></div><form id="request-form"><label>Title<input name="title" required maxlength="160" placeholder="What needs to happen?"></label><label>Details<textarea name="description" rows="3" maxlength="5000" placeholder="Give your team a little context"></textarea></label><button class="primary" type="submit">Create request</button></form></section>
+          <section class="panel"><div class="section-heading"><h2>Recent requests</h2><span class="muted">Newest first</span></div><div id="request-list"></div></section>
+          <section id="request-detail" class="panel" hidden><div class="section-heading"><h2 id="detail-title"></h2><button id="close-detail" class="quiet">Close</button></div><p id="detail-description" class="description"></p><p id="detail-status" class="muted"></p><button id="approve-request" class="primary" hidden>Approve request</button><h3>Attachments</h3><ul id="file-list"></ul><form id="upload-form"><label>Add an attachment<input name="file" type="file" required></label><button class="quiet" type="submit">Upload attachment</button></form></section>
+        </div>
+      </main>
+    </div>
+  </div>
+  <script type="module" src="./app.ts"></script>
+</body>
+</html>

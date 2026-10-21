@@ -47,6 +47,12 @@ export type {
 } from "./core/config.ts";
 export { defineConfig } from "./core/config.ts";
 export type { AnyColumn, AnyDb, AnyTable, Dialect } from "./core/db-types.ts";
+export type {
+  DiagnosticCheck,
+  DiagnosticsReport,
+  ReadinessOptions,
+  ReadinessReport,
+} from "./core/diagnostics.ts";
 export type { FieldPolicy, FieldPolicyFor, FieldPolicyMap } from "./core/field-policy.ts";
 export { defineFields } from "./core/field-policy.ts";
 export type {

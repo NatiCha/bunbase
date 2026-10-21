@@ -45,6 +45,21 @@ bun dev
 
 `bunbase init` walks you through an interactive setup (schema, auth, OAuth providers) and scaffolds a ready-to-run project. Pass `-y` to accept all defaults non-interactively.
 
+## Team workspace and production operations
+
+```sh
+bunx @naticha/bunbase init my-workspace --template team-workspace -y
+```
+
+Get a responsive team app with organizations, invitations, private attachments,
+request approvals, tenant-isolation tests, and Docker/Caddy deployment files.
+See the bundled `docs/team-workspace.md` and `docs/operations.md` guides.
+
+Every server exposes `/ready` for startup/database readiness. `bunbase doctor`
+checks a running server using a service key. The offline SQLite `backup`,
+`backup verify`, and `restore` commands verify data, local files, and migrations;
+restore always uses a new directory. Stop all writers before backup.
+
 ## Installation (existing project)
 
 ```sh

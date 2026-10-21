@@ -40,7 +40,11 @@ curl -X POST 'http://localhost:3000/files/posts/post-id-123' \
 - File size must not exceed `storage.maxFileSize` (default 10 MB)
 - If `storage.allowedMimeTypes` is configured, the file's MIME type must be in the list
 
-**Access control:** Uses the collection's `create` rule.
+**Access control:** Uses the collection's `create` rule with the parent `id` and
+`record`, and an empty `body`. Any returned SQL predicate must match that parent
+before bytes or metadata are written. Rules can distinguish uploads from ordinary
+record creation using the supplied parent `id`. Missing or denied parents reject
+uploads; see the [team-workspace starter](/team-workspace/) for organization rules.
 
 **Errors:**
 - `400` — no file, file too large, or MIME type not allowed

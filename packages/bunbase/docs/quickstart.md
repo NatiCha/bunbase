@@ -29,6 +29,13 @@ my-app/
 └── tsconfig.json
 ```
 
+For a complete business application with a frontend, workspaces, invitations,
+private attachments, and approvals, use `--template team-workspace -y`. See the
+[team-workspace guide](/team-workspace/).
+
+Both CLI entry points accept `--template`, `--database`, `--skip-install`, and
+`--no-start` for scripted setup.
+
 ## Start the server
 
 ```bash

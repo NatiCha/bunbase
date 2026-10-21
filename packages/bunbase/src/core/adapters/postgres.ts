@@ -50,6 +50,54 @@ export async function ensureDatabaseExists(connectionUrl: string): Promise<void>
   }
 }
 
+/** Columns added to internal tables after their first release: [table, column, type]. */
+const POSTGRES_COLUMN_ADDS: [string, string, string][] = [
+  ["_sessions", "mfa_verified", "INTEGER"],
+  ["_sessions", "user_agent", "TEXT"],
+  ["_sessions", "ip_address", "TEXT"],
+  ["_sessions", "is_guest", "INTEGER DEFAULT 0"],
+  ["_mfa_totp", "last_used_step", "BIGINT"],
+];
+
+/** Internal-table indexes: [name, definition after CREATE]. */
+const POSTGRES_INDEXES: [string, string][] = [
+  ["idx_sessions_user_id", "INDEX idx_sessions_user_id ON _sessions(user_id)"],
+  ["idx_sessions_expires_at", "INDEX idx_sessions_expires_at ON _sessions(expires_at)"],
+  [
+    "idx_files_collection_record",
+    "INDEX idx_files_collection_record ON _files(collection, record_id)",
+  ],
+  [
+    "idx_verification_tokens_user",
+    "INDEX idx_verification_tokens_user ON _verification_tokens(user_id)",
+  ],
+  ["idx_oauth_accounts_user", "INDEX idx_oauth_accounts_user ON _oauth_accounts(user_id)"],
+  [
+    "idx_oauth_accounts_provider",
+    "UNIQUE INDEX idx_oauth_accounts_provider ON _oauth_accounts(provider, provider_account_id)",
+  ],
+  ["idx_request_logs_timestamp", "INDEX idx_request_logs_timestamp ON _request_logs(timestamp)"],
+  ["idx_api_keys_user_id", "INDEX idx_api_keys_user_id ON _api_keys(user_id)"],
+  ["idx_api_keys_hash", "UNIQUE INDEX idx_api_keys_hash ON _api_keys(key_hash)"],
+  ["idx_mfa_backup_codes_user", "INDEX idx_mfa_backup_codes_user ON _mfa_backup_codes(user_id)"],
+  [
+    "idx_passkey_credentials_user",
+    "INDEX idx_passkey_credentials_user ON _passkey_credentials(user_id)",
+  ],
+  ["idx_invites_token_hash", "INDEX idx_invites_token_hash ON _invites(token_hash)"],
+  [
+    "idx_org_members_unique",
+    "UNIQUE INDEX idx_org_members_unique ON _organization_members(org_id, user_id)",
+  ],
+  ["idx_org_members_user", "INDEX idx_org_members_user ON _organization_members(user_id)"],
+  ["idx_org_members_org", "INDEX idx_org_members_org ON _organization_members(org_id)"],
+  ["idx_org_invites_org", "INDEX idx_org_invites_org ON _organization_invites(org_id)"],
+  [
+    "idx_jwt_revocations_expires",
+    "INDEX idx_jwt_revocations_expires ON _jwt_revocations(expires_at)",
+  ],
+];
+
 export class PostgresAdapter implements DatabaseAdapter {
   readonly dialect = "postgres" as const;
   // Shared SQL client — owned by this adapter for lifecycle (close()).
@@ -68,232 +116,203 @@ export class PostgresAdapter implements DatabaseAdapter {
     // its first query. `new SQL(...)` in Bun is lazy — no connection until
     // first query — so we're safe to do this here.
     await ensureDatabaseExists(this.connectionUrl);
-    await this.sql`
-      CREATE TABLE IF NOT EXISTS _sessions (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        expires_at BIGINT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
-      )
-    `;
 
-    await this.sql`
-      CREATE TABLE IF NOT EXISTS _files (
-        id TEXT PRIMARY KEY,
-        collection TEXT NOT NULL,
-        record_id TEXT NOT NULL,
-        filename TEXT NOT NULL,
-        mime_type TEXT NOT NULL,
-        size INTEGER NOT NULL,
-        storage_path TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
-      )
-    `;
+    // All DDL runs in one transaction with a short lock wait. On an up-to-date
+    // database nothing below takes a table lock: CREATE TABLE IF NOT EXISTS
+    // only reads the catalog, and the ALTERs and indexes are skipped when the
+    // catalog says they exist. ALTER and CREATE INDEX lock the table *before*
+    // checking, so running them blindly made every start queue behind any lock
+    // holder (e.g. pg_dump) and stall all traffic on _sessions.
+    await this.sql.begin(async (tx: any) => {
+      await tx`SET LOCAL lock_timeout = '5s'`;
+      await tx`
+        CREATE TABLE IF NOT EXISTS _sessions (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          expires_at BIGINT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
+        )
+      `;
 
-    await this.sql`
-      CREATE TABLE IF NOT EXISTS _verification_tokens (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        token_hash TEXT NOT NULL,
-        type TEXT NOT NULL,
-        expires_at BIGINT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
-      )
-    `;
+      await tx`
+        CREATE TABLE IF NOT EXISTS _files (
+          id TEXT PRIMARY KEY,
+          collection TEXT NOT NULL,
+          record_id TEXT NOT NULL,
+          filename TEXT NOT NULL,
+          mime_type TEXT NOT NULL,
+          size INTEGER NOT NULL,
+          storage_path TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
+        )
+      `;
 
-    await this.sql`
-      CREATE TABLE IF NOT EXISTS _oauth_accounts (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        provider TEXT NOT NULL,
-        provider_account_id TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
-      )
-    `;
+      await tx`
+        CREATE TABLE IF NOT EXISTS _verification_tokens (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          token_hash TEXT NOT NULL,
+          type TEXT NOT NULL,
+          expires_at BIGINT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
+        )
+      `;
 
-    await this.sql`
-      CREATE TABLE IF NOT EXISTS _request_logs (
-        id TEXT PRIMARY KEY,
-        method TEXT NOT NULL,
-        path TEXT NOT NULL,
-        status INTEGER NOT NULL,
-        duration_ms INTEGER NOT NULL,
-        user_id TEXT,
-        timestamp TEXT NOT NULL
-      )
-    `;
+      await tx`
+        CREATE TABLE IF NOT EXISTS _oauth_accounts (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          provider_account_id TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
+        )
+      `;
 
-    await this.sql`
-      CREATE TABLE IF NOT EXISTS _api_keys (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        key_hash TEXT NOT NULL,
-        key_prefix TEXT NOT NULL,
-        name TEXT NOT NULL,
-        expires_at BIGINT,
-        last_used_at TEXT,
-        created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
-      )
-    `;
+      await tx`
+        CREATE TABLE IF NOT EXISTS _request_logs (
+          id TEXT PRIMARY KEY,
+          method TEXT NOT NULL,
+          path TEXT NOT NULL,
+          status INTEGER NOT NULL,
+          duration_ms INTEGER NOT NULL,
+          user_id TEXT,
+          timestamp TEXT NOT NULL
+        )
+      `;
 
-    // Migration: add columns to _sessions if missing
-    await this.sql`
-      DO $$ BEGIN
-        ALTER TABLE _sessions ADD COLUMN mfa_verified INTEGER;
-      EXCEPTION WHEN duplicate_column THEN NULL;
-      END $$
-    `;
-    await this.sql`
-      DO $$ BEGIN
-        ALTER TABLE _sessions ADD COLUMN user_agent TEXT;
-      EXCEPTION WHEN duplicate_column THEN NULL;
-      END $$
-    `;
-    await this.sql`
-      DO $$ BEGIN
-        ALTER TABLE _sessions ADD COLUMN ip_address TEXT;
-      EXCEPTION WHEN duplicate_column THEN NULL;
-      END $$
-    `;
-    await this.sql`
-      DO $$ BEGIN
-        ALTER TABLE _sessions ADD COLUMN is_guest INTEGER DEFAULT 0;
-      EXCEPTION WHEN duplicate_column THEN NULL;
-      END $$
-    `;
+      await tx`
+        CREATE TABLE IF NOT EXISTS _api_keys (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          key_hash TEXT NOT NULL,
+          key_prefix TEXT NOT NULL,
+          name TEXT NOT NULL,
+          expires_at BIGINT,
+          last_used_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
+        )
+      `;
 
-    await this.sql`
-      CREATE TABLE IF NOT EXISTS _mfa_totp (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL UNIQUE,
-        encrypted_secret TEXT NOT NULL,
-        verified INTEGER NOT NULL DEFAULT 0,
-        last_used_step BIGINT,
-        created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
-      )
-    `;
+      await tx`
+        CREATE TABLE IF NOT EXISTS _mfa_totp (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL UNIQUE,
+          encrypted_secret TEXT NOT NULL,
+          verified INTEGER NOT NULL DEFAULT 0,
+          last_used_step BIGINT,
+          created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
+        )
+      `;
 
-    // Migration: add last_used_step to _mfa_totp if missing (TOTP replay guard)
-    await this.sql`
-      DO $$ BEGIN
-        ALTER TABLE _mfa_totp ADD COLUMN last_used_step BIGINT;
-      EXCEPTION WHEN duplicate_column THEN NULL;
-      END $$
-    `;
+      await tx`
+        CREATE TABLE IF NOT EXISTS _mfa_backup_codes (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          code_hash TEXT NOT NULL,
+          used INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
+        )
+      `;
 
-    await this.sql`
-      CREATE TABLE IF NOT EXISTS _mfa_backup_codes (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        code_hash TEXT NOT NULL,
-        used INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
-      )
-    `;
+      await tx`
+        CREATE TABLE IF NOT EXISTS _passkey_credentials (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          public_key TEXT NOT NULL,
+          counter INTEGER NOT NULL DEFAULT 0,
+          device_type TEXT,
+          backed_up INTEGER NOT NULL DEFAULT 0,
+          transports TEXT,
+          name TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (NOW()::TEXT),
+          last_used_at TEXT
+        )
+      `;
 
-    await this.sql`
-      CREATE TABLE IF NOT EXISTS _passkey_credentials (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        public_key TEXT NOT NULL,
-        counter INTEGER NOT NULL DEFAULT 0,
-        device_type TEXT,
-        backed_up INTEGER NOT NULL DEFAULT 0,
-        transports TEXT,
-        name TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (NOW()::TEXT),
-        last_used_at TEXT
-      )
-    `;
+      await tx`
+        CREATE TABLE IF NOT EXISTS _invites (
+          id TEXT PRIMARY KEY,
+          email TEXT,
+          token_hash TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'user',
+          invited_by TEXT NOT NULL,
+          max_uses INTEGER DEFAULT 1,
+          use_count INTEGER NOT NULL DEFAULT 0,
+          expires_at BIGINT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
+        )
+      `;
 
-    await this.sql`
-      CREATE TABLE IF NOT EXISTS _invites (
-        id TEXT PRIMARY KEY,
-        email TEXT,
-        token_hash TEXT NOT NULL,
-        role TEXT NOT NULL DEFAULT 'user',
-        invited_by TEXT NOT NULL,
-        max_uses INTEGER DEFAULT 1,
-        use_count INTEGER NOT NULL DEFAULT 0,
-        expires_at BIGINT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
-      )
-    `;
+      await tx`
+        CREATE TABLE IF NOT EXISTS _organizations (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          slug TEXT NOT NULL UNIQUE,
+          owner_id TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (NOW()::TEXT),
+          updated_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
+        )
+      `;
 
-    await this.sql`
-      CREATE TABLE IF NOT EXISTS _organizations (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        slug TEXT NOT NULL UNIQUE,
-        owner_id TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (NOW()::TEXT),
-        updated_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
-      )
-    `;
+      await tx`
+        CREATE TABLE IF NOT EXISTS _organization_members (
+          id TEXT PRIMARY KEY,
+          org_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          role TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
+        )
+      `;
 
-    await this.sql`
-      CREATE TABLE IF NOT EXISTS _organization_members (
-        id TEXT PRIMARY KEY,
-        org_id TEXT NOT NULL,
-        user_id TEXT NOT NULL,
-        role TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
-      )
-    `;
+      await tx`
+        CREATE TABLE IF NOT EXISTS _organization_invites (
+          id TEXT PRIMARY KEY,
+          org_id TEXT NOT NULL,
+          email TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'member',
+          token_hash TEXT NOT NULL,
+          invited_by TEXT NOT NULL,
+          expires_at BIGINT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
+        )
+      `;
 
-    await this.sql`
-      CREATE TABLE IF NOT EXISTS _organization_invites (
-        id TEXT PRIMARY KEY,
-        org_id TEXT NOT NULL,
-        email TEXT NOT NULL,
-        role TEXT NOT NULL DEFAULT 'member',
-        token_hash TEXT NOT NULL,
-        invited_by TEXT NOT NULL,
-        expires_at BIGINT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
-      )
-    `;
+      await tx`
+        CREATE TABLE IF NOT EXISTS _jwt_revocations (
+          id TEXT PRIMARY KEY,
+          jti TEXT NOT NULL UNIQUE,
+          expires_at BIGINT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
+        )
+      `;
 
-    await this.sql`
-      CREATE TABLE IF NOT EXISTS _jwt_revocations (
-        id TEXT PRIMARY KEY,
-        jti TEXT NOT NULL UNIQUE,
-        expires_at BIGINT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (NOW()::TEXT)
-      )
-    `;
+      const existingColumns = new Set(
+        Array.from(
+          await tx`
+            SELECT table_name || '.' || column_name AS name
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name IN ('_sessions', '_mfa_totp')
+          `,
+          (row: { name: string }) => row.name,
+        ),
+      );
+      for (const [table, column, type] of POSTGRES_COLUMN_ADDS) {
+        if (existingColumns.has(`${table}.${column}`)) continue;
+        await tx.unsafe(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+      }
 
-    // Indexes
-    await this.sql`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON _sessions(user_id)`;
-    await this.sql`CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON _sessions(expires_at)`;
-    await this
-      .sql`CREATE INDEX IF NOT EXISTS idx_files_collection_record ON _files(collection, record_id)`;
-    await this
-      .sql`CREATE INDEX IF NOT EXISTS idx_verification_tokens_user ON _verification_tokens(user_id)`;
-    await this.sql`CREATE INDEX IF NOT EXISTS idx_oauth_accounts_user ON _oauth_accounts(user_id)`;
-    await this
-      .sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_accounts_provider ON _oauth_accounts(provider, provider_account_id)`;
-    await this
-      .sql`CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON _request_logs(timestamp)`;
-    await this.sql`CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON _api_keys(user_id)`;
-    await this.sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_hash ON _api_keys(key_hash)`;
-
-    // MFA indexes
-    await this
-      .sql`CREATE INDEX IF NOT EXISTS idx_mfa_backup_codes_user ON _mfa_backup_codes(user_id)`;
-    await this
-      .sql`CREATE INDEX IF NOT EXISTS idx_passkey_credentials_user ON _passkey_credentials(user_id)`;
-
-    // Invite, org, JWT indexes
-    await this.sql`CREATE INDEX IF NOT EXISTS idx_invites_token_hash ON _invites(token_hash)`;
-    await this
-      .sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_org_members_unique ON _organization_members(org_id, user_id)`;
-    await this
-      .sql`CREATE INDEX IF NOT EXISTS idx_org_members_user ON _organization_members(user_id)`;
-    await this.sql`CREATE INDEX IF NOT EXISTS idx_org_members_org ON _organization_members(org_id)`;
-    await this.sql`CREATE INDEX IF NOT EXISTS idx_org_invites_org ON _organization_invites(org_id)`;
-    await this
-      .sql`CREATE INDEX IF NOT EXISTS idx_jwt_revocations_expires ON _jwt_revocations(expires_at)`;
+      const existingIndexes = new Set(
+        Array.from(
+          await tx`SELECT indexname FROM pg_indexes WHERE schemaname = current_schema()`,
+          (row: { indexname: string }) => row.indexname,
+        ),
+      );
+      for (const [name, definition] of POSTGRES_INDEXES) {
+        if (existingIndexes.has(name)) continue;
+        await tx.unsafe(`CREATE ${definition}`);
+      }
+    });
   }
 
   async rawQuery<T = Record<string, unknown>>(
